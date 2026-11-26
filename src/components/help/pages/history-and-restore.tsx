@@ -163,7 +163,7 @@ export default function HistoryAndRestoreHelp() {
       <Steps>
         <li>
           In <Open href="/admin/account/data-model">Settings › Data model</Open>, press <strong>{ERASE_COPY.action}</strong> beside the
-          archived field.
+          archived field. History shows it too, on the change that archived the field.
         </li>
         <li>
           The first press counts the people, companies, history entries and Vizzy suggestions that hold it. The count runs in the
@@ -178,6 +178,10 @@ export default function HistoryAndRestoreHelp() {
         &quot;Stays empty&quot;. Until the erase, each person&apos;s own export still includes their value. It can&apos;t be undone.
         History shows &quot;Erased the values of&quot; and the field&apos;s name, and the audit trail keeps who erased it and how many
         values went, never the values.
+      </P>
+      <P>
+        Everyone who sees Data model&apos;s archived list sees when a field&apos;s values are being erased, which is why it has no Bring
+        back until the erase ends, and when they were erased.
       </P>
 
       <H2 id="check">Check it worked</H2>
@@ -198,6 +202,7 @@ export default function HistoryAndRestoreHelp() {
           [ERASE_MESSAGES.legal_hold, "Nothing to do here: the values are kept until the hold ends."],
           [ERASE_MESSAGES.audit_unavailable, "Nothing was erased. Try again in a few minutes."],
           [ERASE_COPY.failed, "Type the field's name and press Try again: it carries on from where it stopped."],
+          [ERASE_COPY.countFailed, "Press Count again. Nothing was erased by the count."],
         ]}
       />
 

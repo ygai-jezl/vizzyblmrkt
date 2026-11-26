@@ -134,6 +134,8 @@ export interface HistoryEntry {
   canExport: boolean;
   /** On a journey's live version: the version a restore put in its draft, who and when. */
   draft: { version: number; by: string; at: string } | null;
+  /** The field keys a field list version archived (Erase values on History), else none. */
+  archivedKeys: string[];
 }
 
 export interface HistoryPage {
@@ -500,7 +502,7 @@ async function describeRows(ctx: TenantContext, rows: Row[], deps: HistoryDeps):
   const drafts = [...journeys.values()].flatMap((j) => (j?.draftRestoredFrom ? [j.draftRestoredFrom] : []));
   const name = await whoNamer(ctx, [...rows.map((r) => r.who), ...drafts.map((d) => whoOfSaver(d.by))], deps);
   return rows.map((row): HistoryEntry => {
-    const base = { kind: row.kind, subject: row.subject, rev: row.rev, at: row.at, by: name(row.who), live: false, draft: null };
+    const base = { kind: row.kind, subject: row.subject, rev: row.rev, at: row.at, by: name(row.who), live: false, draft: null, archivedKeys: [] as string[] };
     if (row.kind === "journeys") {
       const v = row.raw as LifecycleVersion;
       const journey = journeys.get(v.journeyId) ?? null;
@@ -557,6 +559,7 @@ async function describeRows(ctx: TenantContext, rows: Row[], deps: HistoryDeps):
       readOnly,
       canRestore: !readOnly,
       canExport: true,
+      archivedKeys: row.kind === "fields" ? v.items.filter((i) => i.change === "archived").map((i) => i.key) : [],
     };
   });
 }

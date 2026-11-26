@@ -1,19 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, History as HistoryIcon } from "lucide-react";
 import type { HistoryEntry, HistoryKind, HistoryPage } from "@/lib/settings/sources";
+import type { RecordFieldObject } from "@/lib/types/recordField";
+import { loadFieldLists, type StoredFieldList } from "../audience/fieldsApi";
 import { api } from "../connect/api";
 import { Badge, Banner, Button } from "../connect/ui";
-import { dayText, exportHref, HISTORY_COPY, whenText } from "./historyWords";
+import { EraseDialog } from "./EraseDialog";
+import { entryKey, historyEraseTargets, type EraseTarget } from "./eraseNotes";
+import { dayText, ERASE_COPY, exportHref, HISTORY_COPY, whenText } from "./historyWords";
 import { RestorePreview } from "./RestorePreview";
 
 /**
  * Settings › History (SETTINGS_HISTORY_ENABLED): every change to the brand's fields, journeys,
  * product catalogs and shared connections, newest first, filtered by kind. Anyone on the team
- * reads it and exports a version; admins preview a restore and make it. Who did it is a name
- * looked up on the server (a team member's sign in address when they have no name set), never an
- * address kept on an old record.
+ * reads it and exports a version; admins preview a restore and make it, and an owner who can
+ * erase (SETTINGS_ERASE_ENABLED) sees Erase values on the entry that archived a field whose values
+ * can be erased now. Who did it is a name looked up on the server (a team member's sign in address
+ * when they have no name set), never an address kept on an old record.
  */
 
 const pill = (on: boolean) =>
@@ -33,17 +38,24 @@ export function summaryOf(e: Pick<HistoryEntry, "items" | "message" | "restoredF
   return text ? `${text}.` : "";
 }
 
-export function HistoryView({ canRestore, lead }: { canRestore: boolean; lead: string }) {
+export function HistoryView({ canRestore, lead, eraseOwner = false }: { canRestore: boolean; lead: string; eraseOwner?: boolean }) {
   const [kind, setKind] = useState<HistoryKind | null>(null);
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [failed, setFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [open, setOpen] = useState<HistoryEntry | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [lists, setLists] = useState<Record<RecordFieldObject, StoredFieldList> | null>(null);
+  const [erasing, setErasing] = useState<EraseTarget | null>(null);
+  // Each list load is numbered: an answer that arrives after a newer load started (a quick switch of
+  // filter, a reload after a restore) is dropped, so one kind's list never shows under another's.
+  const loads = useRef(0);
 
   const load = useCallback(async () => {
+    const mine = ++loads.current;
     setFailed(false);
     const r = await api<HistoryPage>(`/api/admin/settings-history${kind ? `?kind=${kind}` : ""}`);
+    if (mine !== loads.current) return;
     if (!r.ok) return setFailed(true);
     setPage(r.data);
   }, [kind]);
@@ -53,11 +65,22 @@ export function HistoryView({ canRestore, lead }: { canRestore: boolean; lead: s
     void load();
   }, [load]);
 
+  // An owner who can erase: the fields as they are now, to offer Erase values on the entry that archived one.
+  const loadLists = useCallback(() => {
+    if (!eraseOwner) return;
+    void loadFieldLists().then((r) => setLists(r.ok ? r.data.lists : null));
+  }, [eraseOwner]);
+  useEffect(() => loadLists(), [loadLists]);
+  const eraseTargets = useMemo(() => (page && lists ? historyEraseTargets(page.entries, lists) : new Map<string, EraseTarget[]>()), [page, lists]);
+
   async function older() {
     if (!page?.next || loadingMore) return;
+    const mine = loads.current;
     setLoadingMore(true);
     const r = await api<HistoryPage>(`/api/admin/settings-history?${kind ? `kind=${kind}&` : ""}cursor=${encodeURIComponent(page.next)}`);
     setLoadingMore(false);
+    // The list changed meanwhile (another filter, a reload): this page belongs to the old one.
+    if (mine !== loads.current) return;
     // A page that didn't load leaves the list as it is; the button stays to try again.
     if (!r.ok) return;
     setPage((cur) => (cur ? { ...r.data, entries: [...cur.entries, ...r.data.entries] } : r.data));
@@ -91,7 +114,7 @@ export function HistoryView({ canRestore, lead }: { canRestore: boolean; lead: s
       ) : (
         <ul className="divide-y divide-neutral-100 rounded-md border border-neutral-200 dark:divide-neutral-900 dark:border-neutral-800">
           {page.entries.map((e) => (
-            <li key={`${e.subject}:${e.rev}`} className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
+            <li key={entryKey(e)} className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
               <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="flex flex-wrap items-center gap-2 font-medium">
                   <span>
@@ -113,6 +136,16 @@ export function HistoryView({ canRestore, lead }: { canRestore: boolean; lead: s
                 ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
+                {(eraseTargets.get(entryKey(e)) ?? []).map((t, _i, all) => (
+                  <button
+                    key={t.fieldId}
+                    type="button"
+                    className="inline-flex items-center rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:bg-neutral-950 dark:text-red-400 dark:hover:bg-red-950/40"
+                    onClick={() => setErasing(t)}
+                  >
+                    {all.length > 1 ? ERASE_COPY.actionOf(t.label) : ERASE_COPY.action}
+                  </button>
+                ))}
                 {canRestore && e.canRestore ? (
                   <Button onClick={() => setOpen(e)}>
                     <HistoryIcon size={14} aria-hidden /> Preview restore
@@ -136,6 +169,17 @@ export function HistoryView({ canRestore, lead }: { canRestore: boolean; lead: s
         <Button disabled={loadingMore} onClick={() => void older()}>
           {loadingMore ? "Loading…" : HISTORY_COPY.older}
         </Button>
+      ) : null}
+      {erasing ? (
+        <EraseDialog
+          object={erasing.object}
+          fieldId={erasing.fieldId}
+          onClose={() => setErasing(null)}
+          onChanged={() => {
+            loadLists();
+            void load();
+          }}
+        />
       ) : null}
       {open ? (
         <RestorePreview

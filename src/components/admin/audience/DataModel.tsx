@@ -19,9 +19,9 @@ import {
 } from "@/lib/types/recordField";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { ago, day } from "../people/format";
-import { dayText, ERASE_COPY, HISTORY_LINE } from "../settings/historyWords";
+import { ERASE_COPY, HISTORY_LINE } from "../settings/historyWords";
 import { EraseDialog } from "../settings/EraseDialog";
-import { erasableFrom, erasedSinceArchive, fieldErasable } from "@/lib/settings/eraseDates";
+import { archivedFieldNote, eraseState, offersErase } from "../settings/eraseNotes";
 import { changeFieldList, fieldErrorText, loadFieldHistory, loadFieldLists, VIZZY_READS_HINT, type FieldVersionRow, type StoredFieldList } from "./fieldsApi";
 
 /**
@@ -69,7 +69,8 @@ export function DataModel({
   /**
    * An owner of the organisation with an admin row for the brand, while erasing is on
    * (SETTINGS_ERASE_ENABLED, read live on the server): the archived list says when each field's
-   * values can be erased, and offers Erase values once they can.
+   * values can be erased, and offers Erase values once they can. Everyone sees when a field's
+   * values are being erased or were erased, which is why Bring back is gone or would bring it back empty.
    */
   eraseOwner?: boolean;
 }) {
@@ -197,13 +198,13 @@ export function DataModel({
                   <span>{f.label}</span>
                   <span className={typeTag}>{FIELD_TYPE_LABEL[f.type]}</span>
                   {f.replacedBy ? <span className="text-xs text-neutral-500">replaced by a new {FIELD_TYPE_LABEL[list.items.find((x) => x.key === f.replacedBy)?.type ?? f.type]} field</span> : null}
-                  {eraseOwner && f.archivedAt ? <span className="text-xs text-neutral-500">{eraseNote(f)}</span> : null}
+                  {archivedFieldNote(f, eraseOwner) ? <span className="text-xs text-neutral-500">{archivedFieldNote(f, eraseOwner)}</span> : null}
                   {canEdit && !f.erasingSince ? (
                     <button type="button" disabled={busy} className="text-xs underline underline-offset-2 disabled:opacity-50" onClick={() => void apply({ op: "restore", key: f.key })}>
                       Bring back
                     </button>
                   ) : null}
-                  {eraseOwner && (f.erasingSince || fieldErasable(f, Date.now()).ok) ? (
+                  {eraseOwner && offersErase(f) ? (
                     <button type="button" className="text-xs text-red-600 underline underline-offset-2 dark:text-red-400" onClick={() => setErasing(f.key)}>
                       {ERASE_COPY.action}
                     </button>
@@ -211,7 +212,11 @@ export function DataModel({
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-neutral-500">Hidden and read only. Its values are kept on each {words.each}, and it can be brought back.</p>
+            <p className="text-xs text-neutral-500">
+              {archived.some((f) => eraseState(f))
+                ? ERASE_COPY.keptUnless(words.each)
+                : `Hidden and read only. Its values are kept on each ${words.each}, and it can be brought back.`}
+            </p>
           </section>
         ) : null}
         {erasing ? (
@@ -261,15 +266,6 @@ export function DataModel({
       </aside>
     </div>
   );
-}
-
-/** An archived field's line for an owner who can erase: when it was archived, and when its values can go. */
-function eraseNote(f: RecordField): string {
-  const archived = `archived ${ago(f.archivedAt)}`;
-  if (f.erasingSince) return `${archived}, ${ERASE_COPY.erasing}`;
-  if (erasedSinceArchive(f)) return `${archived}, ${ERASE_COPY.erased(dayText(f.erasedAt!))}`;
-  const from = erasableFrom(f.archivedAt!);
-  return Date.parse(from) > Date.now() ? `${archived}, ${ERASE_COPY.erasableFrom(dayText(from))}` : archived;
 }
 
 function FieldRow({

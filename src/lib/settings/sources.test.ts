@@ -51,7 +51,8 @@ describe("listHistory", () => {
     expect(entries.find((e) => e.kind === "connections")).toMatchObject({ readOnly: "shared", canRestore: false, canExport: true, message: "Gave ‘Google Analytics, fernhill.example’" });
     expect(entries.find((e) => e.kind === "catalogs" && e.rev === 1)).toMatchObject({ message: BEFORE_HISTORY_TEXT, by: "YouGrow" });
     expect(entries.find((e) => e.kind === "catalogs" && e.rev === 3)!.items).toEqual(["Renamed step ‘Run an audit’ to ‘First visit’"]);
-    expect(entries.find((e) => e.subject === "fields:person" && e.rev === 4)).toMatchObject({ message: "Archived ‘Delivery day’", items: ["Archived ‘Delivery day’"] });
+    expect(entries.find((e) => e.subject === "fields:person" && e.rev === 4)).toMatchObject({ message: "Archived ‘Delivery day’", items: ["Archived ‘Delivery day’"], archivedKeys: ["fld_000000000002"] });
+    expect(entries.find((e) => e.subject === "fields:person" && e.rev === 3)!.archivedKeys).toEqual([]);
   });
 
   it("pages with one cursor that holds each source's place, never repeating or skipping", async () => {

@@ -124,9 +124,14 @@ export const ERASE_COPY = {
   blanking: "Blanking it in their history and in Vizzy's suggestions.",
   done: (label: string) => `Erased the values of ‘${label}’.`,
   failed: "The erase stopped part way. Its values are still marked for erasing: type its name and press Try again to carry on from where it stopped.",
+  countFailed: "The count stopped part way. Press Count again to start it over.",
   stopped: "The erase stopped because the field is in use again. Nothing more was erased.",
   countAgain: "Count again",
   tryAgain: "Try again",
+  /** Data model's line under the archived list once a field there says its values were erased or are being erased. */
+  keptUnless: (each: string) => `Hidden and read only. Unless it says otherwise, a field's values are kept on each ${each}, and it can be brought back.`,
+  /** History's button when an entry archived more than one field that can be erased. */
+  actionOf: (label: string) => `Erase values of ‘${label}’`,
 } as const;
 
 /** What an erase route answers, in words. */

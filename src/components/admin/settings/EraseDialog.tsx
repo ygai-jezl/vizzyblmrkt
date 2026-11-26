@@ -67,13 +67,14 @@ export function EraseDialog({ object, fieldId, onClose, onChanged }: { object: R
     [object, fieldId, load],
   );
 
-  // Open: read where it stands, and start a count when none stands and nothing runs. Once.
+  // Open: read where it stands, and start a count when none stands and nothing runs. Once. A count
+  // or an erase that failed is shown first, so the owner knows before pressing again.
   useEffect(() => {
     if (opened.current) return;
     opened.current = true;
     void (async () => {
       const s = await load();
-      if (s && s.allowed && !s.countStands && s.job?.state !== "running" && !(s.job?.mode === "erase" && s.job.state === "failed")) await post({ action: "count" });
+      if (s && s.allowed && !s.countStands && s.job?.state !== "running" && s.job?.state !== "failed") await post({ action: "count" });
     })();
   }, [load, post]);
 
@@ -108,6 +109,19 @@ export function EraseDialog({ object, fieldId, onClose, onChanged }: { object: R
         </div>
       ) : running && job?.mode === "erase" ? (
         <p className="text-sm">{job.phase === "records" ? ERASE_COPY.progress(n(job.counts.records), n(job.counted?.records ?? job.counts.records)) : ERASE_COPY.blanking}</p>
+      ) : status.allowed && job?.mode === "count" && job.state === "failed" ? (
+        <>
+          <Banner tone="info">{ERASE_COPY.countFailed}</Banner>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex-1" />
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button tone="primary" disabled={busy} onClick={() => void post({ action: "count" })}>
+              {ERASE_COPY.countAgain}
+            </Button>
+          </div>
+        </>
       ) : confirm && counts ? (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

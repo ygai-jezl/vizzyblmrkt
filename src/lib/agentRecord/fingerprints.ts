@@ -72,9 +72,37 @@ export function wavePrint(wave: { size: number; subject: string; body: string })
   return fingerprintOf({ size: wave.size, subject: text(wave.subject), body: text(wave.body) });
 }
 
-/** A content plan: each piece's role and body. */
-export function planPrint(plan: { graph?: { nodes?: ReadonlyArray<{ type: string; role?: string; body?: string }> } }): string {
-  return fingerprintOf((plan.graph?.nodes ?? []).map((n) => [n.type, text(n.role), text(n.body)]));
+interface PlanNodeLike {
+  type: string;
+  role?: string;
+  body?: string;
+  subject?: string | null;
+  previewText?: string | null;
+  subjectVariants?: readonly string[];
+  waitConfig?: { amount: number; unit: string } | null;
+  blog?: { metaTitle?: string } | null;
+  ebook?: { title: string; subtitle?: string; chapters?: ReadonlyArray<{ title: string; bodyHtml?: string }> } | null;
+}
+
+/**
+ * A content plan: each piece's role and body, an email's subject, preview and test subjects and a
+ * wait's length, a blog article's title, and an eBook's title and chapters. Never what the server
+ * fills in on its own (checks, live, dates, images).
+ */
+export function planPrint(plan: { graph?: { nodes?: ReadonlyArray<PlanNodeLike> } }): string {
+  return fingerprintOf(
+    (plan.graph?.nodes ?? []).map((n) => {
+      const extra: Record<string, unknown> = {};
+      if (text(n.subject)) extra.subject = text(n.subject);
+      if (text(n.previewText)) extra.preview = text(n.previewText);
+      if (n.subjectVariants?.length) extra.variants = n.subjectVariants.map((v) => text(v));
+      if (n.waitConfig) extra.wait = [n.waitConfig.amount, n.waitConfig.unit];
+      if (text(n.blog?.metaTitle)) extra.title = text(n.blog?.metaTitle);
+      if (n.ebook) extra.ebook = [text(n.ebook.title), text(n.ebook.subtitle), (n.ebook.chapters ?? []).map((c) => [text(c.title), text(c.bodyHtml)])];
+      // A piece with nothing more prints as it did before, so plans saved before match.
+      return Object.keys(extra).length ? [n.type, text(n.role), text(n.body), extra] : [n.type, text(n.role), text(n.body)];
+    }),
+  );
 }
 
 /** An email style as suggested or as saved: the logo, name, colours, header and theme. */

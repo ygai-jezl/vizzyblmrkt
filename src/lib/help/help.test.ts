@@ -712,7 +712,11 @@ describe("the views sections", () => {
     expect(on).toContain("A restore puts back one view at a time");
     expect(on).toContain("are never in History");
     for (const m of [RESTORE_MESSAGES.views_changed, RESTORE_MESSAGES.team_views_full]) expect(on).toContain(m);
+    expect(on).toContain("**Product catalogs**, **Shared connections** or **Team views**");
+    expect(on).toContain("Fields, shared connections and team views come as a settings version");
     const off = history(false);
+    expect(off).toContain("**Product catalogs** or **Shared connections**");
+    expect(off).toContain("Fields and shared connections come as a settings version");
     expect(off).not.toContain("Team views");
     expect(off).not.toContain("team view");
     expect(off).not.toContain(RESTORE_MESSAGES.views_changed);

@@ -50,7 +50,9 @@ export default function HistoryAndRestoreHelp({ views = isViewsEnabled() }: Help
       <P>
         Open <Open href="/admin/account/history">Settings › History</Open>. It shows the brand you are in, newest change first: what
         changed, its version, who made the change and when. Pick <strong>Fields</strong>, <strong>Journeys</strong>,{" "}
-        <strong>Product catalogs</strong>, <strong>Shared connections</strong>
+        <strong>Product catalogs</strong>
+        {views ? ", " : " or "}
+        <strong>Shared connections</strong>
         {views ? (
           <>
             {" "}
@@ -184,7 +186,7 @@ export default function HistoryAndRestoreHelp({ views = isViewsEnabled() }: Help
       <H2 id="export">Export a version</H2>
       <P>
         <strong>Export</strong> downloads one version as a JSON file. A journey&apos;s file is a journey document you can import as a
-        new draft on a product. Fields, shared connections{views ? " and team views" : ""} come as a settings version, and catalogs as a
+        new draft on a product. Fields{views ? ", shared connections and team views" : " and shared connections"} come as a settings version, and catalogs as a
         catalog version. An export holds your settings only, never anyone&apos;s values.
       </P>
       <P>

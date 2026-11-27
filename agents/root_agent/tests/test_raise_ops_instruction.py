@@ -81,3 +81,13 @@ def test_appends_what_the_brand_told_vizzy_when_the_root_has_it_cached():
         assert build_raise_ops_instruction(_ctx({**state, "userId": "usr_2"})) == RAISE_OPS_INSTRUCTION
     finally:
         bpc.cache_clear()
+
+
+def test_decks_stay_in_english_and_history_comes_from_versions():
+    text = " ".join(RAISE_OPS_INSTRUCTION.split())
+    assert "Decks and lender packs are in English for now, whatever language you reply in." in text
+    assert "say decks are in English for now" in text
+    assert "answer from its `versions`" in text and "A deck is always a draft" in text
+    # The brand's language still sets the replies, ahead of the base instruction.
+    out = build_raise_ops_instruction(_ctx({"locale": "fr"}))
+    assert out.endswith(RAISE_OPS_INSTRUCTION)

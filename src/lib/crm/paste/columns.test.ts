@@ -84,9 +84,11 @@ describe("mapColumns", () => {
   });
 
   it("never reads a firm row's person columns into a company field, investor or not", () => {
-    for (const h of ["First Name", "Title", "Job Title", "Role", "Position", "City", "State", "Country", "Location", "Investor City", "Investor's Country", "Investor Title"]) {
+    for (const h of ["First Name", "Title", "Job Title", "Role", "Position", "City", "State", "Country", "Location", "Investor City", "Investor's Country", "Investor Title", "Cities", "Investor Cities", "Countries", "Investor Countries"]) {
       expect(isPersonOnlyHeader(h), h).toBe(true);
     }
+    // A firm's own columns stay readable.
+    for (const h of ["Fund HQ", "Sectors", "Stages", "Company Name"]) expect(isPersonOnlyHeader(h), h).toBe(false);
     const map = mapColumns(["Website", "Title", "Investor City", "First Name"], { person: [], company: COMPANIES });
     // First Name stays the standard column (read only on person rows); the others have no company field.
     expect(map.columns.slice(1)).toEqual([{ kind: "left" }, { kind: "left" }, { kind: "standard", column: "first_name" }]);
@@ -121,6 +123,21 @@ describe("mapColumns", () => {
     const map = mapColumns(["Email", "Stage", "Website", "Stages"], { person: [BOARD], company: [FIRM_STAGES] });
     expect(map.columns[1]).toEqual({ kind: "field", person: BOARD, company: FIRM_STAGES });
     expect(map.columns[3]).toEqual({ kind: "field", person: BOARD, company: FIRM_STAGES });
+  });
+
+  it("keeps a second column of an exact name on that field, never on one a plural s away", () => {
+    const OWN = field("fld_000000ownstg", "Stages", "multi_select", "person", { options: opts("Seed") });
+    const BOARD = field("fld_0000000bstag", "Stage", "status", "person", { options: opts("Research") });
+    for (const person of [[OWN, BOARD], [BOARD, OWN]]) {
+      expect(mapColumns(["Email", "Stage", "Stage"], { person, company: [] }).columns.slice(1)).toEqual([
+        { kind: "field", person: BOARD, company: null },
+        { kind: "field", person: BOARD, company: null },
+      ]);
+      expect(mapColumns(["Email", "Stages", "Stages"], { person, company: [] }).columns.slice(1)).toEqual([
+        { kind: "field", person: OWN, company: null },
+        { kind: "field", person: OWN, company: null },
+      ]);
+    }
   });
 
   it("gives two fields of the same name a column each, exact or a plural s away", () => {

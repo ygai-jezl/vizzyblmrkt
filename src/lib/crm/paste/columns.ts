@@ -138,7 +138,8 @@ export function isProfileHeader(header: string): boolean {
 /** Whether a column is about a person, so firm rows never read it into a field. */
 export function isPersonOnlyHeader(header: string): boolean {
   const key = headerKey(header);
-  return PERSON_ONLY_KEYS.has(key) || PERSON_ONLY_KEYS.has(key.replace(/^investors?/, ""));
+  // "Cities" and "Countries" as well as "City" and "Country".
+  return [key, key.replace(/ie$/, "y")].some((k) => PERSON_ONLY_KEYS.has(k) || PERSON_ONLY_KEYS.has(k.replace(/^investors?/, "")));
 }
 
 /** A header cell that is plainly a value (an address, a link, a phone number): the list has no header row. */

@@ -1514,7 +1514,7 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
     // How a field named by two columns is filled, as columns.ts and rows.ts do it.
     expect(md("paste-a-list", { fields: true })).toContain("A column fills the field of its exact name, or else one a plural s away.");
     expect(md("paste-a-list", { fields: true })).toContain("each row keeps the first cell that fits it, trying the column of its exact name first");
-    expect(md("paste-a-list", { fields: true })).toContain("On a person, Stages also fills a People field named Stage when you have no field called Stages");
+    expect(md("paste-a-list", { fields: true })).toContain("On a person, Stages also fills a People field named Stage when you have no People field called Stages");
     expect(md("paste-a-list", { fields: false })).not.toContain("fills that field");
   });
 

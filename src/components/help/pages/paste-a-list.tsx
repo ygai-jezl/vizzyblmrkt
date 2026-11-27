@@ -123,7 +123,7 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
         From The AI Fundraising Kit: Company Name and Website are kept. First Name and Last Name are kept only on a row where
         you added an email or a phone yourself, and the LinkedIn columns are never kept.
         {fields
-          ? " Title and the investor's city, state and country fill People fields of those names on a person. Stages, Sectors, Fund HQ and the investment counts fill company fields of those names on a company. On a person, Stages also fills a People field named Stage when you have no field called Stages, after your own Stage column if the list has one, and a field with options, such as a board's Stage, keeps only a cell that is one of them."
+          ? " Title and the investor's city, state and country fill People fields of those names on a person. Stages, Sectors, Fund HQ and the investment counts fill company fields of those names on a company. On a person, Stages also fills a People field named Stage when you have no People field called Stages, after your own Stage column if the list has one, and a field with options, such as a board's Stage, keeps only a cell that is one of them."
           : ""}
       </P>
 

@@ -612,6 +612,21 @@ tick. None of it counts against a brand's allowance. Turned off, images go back 
 brand record as it was when the brand's looks were first copied into versions, less any that Forget
 or Reset cleared.
 
+**Upgrading to the learning loops.** `LOOPS_ENABLED` records what made each thing YouGrow makes,
+counts what each brand's team does with it, widens the loops lane on the lifecycle tick to every
+kind, and lets Vizzy read a brand's own counts with `get_learning` (ADR-0029; the how-to is
+`/help/what-yougrow-learned#counts-across-brands`). A new copy has it on; on a copy with Vizzy, run
+`--apply addon:vizzy` again so Vizzy has the new tool. **Loops counts stay inside this copy:** the weekly counts across brands
+(`fleet_cells`) and the lane's bookkeeping (`loop_lane`) are written to your own project's
+`(default)` database as counts of organisations, never images, words or people, and nothing is sent
+to YouGrow or to any other copy. Settings › Loops shows them only to the addresses in
+`LOOPS_OPERATOR_EMAILS`; left empty, no one sees them. A brand leaves them with Help check that
+learning works in Settings › General. If your copy holds other people's brands, say this in your
+privacy policy and DPA before you turn it on ([Your privacy policy, terms and DPA](#your-privacy-policy-terms-and-dpa)).
+On a copy set up before it, deploy the index file first, as for image style versions above, never
+with `--force`: it exempts the counts (`fleet_cells.n`) and each record's stamp
+(`email_sends.made`, `campaign_scheduled_posts.made` and `agent_actions.made`) from indexing.
+
 **Brand search takes over from the old vectors.** The brand map's duplicate checks, What we've seen's
 matching and the competitor article checks find things by meaning in `brand_map_vectors`, embedded
 with `text-embedding-005`, which Google retires on Vertex AI on 1 April 2027. They move onto brand

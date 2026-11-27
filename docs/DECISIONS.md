@@ -4,6 +4,178 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0029 · Everything YouGrow makes carries a stamp, the lane counts every kind, and only the people who run the copy see where learning stalls (learning loops step 5) (2026-11-27)
+
+Context: after step 4 only images recorded what made them. Posts, emails, AI lines, picks and
+Vizzy's drafts kept no record of the version that made them, nothing counted what people did with
+them, and no one could see where learning stalled: the Memory Bank stall of ADR-0021 was found by
+hand. The approved learning loops design makes step 5 the Stamp and Count steps for every kind,
+the loops lane widened to every brand's every kind, and a weekly heartbeat that counts organisations
+across brands for the people who run the copy. The owner approved the plan for steps 4 and 5 (v4) on
+26 Nov with every pick, and answered question 4 yes (counts of organisations below 10 show to the
+people who run the copy only and never set defaults), question 7 yes (the judge fix ships with no
+switch) and accepted question 10 (`fleet_cell` numbers are a gap). ADR-0027 is the verdict and
+ADR-0028 step 4.
+
+Decided:
+
+1. **One platform switch, off: `LOOPS_ENABLED`.** Server only, RUNTIME, `"false"` in
+   `apphosting.yaml`, empty in `.env.example`, read only by `isLoopsEnabled()`
+   (`src/lib/loops/flags.ts`) and kept out of `LOOP_SWITCHES`, since it is no one loop's switch.
+   Off is today exactly (decision 22): for any kind that isn't an image kind `learnedFor` reads
+   nothing and hands back an empty block with `{ unstamped: "loops_off" }`, `countSignal` does
+   nothing, and nothing is counted across brands. Image kinds follow `IMAGE_STYLE_VERSIONS_ENABLED`
+   alone. `LOOPS_OPERATOR_EMAILS` and `LOOPS_SOURCE_REPO` are empty in `.env.example` and named in
+   the `apphosting.yaml` comment; `src/lib/loops/operators.ts` and its test are Work's (#254)
+   byte for byte, so the branches never conflict on it, and steps 4 and 5 call only
+   `isLoopsOperator`. No address is written anywhere.
+2. **Every writer stamps.** The seven writers (content plan nodes, scheduled posts, image assets,
+   email sends, AI line drafts, Next up picks and the canvas save) take a required
+   `made: LoopStamp | { unstamped: UnstampedReason }`, and a create scan fails on any other create of
+   those collections. A node keeps two stamps, `made` and `imageMade`, each set only when its field
+   changes, so an image or a brief never replaces the words' stamp; the graph's replace overlay keeps
+   both, so a Save can't forge or clear them. `GeneratedNodePatch.made` became `madeBy`. Every journey
+   email is stamped `send_time`, with an AI line as its root; each invite reads its wave's stamp. A
+   stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save.
+   The other makers (26 files: the brand map, strategy, competitors, blog, notes, onboarding, trending,
+   the judge, enrichment, the architect, the content plan, journeys and Your next action) count made
+   at their own save with no stamp on their records yet. New unstamped reasons: `nothing_made`,
+   `chat_reply` and `learner`.
+3. **The stamp scan turns on.** `src/lib/agents/groundedMeter.test.ts` fails on any file that calls
+   `aiUsage`, and any POST, PUT or PATCH under `src/app/api/agent` and `src/app/api/v2`, that neither
+   calls `learnedFor` with a literal kind nor sits in `UNSTAMPED` with its reason; kinds worked out
+   in code sit in `UNRESOLVED`, built on `ROUTED_CALLS`.
+4. **Counting.** Made, kept, edited, declined (with Work's `declined.<why>`), undone and reversed
+   count once per saved record id, at the shared paths: publishing (`countDraftOutcome`, kept or
+   edited by words changed), Review's approvals and decisions (the first only), agent actions,
+   field confirms, Next up picks, brand map dismissals, invite waves and version restores. LinkedIn
+   and X posts count at publish and other pieces once, at the first approval of each AI original, so
+   a post never counts twice. Step 2's learn lines count `learned` or `refused.<reason>`, so the
+   Memory Bank shows in the stages. The meter keeps `callsByPurpose` in the same merged write.
+   Batch senders count through a per run `CountBuffer`, written once per brand at the end of the run.
+5. **The lane, widened.** With `LOOPS_ENABLED` the lane runs on its own (the tick route's guard),
+   folds every kind's closed weeks and, once a week is folded, sends each brand's heartbeat: its
+   stage on every kind over 4 closed weeks (Declared, Stamped, Signalled, Learning, Checked; Proven is
+   step 9), where it is stuck (at Stamped or at Signalled, for 28 days or while 10 more are made:
+   `LOOP_RULES.stallDays` and `stallOutputs`), its learners' refusals, its Go back cards, its wait
+   for a check, its unused things, coverage and calls by purpose, by plan and by industry (all
+   `unknown` until onboarding records one). `ls:` keeps the week before the organisation's mark moves,
+   so a rerun never reports it twice. Opted out brands send nothing.
+6. **Counts across brands count organisations.** `fleet_cells` (control plane, counts only under
+   `n`, no brand or organisation ids or hashes) holds `fh:<kind>:<week>`, `fh:_orgs:<week>`,
+   `fh:_types:<week>` and `fh:_calls:<week>`. An organisation counts once in a cell through its one
+   mark in `loop_lane` (`o:<organisationId>`, or `o:t:<tenantId>` for a brand alone), which holds its
+   newest week only; outputs count at most 20 per organisation a cell a week
+   (`LOOP_RULES.orgOutputsCap`). A report for an older week than the mark's is dropped and counted
+   late: a slow brand undercounts, never twice. Only the Loops section, the heartbeat and Work's Used
+   reader import `fleetCells`.
+7. **The floors (question 4, yes).** Numbers of things (made, kept, liked, declined, declines by
+   reason), shares and industry splits show only from 10 contributing organisations
+   (`LOOP_RULES.cellOrgs`). Counts of organisations per stage, stuck per plan, by refusal reason and
+   with a Go back card show below 10, to the people who run the copy only, and never set defaults.
+8. **Settings › Loops, for operators only.** `/admin/account/loops`, the last tab, shown while
+   `LOOPS_ENABLED` is on and `isLoopsOperator(ctx)` is true, and `notFound()` otherwise. It reads the
+   `fh:` rows of the 2 closed weeks in one batched read, with every kind by its label (`kindLabel`)
+   and every refusal in words (`reasonWords`), all in house style. The sidebar doesn't change.
+9. **The judge defers, with no switch (question 7).** In `src/lib/distribute/feedback/patterns.ts`
+   a judge with no answer, or prose with no JSON, adopts nothing, and an unsafe proposal is never
+   adopted, a brand's first included. Each deferral writes a learn line (kind `post_feedback`,
+   reason `error`, code `judge_unavailable` or `judge_unsafe`), and the next post that lands in a
+   promoted cluster tries again.
+10. **Vizzy reads the brand's own learning: `get_learning`.** `GET /api/agent/learning`
+    (`src/lib/loops/agentApi.ts`), behind `LOOPS_ENABLED`, the canvas token and a rate limit of 10 a
+    burst and 120 an hour, with `tools/learning.py` and `learning_client.py` on the root agent. It
+    reads only the brand's own `lb:`, `lt:`, `lw:` and `lv:` by id, in at most 2 batched reads of at
+    most 89 small counter documents, and never `ls:`, `lk:` or `fh:`. By default the last 90 days
+    (7 to 182 on request) and the kinds made or learned in them, learning kinds first; others by key
+    or label (`?kinds=`), or all (`?all=1`). Each kind gives its line and its reason, its stage in
+    words, where it is stuck over the last 4 closed weeks with the learner's top reason, its counts,
+    `keptShare`, `editShare`, `declineShare` and `unusedShare` for written things, and for the image
+    pool each look in use with its version and votes; the look's words stay with `get_image_style`,
+    whose docstring now says what `learned` holds. The `loop_day` type claims those four meanings
+    with `get_learning`, so no meaning is left unserved. Read only, and it needs a Vizzy redeploy
+    (asked first).
+11. **Help and self host.** `/help/what-yougrow-learned#counts-across-brands`, shown while
+    `LOOPS_ENABLED` is on (the How to drawer is passed the switch as `loops`), says what is counted
+    across brands in the words of question 4's yes, that the counts stay inside the copy and how a
+    brand leaves them; the learning setting's How this works opens it. `docs/self-host.md` says
+    "Loops counts stay inside this copy": `fleet_cells` and `loop_lane` are written to the copy's own
+    `(default)` database and sent nowhere else, and a copy that holds other people's brands says so
+    in its privacy policy and DPA first.
+
+Where the build follows the code, not the plan (the plan's intent kept):
+
+- Organisations are never deleted and there is no path to erase a whole brand, so `loop_lane`'s
+  marks are an erase gap, as `brand` is. The fake Firestore has no batch, so `addToFleetCells` sends
+  one merged increment per row, all at once; it still never counts twice.
+- The made exemption is `campaign_scheduled_posts.made`, not `scheduled_posts.made` as ADR-0028's
+  item 14 says. `setPostSpintax` takes no `made`: it saves a person's template.
+- The stamp scan found 53 unread files, not only the agent and v2 handlers, so 26 files were wired
+  to count made. The two upload routes call no model and sit outside the scan. Four agent POSTs
+  aren't read only: the article review, brand notes and business profile POSTs, and the canvas
+  route, which works its kind out in code, are in `UNRESOLVED`.
+- `dropPick` also takes picks a run uses, so it counts kept or declined. An invite wave counts made at
+  its canvas save; its send counts kept or edited (`madeEdited`) and its delete declined. Field
+  confirms skip `transitionAgentAction`, so `recordFieldWrites` counts them. Only dismissals count
+  declined, never expiry, and only research's brand map suggestions count.
+- `fleet_cells` only adds, so the longest wait and the oldest week not yet folded are month and week
+  buckets. Calls are uses, so they aren't capped. Unused skips the image kinds, whose versions say it.
+- The heap test samples the heap and the memory outside it after a collection, since an image's
+  Buffer and base64 sit outside the heap: step 5's peak is 16.9 MiB.
+- The judge's retry needed no new code: a post that lands in a promoted cluster runs the pass again.
+  The plan named no kind for its line, so `post_feedback` joins `LEARN_KINDS`.
+- The `fh:` rows keep only the image pool, so the Loops section has no split by image kind and no
+  organisations per style for the holdback; thumbs down and coverage are for the week, not 28 days;
+  nothing counts the learner backlog, so that row is left out; Go back cards are one count, not
+  open, expired and ignored; and the industry note waits for industry groups.
+- `get_learning` reads a closed week the lane hasn't folded yet from its `lw:` shards, only while its
+  shards are kept, and always reads the 4 closed weeks the stuck rule needs, even when fewer days are
+  asked. It lists kinds with a learner's outcome too, not only those made, and the five image kinds as
+  one entry, `image_style`, with `byKind`, as the Loops section counts them. `looksInUse` moved to
+  `src/lib/loops/stages.ts`, so the agent's reader never loads the heartbeat.
+- The plan listed step 5 as ADR-0023, then 0024: dev took 0022 to 0025, work in progress holds 0026,
+  the verdict moved to 0027 and step 4 to 0028.
+
+Enforced where:
+
+- `src/lib/loops/flags.test.ts`, `operators.test.ts`, `registry.test.ts` and
+  `scripts/config/feature-switches.test.ts`: the switch, the operator gate and the stuck rule's numbers.
+- `src/lib/loops/stampedWriters.test.ts`, `made.test.ts`, `handBack.test.ts`, `writers.test.ts`,
+  `src/lib/tenant/workspaceContent.stamps.test.ts` and the canvas route test: the writers, the overlay
+  and the token round trip; `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
+- `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts` and `learnLog.test.ts`: each
+  count once, coverage and unused.
+- `src/lib/loops/stages.test.ts`, `heartbeat.test.ts`, `fleetView.test.ts`, `tick.test.ts`,
+  `src/lib/tenant/fleetCells.test.ts`, `loopLane.test.ts`, `indexes.test.ts` and `lane.heap.test.ts`
+  (with `--expose-gc`): the stages, the marks, the floors and the lane's memory.
+- `src/lib/distribute/feedback/patterns.judge.test.ts`: the judge defers.
+- `src/lib/loops/reasonWords.test.ts`, `loopsSection.test.ts` and the Loops page test: plain words,
+  the floors on screen, a 404 for anyone else, and who imports `fleetCells`.
+- `src/lib/loops/agentApi.test.ts`, the learning route's test and `agents/root_agent/tests/`
+  (`test_learning_client.py`, `test_tool_declarations.py`): get_learning's 90 days, its order, the
+  ids it reads, its bounds and its words; `src/lib/ontology/registry.test.ts`: every meaning served;
+  `src/lib/help/help.test.ts`: the counts across brands section, on and off.
+
+Not yet: token checks at save cover brand voice, the brand kit extract and notes only; email
+assist, the hero, Edit mode Vizzy, the email layout and block image, Suggest an angle and brand
+colours hand tokens back that their saves don't send yet. Journey, product journey and person plan
+drafts, the email and image style suggestions and brand map records keep no stamp (counted only).
+The learning setting's opt out works only with image style versions on, so with only
+`LOOPS_ENABLED` on a brand can't leave the counts across brands yet. Judge deferrals are logged, not
+counted, and a failed synthesis writes no line. Work's counted measures call `usedAcrossBrands` once
+Work lands. An operator path for agents waits for the company retro (step 6), decline reasons for
+other kinds for the edits loop (step 7), and fleet defaults, industry and Proven for step 9.
+
+What follows: two new collections in the control plane, `fleet_cells` and `loop_lane`'s
+organisation marks; the 4 step 5 field exemptions written in ADR-0028's deploy, deployed only when
+the owner says; one switch, off; and one Vizzy tool, which needs a redeploy (asked first). No new
+service, Function, scheduler job, secret, dependency, rule change or composite index. With the
+switch off, one thing changes for everyone: the post pattern judge defers. The privacy page line
+and the DPA's aggregate statistics clause, checked by counsel, must be live before `LOOPS_ENABLED`
+is on in prod. `docs/ONTOLOGY.md` gains `fleet_cell`, `loop_lane` and `get_learning` for `loop_day`.
+
+---
+
 ## ADR-0028 · Image style learns properly: looks kept as versions in the brand's region, every image stamped, learned once a day and checked (learning loops step 4) (2026-11-26)
 
 Context: before this step a brand's image looks lived on its brand record in the control plane, in

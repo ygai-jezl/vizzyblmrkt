@@ -15,12 +15,7 @@ const ROOT = process.cwd();
  * Meanings no tool returns yet, each with its reason. The list only shrinks: a meaning leaves it
  * once a type claims it with the tool that returns it.
  */
-const NOT_SERVED_YET: Record<string, string> = {
-  editShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  keptShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  declineShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  unusedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-};
+const NOT_SERVED_YET: Record<string, string> = {};
 
 /**
  * Choices in the learning registry that no type's madeBy names, each with its reason. Every other

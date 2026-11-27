@@ -95,6 +95,8 @@ export interface HelpBodyProps {
   settingsHistory?: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), a server switch: the drawer gets it from the admin shell). */
   nextActionCard?: boolean;
+  /** The learning loops count what YouGrow makes, across brands too (isLoopsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  loops?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

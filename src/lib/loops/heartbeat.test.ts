@@ -17,12 +17,12 @@ import {
   heartbeat,
   HEARTBEAT,
   holdsOldLook,
-  looksInUse,
   planKeyOf,
   weeksToReport,
   type WeekReportInput,
 } from "./heartbeat";
 import { LOOP_RULES } from "./registry";
+import { looksInUse } from "./stages";
 
 /** The heartbeat (learning loops step 5, 4.6): each brand's closed week, counted once per organisation through its mark. */
 

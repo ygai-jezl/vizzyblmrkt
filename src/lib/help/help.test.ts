@@ -1344,4 +1344,26 @@ describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
     expect(section(text, "How your votes teach it")).toContain("Vizzy and the model that learns looks read them");
     expect(section(text, "Where it is kept")).toContain("with any note Vizzy read in one");
   });
+
+  it("explains the counts across brands while the learning loops are on, worded for question 4, and Vizzy's read of the brand's own", () => {
+    const page = (loops: boolean) => docToMarkdown(HELP_BODIES["what-yougrow-learned"]!({ loops }), "https://app.example.com");
+    const on = page(true);
+    const counts = section(on, "Counts across brands");
+    expect(counts).toContain("It counts organisations and numbers only, never images, words or people. Only the people who run this copy see these counts.");
+    // Question 4, yes: counts of organisations below 10 show to the people who run the copy, and never set defaults.
+    expect(counts).toContain("Numbers of things made, kept and liked show only from 10 organisations.");
+    expect(counts).toContain("even when fewer than 10, and those counts never set defaults.");
+    expect(counts).not.toContain("Nothing shows for fewer than 10 organisations.");
+    expect(counts).toContain("stay inside this copy of YouGrow");
+    expect(counts).toContain("turn off **Help check that learning works**");
+    expect(section(on, "About 1 image in 20")).toContain("also leaves your brand out of the counts across brands");
+    expect(section(on, "Ask Vizzy")).toContain("own learning counts for the last 90 days");
+    const off = page(false);
+    expect(off).not.toContain("Counts across brands");
+    expect(off).not.toContain("counts across brands");
+    expect(off).not.toContain("learning counts");
+    // The drawer passes the server's switch.
+    expect(drawerBodyProps({ loops: true } as never).loops).toBe(true);
+    expect(drawerBodyProps(null).loops).toBe(false);
+  });
 });

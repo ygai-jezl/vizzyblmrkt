@@ -1,6 +1,6 @@
-import { LOOP_SIGNALS } from "@/lib/types/loopDay";
+import { LOOP_SIGNALS, type BrandPointers } from "@/lib/types/loopDay";
 import { LOOP_ARMS } from "@/lib/types/loopStamp";
-import { LOOP_RULES, LOOPS, type Decision, type LoopKind } from "./registry";
+import { IMAGE_STYLE_SCOPES, LOOP_RULES, LOOPS, type Decision, type LoopKind } from "./registry";
 
 /**
  * How far learning gets for each kind of choice, per brand (learning loops step 5, 4.6 of the
@@ -211,6 +211,27 @@ export interface LookInUse {
   scope: string;
   adoptedAt: string;
   checked: boolean;
+}
+
+/**
+ * The learned looks the brand uses, from its pointers (`lb:`) and those versions' totals (`lv:`
+ * data, by scope): looks that reached an image, a Forget's version and a person's own words left
+ * out. The heartbeat and get_learning read a brand's stage on the image pool with these.
+ */
+export function looksInUse(pointers: BrandPointers, totals: ReadonlyMap<string, unknown>): LookInUse[] {
+  const out: LookInUse[] = [];
+  for (const scope of IMAGE_STYLE_SCOPES) {
+    const p = pointers.scopes[scope];
+    if (!p || p.v < 1 || p.setBy === "person" || pointers.forgot?.[scope]?.at === p.adoptedAt) continue;
+    // Read as counts and keys only, so one read this can't parse never hides the rest.
+    const d = totals.get(scope);
+    const c = isObj(d) && isObj(d.c) ? d.c : {};
+    const reachedImage = Object.values(c).some((byArm) => isObj(byArm) && isObj(byArm.learned) && num(byArm.learned.made) > 0);
+    if (!reachedImage) continue;
+    const checked = isObj(d) && isObj(d.looks) && Object.keys(d.looks).some((look) => look !== "0");
+    out.push({ scope, adoptedAt: p.adoptedAt, checked });
+  }
+  return out;
 }
 
 /** Where a brand is on one row, as of a closed week. */

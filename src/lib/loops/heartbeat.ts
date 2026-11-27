@@ -15,7 +15,7 @@ import { isLoopsEnabled } from "./flags";
 import { lastClosedWeek, weekAfter, weekBefore } from "./fold";
 import { industryOf } from "./industry";
 import { IMAGE_STYLE_SCOPES, LOOP_RULES } from "./registry";
-import { IMAGE_POOL, rowKindOf, rowsOfWeek, rowStage, STAGE_WEEKS, stagesThrough, type LookInUse, type RowWeek } from "./stages";
+import { IMAGE_POOL, looksInUse, rowKindOf, rowsOfWeek, rowStage, STAGE_WEEKS, stagesThrough, type LookInUse, type RowWeek } from "./stages";
 import { tallyByKind, unusedForWeek } from "./tally";
 
 /**
@@ -360,23 +360,6 @@ export function weeksToReport(lastReported: string | undefined, foldedThrough: s
   const weeks: string[] = [];
   for (let w = start; w <= through && weeks.length < HEARTBEAT.WEEKS_PER_VISIT; w = weekAfter(w)) weeks.push(w);
   return weeks;
-}
-
-/** The learned looks the brand uses, from its pointers and those versions' totals: looks that reached an image, a Forget's version and a person's own words left out. */
-export function looksInUse(pointers: BrandPointers, totals: ReadonlyMap<string, unknown>): LookInUse[] {
-  const out: LookInUse[] = [];
-  for (const scope of IMAGE_STYLE_SCOPES) {
-    const p = pointers.scopes[scope];
-    if (!p || p.v < 1 || p.setBy === "person" || pointers.forgot?.[scope]?.at === p.adoptedAt) continue;
-    // Read as counts and keys only, so one read this can't parse never hides the rest.
-    const d = totals.get(scope);
-    const c = isObj(d) && isObj(d.c) ? d.c : {};
-    const reachedImage = Object.values(c).some((byArm) => isObj(byArm) && isObj(byArm.learned) && num(byArm.learned.made) > 0);
-    if (!reachedImage) continue;
-    const checked = isObj(d) && isObj(d.looks) && Object.keys(d.looks).some((look) => look !== "0");
-    out.push({ scope, adoptedAt: p.adoptedAt, checked });
-  }
-  return out;
 }
 
 /** Calls by purpose (every resource's callsByPurpose added up) in a month's meter. */

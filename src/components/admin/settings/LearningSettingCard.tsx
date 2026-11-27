@@ -10,7 +10,8 @@ import { learnedAction } from "@/components/admin/brand-kit/learnedClient";
  * Help check that learning works, on by default. Off, no image of the brand is made without what
  * YouGrow learned, and the brand's own learning carries on. Admins change it; members read it.
  * With `counts` (LOOPS_ENABLED, step 5, worked out on the server) its words say that off also
- * leaves the brand out of the counts across brands. /help/what-yougrow-learned#holdback explains it.
+ * leaves the brand out of the counts across brands. /help/what-yougrow-learned#holdback explains it,
+ * and #counts-across-brands once the counts are on.
  */
 export function LearningSettingCard({ isAdmin, offSince: initial, counts = false }: { isAdmin: boolean; offSince: string | null; counts?: boolean }) {
   const [offSince, setOffSince] = useState<string | null>(initial);
@@ -36,7 +37,7 @@ export function LearningSettingCard({ isAdmin, offSince: initial, counts = false
         <h2 id="learning-h" className="text-sm font-semibold">
           {LEARNING_SETTING.title}
         </h2>
-        <Link href="/help/what-yougrow-learned#holdback" className="text-xs text-neutral-600 underline-offset-2 hover:underline dark:text-neutral-400">
+        <Link href={counts ? "/help/what-yougrow-learned#counts-across-brands" : "/help/what-yougrow-learned#holdback"} className="text-xs text-neutral-600 underline-offset-2 hover:underline dark:text-neutral-400">
           {HOW_THIS_WORKS}
         </Link>
       </div>

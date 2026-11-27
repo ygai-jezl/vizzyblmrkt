@@ -371,6 +371,8 @@ describe("Settings › General, Learning (image style versions)", () => {
       "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts and also stops the 1 in 20 images made without what YouGrow learned.",
     );
     expect(on).not.toContain("Turn off to always use what it learned.");
+    // How this works opens the help page's counts across brands, which shows while the loops are on.
+    expect(on).toContain('href="/help/what-yougrow-learned#counts-across-brands"');
     readBrandPointers.mockResolvedValueOnce({ scopes: {}, fleetOptOut: { at: "2027-06-03T09:00:00.000Z" } });
     expect(await renderPage()).toContain("Off since 3 Jun. This brand's counts stay with this brand.");
   });

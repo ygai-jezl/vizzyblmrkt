@@ -814,15 +814,15 @@ export const MEANINGS = {
     caveat:
       "A view reads at most 5,000 people, the most recently active of the group it starts from (Everyone when it has none): when `capped` is true there are at least this many.",
   },
-  // What people did with what YouGrow made, for the learning loops (ADR-0017). No tool returns
-  // these yet: the loops count them once they stamp what YouGrow makes.
+  // What people did with what YouGrow made, for the learning loops (ADR-0017). get_learning returns
+  // the first four by kind for a brand (step 5); get_image_style the liked and remade shares per look.
   editShare: {
     name: "Edit share",
     definition: "Of the things YouGrow made, the share a person changed before using them.",
     grain: "one kind of thing YouGrow made, in one place, over a period",
     unit: "ratio",
     source: "YouGrow's own counts of what people did with what it made",
-    caveat: "Nothing counts it yet. A small edit and a rewrite count the same.",
+    caveat: "Counted only while the learning loops are on, from when they were turned on. A small edit and a rewrite count the same.",
     better: "lower",
     family: "taste",
   },
@@ -832,7 +832,7 @@ export const MEANINGS = {
     grain: "one kind of thing YouGrow made, in one place, over a period",
     unit: "ratio",
     source: "YouGrow's own counts of what people did with what it made",
-    caveat: "Nothing counts it yet. Kept is not the same as good: something kept unread still counts.",
+    caveat: "Counted only while the learning loops are on, from when they were turned on. Kept is not the same as good: something kept unread still counts.",
     better: "higher",
     family: "taste",
   },
@@ -842,7 +842,7 @@ export const MEANINGS = {
     grain: "one kind of suggestion, in one place, over a period",
     unit: "ratio",
     source: "YouGrow's own counts of decisions in Review and where the suggestion was shown",
-    caveat: "Nothing counts it yet.",
+    caveat: "Counted only while the learning loops are on, from when they were turned on. A suggestion left to expire is not counted as declined.",
     better: "lower",
     family: "taste",
   },
@@ -862,7 +862,7 @@ export const MEANINGS = {
     grain: "one kind of thing YouGrow made, in one place, over a period",
     unit: "ratio",
     source: "YouGrow's own counts of what people did with what it made",
-    caveat: "Nothing counts it yet. Known only 14 days after each thing is made.",
+    caveat: "Counted only while the learning loops are on, from when they were turned on. Known only once 2 weeks have closed after the week a thing was made.",
     better: "lower",
     family: "use",
   },

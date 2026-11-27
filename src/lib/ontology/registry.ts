@@ -1408,7 +1408,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { none: "counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live" },
     export: { none: NOT_PERSONAL },
     search: { none: "counts and pointers, read by the learning loops" },
-    numbers: { gap: "get_image_style returns each image look's made, voted, liked and remade counts (image_asset claims likedShare and remadeShare); the weekly counts themselves wait for get_learning in step 5" },
+    // get_learning reads the brand's own lb:, lt:, lw: and lv: (learning loops step 5); each look's
+    // liked and remade shares are image_asset's, through get_image_style.
+    numbers: { meanings: ["keptShare", "editShare", "declineShare", "unusedShare"], tool: "get_learning" },
   },
   {
     id: "loop_lane",

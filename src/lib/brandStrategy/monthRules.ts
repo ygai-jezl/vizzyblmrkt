@@ -34,6 +34,10 @@ import type { PlanDecision } from "@/lib/types/contentStrategy";
  * most, fewer when they'd pass 12 KB.
  */
 
+/** What the tab calls the rest of the map's row, and a focus situation no longer on the map. */
+export const REST_TEXT = "Rest of your map";
+export const GONE_TEXT = "A buying situation no longer on your map";
+
 const DAY_MS = 86_400_000;
 /** Who a change Vizzy made is logged as (store.ts VIZZY_BY): never counted as what people did. */
 const VIZZY = "vizzy";
@@ -243,6 +247,16 @@ export function arrowFor(month: StrategyMonth, before: StrategyMonth | null | un
   const b = before!.rows.find((r) => r.id === rowId)?.m[key];
   if (typeof a !== "number" || typeof b !== "number") return null;
   return a > b ? "up" : a < b ? "down" : "same";
+}
+
+/** The arrow and by how much, for a row and kind, or null as arrowFor says. Pure. */
+export function moveFor(month: StrategyMonth, before: StrategyMonth | null | undefined, rowId: string, kind: OutcomeKind): { arrow: Arrow; by: number } | null {
+  const arrow = arrowFor(month, before, rowId, kind);
+  if (!arrow) return null;
+  const key = month.sources[kind]!.measure as keyof MonthNumbers;
+  const a = month.rows.find((r) => r.id === rowId)!.m[key]!;
+  const b = before!.rows.find((r) => r.id === rowId)!.m[key]!;
+  return { arrow, by: Math.abs(a - b) };
 }
 
 /** The calendar month before this one, if it was kept: a gap means no comparison. */

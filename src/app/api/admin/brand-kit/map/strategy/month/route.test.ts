@@ -27,6 +27,24 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+describe("GET /api/admin/brand-kit/map/strategy/month", () => {
+  it("503s with its switch off, 401s signed out, and any member reads it", async () => {
+    const get = () => route.GET(req("GET"));
+    const off = await get();
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "strategy_results_disabled" });
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await get()).status).toBe(401);
+    const member = { ...admin, role: "member" };
+    session.getAdminContext.mockResolvedValueOnce(member);
+    const read = await get();
+    expect(read.status).toBe(200);
+    expect(view.monthsFromRequest).toHaveBeenCalledWith(member);
+    expect(view.runMonthFromRequest).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/admin/brand-kit/map/strategy/month", () => {
   it("503s with its switch off, or the strategy off, before anything else", async () => {
     const off = await post();

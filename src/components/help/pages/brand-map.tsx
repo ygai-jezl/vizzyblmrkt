@@ -9,9 +9,15 @@ import { isAutopilotEnabled, isNextUpEnabled, isNextUpRepeatsEnabled } from "@/l
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { isBrandStrategyUiEnabled } from "@/lib/brandStrategy/flags";
-import { STRATEGY_ERRORS } from "@/components/admin/brand-kit/strategyMessages";
+import { HOW_IT_WENT_WORDS, STRATEGY_ERRORS } from "@/components/admin/brand-kit/strategyMessages";
+import { REST_TEXT } from "@/lib/brandStrategy/monthRules";
+import { OUTCOME_WORDS } from "@/lib/metrics/outcomes";
 import { isContentStrategyUiEnabled } from "@/lib/contentStrategy/flags";
 import { NOT_ARTICLES_LABEL, PLAN_ERRORS } from "@/components/admin/brand-kit/contentPlanMessages";
+
+/** How it went's lines for a kind not measured, as the Strategy tab says them. */
+const KEY_ACTIONS_LINE = OUTCOME_WORDS.missing({ kind: "key_actions", state: "not_connected", could: [{ connectorId: "google-analytics", name: "Google Analytics 4", href: "", siteOnly: false }] });
+const SHARE_LINE = OUTCOME_WORDS.missing({ kind: "search", state: "not_shared", connectionId: "", connectorId: "search-console", connector: "Google Search Console", href: "" });
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled(), aiAnswers = isAiAnswersPlanningEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
@@ -264,6 +270,24 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             this tab, where <strong>Propose with Vizzy</strong> keeps your edits. An admin can <strong>Dismiss</strong> the row
             instead: it stays away 30 days, then counts what they published after the day you dismissed it. Approving again
             starts the check over, and Vizzy reads what it saw.
+          </P>
+          <P>
+            Where your copy of YouGrow adds up how the strategy went, <strong>How it went</strong> shows each month from the 2nd
+            of the next, with a month picker: your focus situations beside <strong>{REST_TEXT}</strong>, each with its articles
+            live (and how many went live that month), its questions answered, one column for each kind of result it can measure
+            and their articles that month. Until a full month has passed since you approved, it reads{" "}
+            <strong>{HOW_IT_WENT_WORDS.tooEarly}</strong> An arrow shows how a number moved against the month before, only when
+            both months had the same source, so connecting a tool partway never reads as a jump. Under the table it counts the
+            roadmap entries that were due and how many went live, and what your team changed in the strategy that month.
+          </P>
+          <P>
+            It measures from whatever you&apos;ve connected on <Open href="/admin/account/connections">Settings › Connections</Open>{" "}
+            and shared with your team and Vizzy: Google Search Console for search, Google Analytics for visits and sign-ups,
+            Cloudflare for visits to your whole site (it can&apos;t say which situations bring them), and a tool that tracks how
+            often AI engines cite your pages. One connection counts for each kind, so nothing is counted twice. <strong>{OUTCOME_WORDS.lead}</strong>{" "}
+            says what each missing one would add, such as &quot;{KEY_ACTIONS_LINE}&quot;, or &quot;{SHARE_LINE}&quot; for one
+            that is connected but not shared, each with its link. With nothing connected, it shows your articles and answered
+            questions only. Vizzy reads the latest month and what to connect.
           </P>
           <P>
             What you star, tick, edit or turn down is kept with the strategy, with the 5 strategies approved before it, so

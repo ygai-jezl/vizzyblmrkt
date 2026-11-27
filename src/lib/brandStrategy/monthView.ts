@@ -8,7 +8,7 @@ import type { BrandMapSituation } from "@/lib/types/brandMapRecords";
 import { MONTH_REST_ID, type MonthRow, type StrategyMonth } from "@/lib/types/brandStrategy";
 import type { Tenant } from "@/lib/types/tenant";
 import { lookAtMonth, type MonthDeps } from "./month";
-import { monthBounds, previousMonth, tooEarly } from "./monthRules";
+import { GONE_TEXT, REST_TEXT, monthBounds, previousMonth, tooEarly } from "./monthRules";
 import { readBrandStrategyDoc } from "./store";
 
 /**
@@ -18,8 +18,7 @@ import { readBrandStrategyDoc } from "./store";
  * add up last month again by hand (the dev check), which reads the brand's own connections now.
  */
 
-export const REST_TEXT = "Rest of your map";
-export const GONE_TEXT = "A buying situation no longer on your map";
+export { GONE_TEXT, REST_TEXT };
 
 export type ShownMonth = Omit<StrategyMonth, "rows"> & { rows: Array<MonthRow & { text: string }> };
 

@@ -86,3 +86,38 @@ export const GAP_SKIPPED_NOTE = "The search that fits your business didn't run: 
 export function starsNotUpdatedNote(situations: string[]): string {
   return `Approved, but these stars didn't change on Buying situations: ${situations.map((s) => `"${s}"`).join(", ")}. Star them there by hand.`;
 }
+
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
+
+/**
+ * How it went on the Strategy tab (STRATEGY_RESULTS_ENABLED). The help page quotes these word for
+ * word (src/components/help/pages/brand-map.tsx, #strategy). House style: no dashes as punctuation.
+ */
+export const HOW_IT_WENT_WORDS = {
+  title: "How it went",
+  tooEarly: "Too early to tell.",
+  tooEarlyWhen: (approvedOn: string, lookOn: string) => `Your strategy was approved on ${approvedOn}. Each month is added up on the 2nd of the next, and the first comes by ${lookOn}.`,
+  noStrategy: "Approve your strategy first. How it went adds up each month from then.",
+  noMonthYet: (lookOn: string) => `The first month is added up on ${lookOn}.`,
+  partway: (approvedOn: string) => `Your strategy was approved on ${approvedOn}, partway through this month.`,
+  columns: { situation: "Situation", live: "Articles live", answered: "Answered", theirs: "Their articles" },
+  noQuestions: "no questions yet",
+  answered: (answered: number, questions: number) => `${answered} of ${questions}`,
+  roadmap: (done: number, due: number) => `Roadmap: ${done} of ${due} due went live.`,
+  site: (visits: number, connector: string) => `Visits to your whole site: ${visits.toLocaleString("en-GB")} (${connector}). It counts the whole site, so it can't say which situations bring them.`,
+  more: (labels: string[]) => `${labels.join(" and ")} counted only the top pages the tool lists, so ${labels.length === 1 ? "it" : "they"} may be a little low.`,
+  did(d: { starsKept: number; starsRemoved: number; claimsEdited: number; picksSkipped: number; checksActed: number; checksDismissed: number; capped: boolean }): string {
+    const parts = [
+      d.starsKept ? `kept ${plural(d.starsKept, "star", "stars")}` : "",
+      d.starsRemoved ? `removed ${plural(d.starsRemoved, "star", "stars")}` : "",
+      d.claimsEdited ? `edited ${plural(d.claimsEdited, "claim", "claims")}` : "",
+      d.picksSkipped ? `skipped ${plural(d.picksSkipped, "roadmap pick", "roadmap picks")}` : "",
+      d.checksActed ? `acted on ${plural(d.checksActed, "weekly check", "weekly checks")}` : "",
+      d.checksDismissed ? `dismissed ${plural(d.checksDismissed, "weekly check", "weekly checks")}` : "",
+    ].filter(Boolean);
+    if (!parts.length) return "You: no changes to the strategy this month.";
+    const list = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+    return `You${d.capped ? ", at least" : ""}: ${list}.`;
+  },
+  failed: "How it went didn't load. Try again in a moment.",
+} as const;

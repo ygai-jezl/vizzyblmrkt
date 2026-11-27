@@ -6,6 +6,7 @@ import json
 
 from root_agent_pkg.prompts.system_instruction import ROOT_SYSTEM_INSTRUCTION
 from root_agent_pkg.tools import paste_list_client as plc
+from root_agent_pkg.tools import setup_help_client as shc
 
 # A made-up list: two people at .test and one firm with only its web address.
 ROWS = "First Name,Email,Company Name,Website\nNia,nia@fernhill-plants.test,,\nJo,jo@example.test,,\n,,Northfield Ventures,northfield-ventures.test\nSam,,,\n"
@@ -119,7 +120,11 @@ def test_root_reads_pasted_lists_through_the_app_and_never_records_consent():
     # Its public lists are investor directories: no lender or grant list is named from them, and a
     # setup guide that is off is not mistaken for pasting being off.
     assert "investor directories only: for lenders, grant bodies or stockists, say it has no list for those" in ROOT_SYSTEM_INSTRUCTION
-    assert "if it says the setup guide isn't available, say you can't open that help page here" in ROOT_SYSTEM_INSTRUCTION
+    assert "if it says the setup guide isn't switched on, isn't available or isn't configured, say you can't open that help page here" in ROOT_SYSTEM_INSTRUCTION
+    # Each setup guide message read_help_page can return is covered by name, and the general setup
+    # rule ("help from what you know") never names a list.
+    assert "isn't switched on" in shc._ERRORS["unavailable"] and "isn't available" in shc._ERRORS["canvas_auth_unconfigured"]
+    assert "except for where to find investors or a list, where you name no list" in ROOT_SYSTEM_INSTRUCTION
     # The pasted list line comes right after the add a person line.
     assert ROOT_SYSTEM_INSTRUCTION.index("To **add a pasted list**") > ROOT_SYSTEM_INSTRUCTION.index("To **add a person**")
     for text in [*plc._ERRORS.values(), plc._TOO_LONG]:

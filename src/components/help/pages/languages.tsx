@@ -32,7 +32,7 @@ export default function LanguagesHelp({
         unlocks={
           <>
             <li>
-              {raiseKit ? "Everything Vizzy writes for you, except Raise kit decks for now," : "Everything Vizzy writes for you"} is in your
+              {raiseKit ? "Everything Vizzy writes for you, except Raise kit decks and lender packs for now," : "Everything Vizzy writes for you"} is in your
               language, with no translating afterwards
             </li>
             <li>Checks on articles and emails that suit your language, with no false warnings</li>

@@ -1060,7 +1060,7 @@ describe("Search", () => {
     const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.languages!({ raiseKit }), "https://app.example.com");
     expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) are in English for now, whatever your language.");
     expect(md(false)).not.toContain("Raise kit");
-    expect(md(true)).toContain("Everything Vizzy writes for you, except Raise kit decks for now, is in your language");
+    expect(md(true)).toContain("Everything Vizzy writes for you, except Raise kit decks and lender packs for now, is in your language");
     expect(md(false)).toContain("Everything Vizzy writes for you is in your language");
   });
 

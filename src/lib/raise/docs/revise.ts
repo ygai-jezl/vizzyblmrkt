@@ -109,28 +109,35 @@ export const onlyRefresh = (ops: readonly unknown[]) =>
   ops.length > 0 && ops.every((o) => typeof o === "object" && o !== null && (o as { change?: unknown }).change === "refresh_numbers");
 
 /**
- * The values one number in someone's words can mean, read the English way (1,234.5) and the way
- * much of Europe writes it (1.234,5 or 1 234,5). "12,5" is only 12.5; "6.200" is 6200 or 6.2. Pure.
+ * The values one number in someone's words can mean. A lone comma or dot followed by exactly three
+ * digits is always a thousands mark ("12,000" and "6.200" are 12000 and 6200, never 12 or 6.2).
+ * Otherwise a comma or a dot before the last digits is the decimal mark, the English way
+ * (1,234.5), the way much of Europe writes it (1.234,5, 1 234,5, 1'234,5) or in lakh (1,00,000).
+ * A run with a leading zero, such as "007" or the "05" in a date, is no number. Pure.
  */
 function readingsOf(token: string): number[] {
-  const t = token.replace(/[\s\u00a0\u202f']/g, "");
+  const t = token.replace(/[\s\u00a0\u202f'\u2019]/g, "");
+  if (/^0\d/.test(t)) return [];
   const out = new Set<number>();
-  if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(t) || /^\d+(?:\.\d+)?$/.test(t)) out.add(Number(t.replace(/,/g, "")));
-  if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(t) || /^\d+(?:,\d+)?$/.test(t)) out.add(Number(t.replace(/\./g, "").replace(",", ".")));
+  const thousands = (sep: string) => new RegExp(`^\\d{1,3}(?:\\${sep}\\d{3})+$`).test(t);
+  if (/^\d+$/.test(t)) out.add(Number(t));
+  else if (thousands(",")) out.add(Number(t.replace(/,/g, "")));
+  else if (thousands(".")) out.add(Number(t.replace(/\./g, "")));
+  else if (/^\d{1,3}(?:,\d{3})*\.\d+$/.test(t) || /^\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d+)?$/.test(t) || /^\d+\.\d+$/.test(t)) out.add(Number(t.replace(/,/g, "")));
+  else if (/^\d{1,3}(?:\.\d{3})*,\d+$/.test(t) || /^\d+,\d+$/.test(t)) out.add(Number(t.replace(/\./g, "").replace(",", ".")));
   return [...out].filter(Number.isFinite);
 }
 
 /**
- * Whether the person's own words hold this number, read the English way or the European way, and
- * not as part of a longer number: "$6,200 a month", "6.200 €" and "14 200 €" hold 6200, "12,5 %"
- * holds 12.5, and "about 6k" holds nothing, so Vizzy asks for the figure rather than turning words
- * into a number.
+ * Whether the person's own words hold this number, and not as part of a longer number: "$6,200 a
+ * month", "6.200 €" and "14 200 €" hold 6200, "12,5 %" holds 12.5, "$12,000" never holds 12, and
+ * "about 6k" doesn't hold 6000, so Vizzy asks for the figure rather than turning words into one.
  */
 export function quoteHas(value: number, quote: string): boolean {
   const want = Math.abs(value);
   if (!Number.isFinite(want)) return false;
-  const tokens = quote.match(/\d(?:[\d.,]|[\s\u00a0\u202f'](?=\d{3}(?!\d)))*\d|\d/g) ?? [];
-  return tokens.some((tok) => readingsOf(tok).some((v) => Math.abs(v - want) <= 1e-9 * Math.max(1, want)));
+  const tokens = quote.match(/\d(?:[\d.,]|[\s\u00a0\u202f'\u2019](?=\d{3}(?!\d)))*\d|\d/g) ?? [];
+  return tokens.some((tok) => readingsOf(tok).some((v) => Math.abs(v - want) < 1e-9));
 }
 
 // ----- Helpers ---------------------------------------------------------------------------------

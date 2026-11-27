@@ -290,9 +290,20 @@ describe("helpers", () => {
     expect(quoteHas(6200, "unser Umsatz liegt bei 6.200 €")).toBe(true);
     expect(quoteHas(14200, "14 200 € par mois")).toBe(true);
     expect(quoteHas(1234567.89, "1.234.567,89 €")).toBe(true);
-    // Either reading of a number that could be both.
-    expect(quoteHas(6.2, "6.200 €")).toBe(true);
-    expect(quoteHas(62, "6.200 €")).toBe(false);
+    // A lone mark before three digits is always thousands, so a figure 1,000 times smaller never passes.
+    expect(quoteHas(6.2, "6.200 €")).toBe(false);
+    expect(quoteHas(12, "our MRR is $12,000")).toBe(false);
+    expect(quoteHas(1.5, "$1,500 a month")).toBe(false);
+    expect(quoteHas(250, "raising £250,000")).toBe(false);
+    expect(quoteHas(12500, "12,500 €")).toBe(true);
+    // A decimal mark before one, two or four digits, Swiss and lakh grouping, and leading zeros.
+    expect(quoteHas(1.5, "1,5 kg")).toBe(true);
+    expect(quoteHas(1.25, "1,25 €")).toBe(true);
+    expect(quoteHas(1234, "CHF 1\u2019234")).toBe(true);
+    expect(quoteHas(100000, "\u20b91,00,000")).toBe(true);
+    expect(quoteHas(7, "agent 007")).toBe(false);
+    expect(quoteHas(5, "on 05/03")).toBe(false);
+    expect(quoteHas(1000000001, "\u00a31,000,000,000")).toBe(false);
     // Two numbers apart stay two numbers.
     expect(quoteHas(1215, "up 12 15 times")).toBe(false);
   });

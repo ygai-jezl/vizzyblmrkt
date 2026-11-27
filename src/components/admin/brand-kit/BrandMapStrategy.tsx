@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { StrategyView, ViewCompetitor } from "@/lib/brandStrategy/adminApi";
 import type { StrategyCompetitorsView } from "@/lib/brandStrategy/competitorsView";
 import { theirsKey } from "@/lib/brandStrategy/competitors";
-import { focusAgainst } from "@/lib/competitors/against";
+import { answeredText, focusAgainst } from "@/lib/competitors/against";
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import {
   BRAND_STRATEGY_LIMITS as L,
@@ -22,6 +22,7 @@ import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
+import { useBrandMapTabs } from "./BrandMapTabs";
 import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, TRUNCATED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 import { BrandMapContentPlan } from "./BrandMapContentPlan";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
@@ -83,7 +84,19 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
   );
 }
 
-export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: boolean; contentPlan?: boolean }) {
+export function BrandMapStrategy({
+  canEdit,
+  contentPlan = false,
+  canAsk = false,
+}: {
+  canEdit: boolean;
+  contentPlan?: boolean;
+  /** "Find what they ask" can run on a buying situation (its switch, and a model). */
+  canAsk?: boolean;
+}) {
+  // A situation with no questions links to Buying situations, where Find what they ask runs.
+  const tabsApi = useBrandMapTabs();
+  const askLink = canEdit && canAsk && Boolean(tabsApi?.has("situations"));
   const { round } = useMapMove();
   const [view, setView] = useState<StrategyView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -381,12 +394,15 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
                     Them: {r.they}
                     {r.byCompetitor[0] ? ` (${r.byCompetitor[0].name} ${r.byCompetitor[0].count})` : ""}
                   </span>
-                  <span className="text-xs text-neutral-600 dark:text-neutral-300">
-                    You: {r.answered} of {r.questions} answered
-                  </span>
+                  <span className="text-xs text-neutral-600 dark:text-neutral-300">{answeredText(r)}</span>
                   <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
                     <span className={`rounded px-1.5 py-0.5 font-medium ${FLAG_TEXT[r.flag].tone}`}>{FLAG_TEXT[r.flag].label}</span>
                     {r.newSince ? <span className="text-neutral-500">+{r.newSince} since approved</span> : null}
+                    {askLink && r.questions === 0 ? (
+                      <button type="button" className="underline" onClick={() => tabsApi?.show("situations", { situation: r.id })}>
+                        Find what they ask
+                      </button>
+                    ) : null}
                   </span>
                 </li>
               ))}

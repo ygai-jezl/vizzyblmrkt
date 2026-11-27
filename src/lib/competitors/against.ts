@@ -27,3 +27,11 @@ export function focusAgainst(rows: SituationAgainst[], focus: { approved: string
   if (focus.draft.length && pick(focus.draft).length) return { from: "draft", rows: pick(focus.draft) };
   return { from: "busiest", rows: rows.filter((r) => r.they > 0).sort((a, b) => b.they - a.they || a.text.localeCompare(b.text)).slice(0, 5) };
 }
+
+/**
+ * The You cell of a row. A situation with no questions on the map yet says so: there is nothing to
+ * answer until Find what they ask brings its questions, and Next up only picks from questions.
+ */
+export function answeredText(r: Pick<SituationAgainst, "questions" | "answered">): string {
+  return r.questions > 0 ? `You: ${r.answered} of ${r.questions} answered` : "You: no questions yet";
+}

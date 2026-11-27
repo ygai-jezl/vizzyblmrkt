@@ -70,6 +70,18 @@ export interface Drafted {
 /** Text on one line, cut to `n` characters; "" for anything that isn't text. */
 export const clip = (s: unknown, n: number) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, n) : "");
 
+/**
+ * Untrusted words as one line inside the prompt's fences: no < or >, so nothing in a pack line, a
+ * brief, a name or a deck's words can open or close <pack>, <brief>, <deck> or <tasks>.
+ */
+export const fenced = (s: string | null | undefined) => (s ?? "").replace(/[<>]/g, "").replace(/[\s\u0085]+/g, " ").trim();
+
+/** The team list for a prompt: A1 to A4, name and role, each fenced. */
+export function authorsText(pack: RaisePack): string {
+  if (!pack.authors.length) return "(none)";
+  return pack.authors.map((a) => `${a.ref}: ${fenced(a.name)}${a.role ? `, ${fenced(a.role)}` : ""}`).join("\n");
+}
+
 // ----- The prompt ------------------------------------------------------------------------------
 
 export function audienceWords(audience: DeckAudience, stage: DeckStage): string {
@@ -85,29 +97,32 @@ function outlineText(outline: Outline): string {
     .join("\n");
 }
 
+/** The brand's name for the prompt's first line, inside its quotes. */
+export const brandForPrompt = (name: string | null | undefined) => fenced(name).replace(/"/g, "'").slice(0, 80) || "the business";
+
 export function packText(pack: RaisePack): string {
   if (!pack.lines.length) return "(nothing yet)";
-  return pack.lines.map((l) => `${l.id} [${SOURCE_LABEL_WORDS[l.label]}] ${l.text}`).join("\n");
+  return pack.lines.map((l) => `${l.id} [${SOURCE_LABEL_WORDS[l.label]}] ${fenced(l.text)}`).join("\n");
 }
 
 export function numbersText(pack: RaisePack): string {
   const out: string[] = [];
   if (pack.numbers.waitlist.hasData) out.push('waitlistSignups: sign-ups to the brand\'s launches each week, for the last 12 weeks. Ask with grain "week" for the chart and grain "total" for the number.');
   if (pack.numbers.growth.hasData) out.push("signupGrowth: the second half of the weeks against the first, as a percent.");
-  (pack.numbers.launches ?? []).slice(0, 9).forEach((l, i) => out.push(`launchSignups with launch L${i + 1}: the people on the launch "${l.name}".`));
+  (pack.numbers.launches ?? []).slice(0, 9).forEach((l, i) => out.push(`launchSignups with launch L${i + 1}: the people on the launch "${fenced(l.name).replace(/"/g, "'")}".`));
   return out.length ? out.join("\n") : "(none has data yet: leave a need instead)";
 }
 
 export function draftPrompt(pack: RaisePack, outline: Outline, input: Pick<DraftInput, "brief">, today: Date): string {
   return renderPrompt(DRAFT_PROMPT.id, {
-    brand_name: pack.brandName || "the business",
+    brand_name: brandForPrompt(pack.brandName),
     audience_words: audienceWords(outline.audience, outline.stage),
     outline: outlineText(outline),
-    voice: pack.voice ?? "(none set: plain, warm and direct)",
+    voice: fenced(pack.voice) || "(none set: plain, warm and direct)",
     pack: packText(pack),
-    authors: pack.authors.length ? pack.authors.map((a) => `${a.ref}: ${a.name}${a.role ? `, ${a.role}` : ""}`).join("\n") : "(none)",
+    authors: authorsText(pack),
     numbers: numbersText(pack),
-    brief: clip(input.brief, 1500) || "(none)",
+    brief: fenced(clip(input.brief, 1500)) || "(none)",
     today: today.toISOString().slice(0, 10),
   });
 }

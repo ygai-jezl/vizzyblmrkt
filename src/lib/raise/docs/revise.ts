@@ -8,8 +8,11 @@ import type { Tenant } from "@/lib/types/tenant";
 import {
   ModelSlideSchema,
   audienceWords,
+  authorsText,
+  brandForPrompt,
   buildSlide,
   clip,
+  fenced,
   needsFor,
   numbersText,
   outlineSlide,
@@ -176,8 +179,6 @@ interface Task {
   layout?: LayoutKey;
 }
 
-/** Fenced text can't close its own fence. */
-const fenced = (s: string) => s.replace(/[<>]/g, "").replace(/\s+/g, " ").trim();
 
 function slideText(s: Slide, n: number, now: Date): string {
   const lines = [`Slide ${n} (${s.section}, layout ${s.layout}):`, `Headline: ${fenced(s.headline)}`];
@@ -187,7 +188,7 @@ function slideText(s: Slide, n: number, now: Date): string {
     for (const r of s.compare.rows) lines.push(`Row: ${fenced(r.left)} | ${fenced(r.right)}`);
   }
   for (const p of s.people ?? []) lines.push(`Person: ${fenced(p.name)}, ${fenced(p.role)}: ${fenced(p.line)}`);
-  for (const b of s.blocks) lines.push(`Number {{${b.id}}}: ${b.display || "none yet"} (${fenced(b.name)}${b.periodWords ? `, ${b.periodWords}` : ""}, ${labelWords(b, now)})`);
+  for (const b of s.blocks) lines.push(`Number {{${b.id}}}: ${fenced(b.display) || "none yet"} (${fenced(b.name)}${b.periodWords ? `, ${fenced(b.periodWords)}` : ""}, ${fenced(labelWords(b, now))})`);
   if (s.notes) lines.push(`Notes: ${fenced(s.notes)}`);
   for (const need of s.needs) lines.push(`Needs: ${fenced(need.text)}`);
   return lines.join("\n");
@@ -205,16 +206,16 @@ export function revisePrompt(doc: RaiseDoc, slides: readonly Slide[], tasks: rea
   const pos = new Map(slides.map((s, i) => [s.id, i + 1]));
   const newIds = new Set(tasks.filter((t) => t.kind === "new").map((t) => t.id));
   return renderPrompt(REVISE_PROMPT.id, {
-    brand_name: pack.brandName || "the business",
+    brand_name: brandForPrompt(pack.brandName),
     audience_words: audienceWords(doc.audience, doc.stage),
     deck: slides
       .filter((s) => !newIds.has(s.id))
       .map((s) => slideText(s, pos.get(s.id)!, now))
       .join("\n\n"),
     tasks: tasks.map((t) => taskText(t, pos.get(t.id) ?? 0, doc.audience)).join("\n"),
-    voice: pack.voice ?? "(none set: plain, warm and direct)",
+    voice: fenced(pack.voice) || "(none set: plain, warm and direct)",
     pack: packText(pack),
-    authors: pack.authors.length ? pack.authors.map((a) => `${a.ref}: ${a.name}${a.role ? `, ${a.role}` : ""}`).join("\n") : "(none)",
+    authors: authorsText(pack),
     numbers: numbersText(pack),
     today: now.toISOString().slice(0, 10),
   });

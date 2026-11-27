@@ -191,7 +191,7 @@ export const COMPANY_REMOVE = {
 } as const;
 
 /** Under an empty investor or funding board, for an admin with Paste a list: pasted people join it by the board's Stage field. */
-export const boardStageHint = (stage: string) => `Add a column named ${stage} to your list, and the people you paste show up here in that stage.`;
+export const boardStageHint = (stage: string) => `Add a column named ${stage} with a stage from this board in each row, and the new people you paste show up here.`;
 
 /** Every fixed string above, for the house style test. */
 export const ALL_PASTE_STRINGS: readonly string[] = [

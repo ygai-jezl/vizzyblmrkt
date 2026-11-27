@@ -103,6 +103,24 @@ describe("mapColumns", () => {
     expect(map.columns.slice(1)).toEqual([{ kind: "field", person: null, company: STAGE }, { kind: "left" }]);
   });
 
+  it("gives a People field to the column that names it exactly, even after one that names it with an s", () => {
+    // The board's Stage on People, and the kit's Stages for the firm's investment stages.
+    const BOARD = field("fld_0000000bstag", "Stage", "status", "person", { options: opts("Research", "Contacted", "Passed") });
+    const both = mapColumns(["Email", "Stages", "Stage"], { person: [BOARD], company: [STAGE] });
+    expect(both.columns.slice(1)).toEqual([
+      { kind: "field", person: null, company: STAGE },
+      { kind: "field", person: BOARD, company: null },
+    ]);
+    expect(both.left).toEqual([]);
+    // With no Stage column, Stages still fills both, as before.
+    expect(mapColumns(["Email", "Stages"], { person: [BOARD], company: [STAGE] }).columns[1]).toEqual({ kind: "field", person: BOARD, company: STAGE });
+    // The kit's whole header with a Stage column added at the end, as the empty board asks.
+    const kit = mapColumns([...KIT_HEADER, "Email", "Stage"], { person: [BOARD], company: [STAGE] });
+    expect(kit.read).toContainEqual({ header: "Stage", as: "Stage" });
+    expect(kit.columns[KIT_HEADER.indexOf("Stages")]).toEqual({ kind: "field", person: null, company: STAGE });
+    expect(kit.columns.at(-1)).toEqual({ kind: "field", person: BOARD, company: null });
+  });
+
   it("reads a shop's or a lender's own words for the firm's name", () => {
     const map = mapColumns(["Business Name", "Shop Name", "Store Name", "Organisation Name", "Organization Name", "Business", "Shop", "Store"], { person: [], company: [] });
     expect(map.columns.every((c) => c.kind === "standard" && c.column === "company_name")).toBe(true);

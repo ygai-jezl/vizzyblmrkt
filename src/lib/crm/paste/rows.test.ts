@@ -185,3 +185,19 @@ describe("readRows", () => {
     expect(r.notes).toContain("values_left_out");
   });
 });
+
+describe("a list pasted onto an investor board", () => {
+  it("puts each person in the stage their own Stage column names, beside the kit's Stages", () => {
+    const BOARD = field("fld_0000000bstag", "Stage", "status", "person", {
+      options: [
+        { id: "opt_research01", label: "Research" },
+        { id: "opt_contact001", label: "Contacted" },
+      ],
+    });
+    const header = [...KIT_HEADER, "Email", "Stage"].join("\t");
+    const row = ["Ada", "Example", "Northfield Ventures", "northfield-ventures.test", "", "", "Partner", "Leeds", "", "United Kingdom", "Seed, Series A", "", "", "", "", "", "ada@example.com", "Research"].join("\t");
+    const r = read(`${header}\n${row}`, { person: [BOARD], company: [STAGE] });
+    const ada = r.rows.find((x) => x.kind === "person");
+    expect(ada && ada.kind === "person" && ada.values[BOARD.key]).toBe("opt_research01");
+  });
+});

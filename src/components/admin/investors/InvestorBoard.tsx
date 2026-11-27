@@ -200,14 +200,22 @@ function CardView({
 }
 
 /**
- * Paste a list beside How the board works, for admins while Paste a list is on (S2b): on a board
- * with no one on it yet it opens Start from a public list too. No hooks, so a test can press it.
+ * Whether Paste a list opens Start from a public list: on an Investors board with no one on it yet.
+ * That card lists investor directories, so a Funding board (loans, grants) never opens it. Pure.
  */
-export function PasteButton({ empty, onPaste }: { empty: boolean; onPaste: (openPublicList: boolean) => void }) {
+export function opensPublicList(b: Pick<BoardAnswer, "kind" | "totals">): boolean {
+  return b.kind === "raising" && b.totals.people === 0;
+}
+
+/**
+ * Paste a list beside How the board works, for admins while Paste a list is on (S2b), told whether
+ * to open Start from a public list too. No hooks, so a test can press it.
+ */
+export function PasteButton({ openPublicList, onPaste }: { openPublicList: boolean; onPaste: (openPublicList: boolean) => void }) {
   return (
     <button
       type="button"
-      onClick={() => onPaste(empty)}
+      onClick={() => onPaste(openPublicList)}
       className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
     >
       <ClipboardPaste size={14} aria-hidden /> {PASTE_WORDS.button}
@@ -254,7 +262,7 @@ export function BoardView({
             {BOARD_WORDS.howItWorks}
           </HowToLink>
           {actions}
-          {onPaste ? <PasteButton empty={empty} onPaste={onPaste} /> : null}
+          {onPaste ? <PasteButton openPublicList={opensPublicList(board)} onPaste={onPaste} /> : null}
         </div>
       </div>
       {error ? <Banner tone="err">{error}</Banner> : null}
@@ -349,9 +357,22 @@ export function InvestorBoard({ actions, onPaste }: { actions?: ReactNode; onPas
   }, []);
   useEffect(() => reload(), [reload]);
 
-  if (loaded.state === "loading") return <p className="text-sm text-neutral-500">{BOARD_WORDS.loading}</p>;
-  if (loaded.state === "failed") return <Banner tone="err">{BOARD_WORDS.errors.load_failed}</Banner>;
-  if (loaded.state === "not_set_up") return <Banner tone="info">{BOARD_WORDS.errors.not_set_up}</Banner>;
+  // Paste a list stays on the tab while the board loads, can't load or isn't set up: the tab row's
+  // own button steps aside on this tab.
+  const pasteAside = (line: ReactNode) =>
+    onPaste ? (
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <PasteButton openPublicList={false} onPaste={onPaste} />
+        </div>
+        {line}
+      </div>
+    ) : (
+      line
+    );
+  if (loaded.state === "loading") return pasteAside(<p className="text-sm text-neutral-500">{BOARD_WORDS.loading}</p>);
+  if (loaded.state === "failed") return pasteAside(<Banner tone="err">{BOARD_WORDS.errors.load_failed}</Banner>);
+  if (loaded.state === "not_set_up") return pasteAside(<Banner tone="info">{BOARD_WORDS.errors.not_set_up}</Banner>);
   const board = loaded.board;
 
   const setBoard = (next: (b: BoardAnswer) => BoardAnswer) => setLoaded((l) => (l.state === "ready" ? { state: "ready", board: next(l.board) } : l));

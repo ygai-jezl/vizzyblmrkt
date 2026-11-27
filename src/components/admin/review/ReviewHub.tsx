@@ -5,6 +5,7 @@ import { isWorkEnabled } from "@/lib/work/flags";
 import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type ReviewKind } from "@/lib/review/summary";
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
 import { DismissCheckButton } from "./DismissCheckButton";
+import { ApproveLanguagesButton } from "./ApproveLanguagesButton";
 import { MarkSeenButton } from "./MarkSeenButton";
 import { FollowUpButtons } from "../investors/FollowUpButtons";
 import { SignalRow } from "./SignalActions";
@@ -106,6 +107,7 @@ export async function ReviewHub() {
                       {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
                       {item.dismissCheck && ctx.role === "admin" ? <DismissCheckButton /> : null}
                       {item.followUp && ctx.role === "admin" ? <FollowUpButtons id={item.followUp.id} rev={item.followUp.rev} quiet={item.followUp.quiet} /> : null}
+                      {item.approveLanguages && ctx.role === "admin" ? <ApproveLanguagesButton journeyId={item.approveLanguages.journeyId} revs={item.approveLanguages.revs} /> : null}
                       <Link
                         href={item.href}
                         className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"

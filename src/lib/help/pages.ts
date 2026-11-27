@@ -107,6 +107,8 @@ export interface HelpBodyProps {
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
   raiseFollowUps?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  assetTranslations?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

@@ -86,6 +86,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
   process.env.CONTENT_LANGUAGE_ENABLED = "true";
   process.env.LANGUAGE_READERS_ENABLED = "true";
+  process.env.ASSET_TRANSLATIONS_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
@@ -1516,5 +1517,36 @@ describe("Review and approvals with Work and the board's follow-ups", () => {
     expect([told.work, told.workVizzy, told.raiseFollowUps]).toEqual([true, true, true]);
     const none = drawerBodyProps(null as never);
     expect([none.work, none.workVizzy, none.raiseFollowUps]).toEqual([false, false, false]);
+  });
+});
+
+describe("Languages with translated journey emails", () => {
+  const md = (assetTranslations: boolean) =>
+    docToMarkdown(HELP_BODIES["languages"]!({ languageReaders: true, assetTranslations }), "https://app.example.com");
+
+  it("covers translations only while the switch is on, in house style", () => {
+    const on = md(true);
+    const off = md(false);
+    for (const heading of ["## Journey emails in other languages", "## Who gets which version", "## After you change an email"]) {
+      expect(on).toContain(heading);
+      expect(off).not.toContain(heading);
+    }
+    for (const line of on.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
+  it("names the Review section by its own title", () => {
+    const review = docToMarkdown(HELP_BODIES["review-and-approvals"]!({ assetTranslations: true }), "https://app.example.com");
+    expect(review).toContain(`**${REVIEW_SECTIONS.translation_check.title}**`);
+    expect(docToMarkdown(HELP_BODIES["review-and-approvals"]!({ assetTranslations: false }), "https://app.example.com")).not.toContain(
+      REVIEW_SECTIONS.translation_check.title,
+    );
+  });
+
+  it("gets the switch in the How to drawer from the admin shell", () => {
+    expect(drawerBodyProps({ assetTranslations: true } as never).assetTranslations).toBe(true);
+    expect(drawerBodyProps(null as never).assetTranslations).toBe(false);
   });
 });

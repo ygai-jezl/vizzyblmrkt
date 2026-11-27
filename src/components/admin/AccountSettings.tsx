@@ -35,6 +35,8 @@ interface LocaleConfig {
   canSetMinReaders?: boolean;
   /** Readers per language; null for one language, or when they couldn't be counted. */
   readers?: Record<string, number> | null;
+  /** ASSET_TRANSLATIONS_ENABLED: journey emails get a version for languages over the threshold. */
+  translations?: boolean;
 }
 
 export function AccountSettings() {
@@ -48,6 +50,7 @@ export function AccountSettings() {
   const [minReaders, setMinReaders] = useState(DEFAULT_MIN_READERS);
   const [canSetMinReaders, setCanSetMinReaders] = useState(false);
   const [readers, setReaders] = useState<Record<string, number> | null>(null);
+  const [translations, setTranslations] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -66,6 +69,7 @@ export function AccountSettings() {
           setMinReaders(data.minReaders ?? DEFAULT_MIN_READERS);
           setCanSetMinReaders(data.canSetMinReaders === true);
           setReaders(data.readers ?? null);
+          setTranslations(data.translations === true);
         }
       } catch {
         if (active) setLoadError("Couldn't load your language settings.");
@@ -224,6 +228,12 @@ export function AccountSettings() {
               readers.
             </p>
             {!canSetMinReaders ? <p className="text-xs text-neutral-500">Only an admin can change this number.</p> : null}
+            {translations ? (
+              <p className="text-xs text-neutral-500">
+                New versions are drafts. Until you approve them, readers get {languageName(defaultLocale)}. When you publish a change to a
+                journey email, its translations are updated and come back for you to check.
+              </p>
+            ) : null}
           </div>
         ) : null}
 

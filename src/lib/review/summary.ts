@@ -61,6 +61,7 @@ import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { reasonLine } from "@/lib/brandStrategy/checkRules";
 import type { StrategyCheck } from "@/lib/types/brandStrategy";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
@@ -92,7 +93,8 @@ export type ReviewKind =
   | "work_ready"
   | "work_suggestion"
   | "raise_followup"
-  | "business_fact";
+  | "business_fact"
+  | "translation_check";
 
 export interface ReviewItem {
   id: string;
@@ -114,6 +116,8 @@ export interface ReviewItem {
   dismissCheck?: true;
   /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
   followUp?: { id: string; rev: number; quiet: boolean };
+  /** A journey's translations to check (ASSET_TRANSLATIONS_ENABLED): Approve all languages beside the link (admins only). */
+  approveLanguages?: { journeyId: string; revs: Record<string, number> };
 }
 
 /**
@@ -225,6 +229,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: REVIEW_WORDS.description,
     from: ["investor_quiet"],
   },
+  translation_check: {
+    title: "Emails in other languages",
+    description: "Translations of your journey emails, one row per journey. Readers of each language get the default until you approve theirs.",
+    from: ["translation"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -245,6 +254,7 @@ export const REVIEW_ORDER: ReviewKind[] = [
   "content_refresh",
   "work_suggestion",
   "agent_draft",
+  "translation_check",
   "person_suggestion",
   "raise_followup",
   "business_fact",
@@ -984,6 +994,14 @@ export async function loadReview(
         [] as ReviewItem[],
       )
     : [];
+  // Journey emails in other languages waiting to be checked (ASSET_TRANSLATIONS_ENABLED): one row a journey.
+  const translationChecks = isAssetTranslationsEnabled()
+    ? await soft(
+        "translations",
+        import("@/lib/i18n/translationsAdmin").then((m) => m.translationReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
@@ -1017,6 +1035,7 @@ export async function loadReview(
     ...personSuggestions,
     ...work,
     ...raiseFollowUps,
+    ...translationChecks,
     ...businessFacts,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),

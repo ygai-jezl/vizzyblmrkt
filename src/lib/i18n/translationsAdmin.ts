@@ -238,3 +238,28 @@ export async function translationsToCheck(ctx: TenantContext, db?: FirestoreLike
   }
   return [...byJourney].map(([journeyId, j]) => ({ journeyId, langs: [...j.langs].sort(), revs: j.revs }));
 }
+
+/** Review's rows: one per journey with translations to check, and Approve all languages for its revs. */
+export async function translationReviewItems(ctx: TenantContext, db?: FirestoreLike): Promise<import("@/lib/review/summary").ReviewItem[]> {
+  const rows = await translationsToCheck(ctx, db);
+  if (!rows.length) return [];
+  const repo = forTenant(ctx, db);
+  const journeys = await Promise.all(rows.map((r) => repo.lifecycleJourneys.getById(r.journeyId).catch(() => null)));
+  return rows.flatMap((r, i) => {
+    const journey = journeys[i];
+    if (!journey || journey.status === "archived") return [];
+    const names = r.langs.map((l) => localeInfo(l).nativeName);
+    const count = Object.keys(r.revs).length;
+    return [
+      {
+        id: `translations_${r.journeyId}`,
+        kind: "translation_check" as const,
+        title: `Email · ${journey.name}`,
+        detail: `${names.join(", ")} to check, ${count === 1 ? "1 email" : `${count} emails`}`,
+        href: `/admin/lifecycle/${r.journeyId}`,
+        action: "Open",
+        ...(ctx.role === "admin" ? { approveLanguages: { journeyId: r.journeyId, revs: r.revs } } : {}),
+      },
+    ];
+  });
+}

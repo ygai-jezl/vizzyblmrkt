@@ -171,3 +171,18 @@ describe("making versions", () => {
     expect((await w.act({ action: "nope" })).status).toBe(400);
   });
 });
+
+describe("Review", () => {
+  it("lists one row a journey, with Approve all languages for admins only", async () => {
+    const w = await world();
+    const { translationReviewItems } = await import("./translationsAdmin");
+    const [row] = await translationReviewItems(admin, fs(w.db));
+    expect(row).toMatchObject({ kind: "translation_check", title: "Email · Onboarding", href: `/admin/lifecycle/${w.journey.id}`, action: "Open" });
+    expect(row!.detail).toMatch(/^Français to check, \d+ emails$/);
+    expect(Object.keys(row!.approveLanguages!.revs).length).toBeGreaterThan(0);
+    const member = { ...admin, role: "member" } as TenantContext;
+    expect((await translationReviewItems(member, fs(w.db)))[0]!.approveLanguages).toBeUndefined();
+    vi.unstubAllEnvs();
+    expect(await translationReviewItems(admin, fs(w.db))).toEqual([]);
+  });
+});

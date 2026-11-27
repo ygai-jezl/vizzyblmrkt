@@ -398,7 +398,8 @@ describe("a count of this copy's own purposes (operators only)", () => {
     // The read's row and the count's change row keep it; the Log gives it only to operators.
     value(await act({ ref: t.ref, action: "read", read: "better" }));
     const samDay = JSON.stringify(value(await logDay(samScope, null, w.deps)));
-    expect(samDay).not.toMatch(/"weeks"|340/);
+    // The count itself, never a bare 340, which a random row id can hold.
+    expect(samDay).not.toMatch(/"weeks"|"n":340\b|about 340\b/);
     expect(JSON.stringify(value(await logDay(await nina(), null, w.deps)))).toMatch(/"weeks":\{"read":1/);
   });
 

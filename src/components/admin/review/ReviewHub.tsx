@@ -6,6 +6,7 @@ import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type Review
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
 import { DismissCheckButton } from "./DismissCheckButton";
 import { MarkSeenButton } from "./MarkSeenButton";
+import { FollowUpButtons } from "../investors/FollowUpButtons";
 import { SignalRow } from "./SignalActions";
 import { WorkRow } from "./WorkRows";
 import { forTenant } from "@/lib/tenant";
@@ -104,6 +105,7 @@ export async function ReviewHub() {
                       </div>
                       {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
                       {item.dismissCheck && ctx.role === "admin" ? <DismissCheckButton /> : null}
+                      {item.followUp && ctx.role === "admin" ? <FollowUpButtons id={item.followUp.id} rev={item.followUp.rev} quiet={item.followUp.quiet} /> : null}
                       <Link
                         href={item.href}
                         className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"

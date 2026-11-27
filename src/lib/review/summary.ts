@@ -60,6 +60,8 @@ import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
 import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { reasonLine } from "@/lib/brandStrategy/checkRules";
 import type { StrategyCheck } from "@/lib/types/brandStrategy";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -89,6 +91,7 @@ export type ReviewKind =
   | "work_check"
   | "work_ready"
   | "work_suggestion"
+  | "raise_followup"
   | "business_fact";
 
 export interface ReviewItem {
@@ -109,6 +112,8 @@ export interface ReviewItem {
   work?: WorkReviewPayload;
   /** The weekly strategy check's row: Dismiss beside the link (admins only). */
   dismissCheck?: true;
+  /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
+  followUp?: { id: string; rev: number; quiet: boolean };
 }
 
 /**
@@ -215,6 +220,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "From your log, your numbers and the stage you're in. Nothing goes on the list until someone adds it, as written or edited.",
     from: ["vizzy_chat"],
   },
+  raise_followup: {
+    title: REVIEW_WORDS.title,
+    description: REVIEW_WORDS.description,
+    from: ["investor_quiet"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -236,6 +246,7 @@ export const REVIEW_ORDER: ReviewKind[] = [
   "work_suggestion",
   "agent_draft",
   "person_suggestion",
+  "raise_followup",
   "business_fact",
   "repo_results",
   "brand_map",
@@ -965,6 +976,14 @@ export async function loadReview(
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
+  // Follow-ups from the investor or funding board: everyone on the team sees them, only admins decide one.
+  const raiseFollowUps = isRaiseFollowupsEnabled()
+    ? await soft(
+        "board follow-ups",
+        import("@/lib/raise/pipeline/followups").then((m) => m.followUpReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
@@ -997,6 +1016,7 @@ export async function loadReview(
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...personSuggestions,
     ...work,
+    ...raiseFollowUps,
     ...businessFacts,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),

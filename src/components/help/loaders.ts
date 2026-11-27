@@ -27,6 +27,7 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "search": () => import("./pages/search"),
   "languages": () => import("./pages/languages"),
   "your-audience": () => import("./pages/your-audience"),
+  "investors-and-funding": () => import("./pages/investors-and-funding"),
   "history-and-restore": () => import("./pages/history-and-restore"),
   "troubleshooting": () => import("./pages/troubleshooting"),
 };

@@ -103,7 +103,10 @@ def get_content_plan(tool_context: ToolContext, plan_id: str = "", workspace_id:
     written and by whom, and how a person changed it before approving it (share of words
     changed, sections added or cut, figures and links changed, times written again). The
     `meanings` say what each number means. Use it to answer "how much did we change this
-    draft?"; it never changes anything.
+    draft?"; it never changes anything. Where the brand keeps approved emails and hub pieces
+    as examples, `followedExamples` names the approved pieces (workspaceId, planId, pieceId)
+    the writer followed for that draft; read one with this tool to answer "what did you base
+    this on?".
 
     Args:
         plan_id: The plan. If empty, the plan on screen is used.

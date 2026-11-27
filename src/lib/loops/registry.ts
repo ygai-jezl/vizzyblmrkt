@@ -58,6 +58,7 @@ export const RULE_DECISIONS = {
   work_check_due: { label: "Work check due", file: "src/lib/work/service.ts" },
   work_ready: { label: "Ready to start", file: "src/lib/work/service.ts" },
   work_measure_kind: { label: "Suggested kind of win", file: "src/lib/work/measureKind.ts" },
+  investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
 export type RuleDecision = keyof typeof RULE_DECISIONS;
@@ -93,7 +94,7 @@ export type LoopKind =
  */
 export const LEARNED_STORES = {
   learned: "The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.",
-  post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.",
+  post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.",
   vizzy_memory: "Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.",
   brand_kit: "Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.",
   brand_map: "The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.",
@@ -104,6 +105,7 @@ export const LEARNED_STORES = {
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
   brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
+  lifecycle_journey: "A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;
@@ -200,8 +202,8 @@ export const LOOPS = {
   seen_notes: own("content_plan", "A note your team took out of an article is kept with the last 50 on its brief and not matched back into it."),
   architect: gap("Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.", LATER),
   content_write: own("post_learning", "Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet."),
-  content_email: gap("Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.", LATER),
-  content_hub: gap("Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.", LATER),
+  content_email: own("post_learning", "Where turned on, a workflow email follows the emails your team approved, kept as examples of the brand's own writing, though how your team edited each draft teaches it nothing yet."),
+  content_hub: own("post_learning", "Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet."),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
   edit_mode: own("vizzy_memory", "Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
@@ -260,7 +262,7 @@ export const LOOPS = {
   // ----- Rule decisions (RULE_DECISIONS above) -----
   send_time: gap("Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.", LATER),
   ab_split: none("The split between versions has to stay a fair, stable coin toss per person, or the test can no longer say which email did better."),
-  ab_winner: gap("A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.", LATER),
+  ab_winner: own("lifecycle_journey", "Where turned on, the winner a person picks for an email test after 50 sends reaches the journey the launch sends from on either engine, so everyone who gets that email from then on gets the winner."),
   journey_next_step: none("The next step is the path a person drew on the journey, and the walk follows it rather than picking a branch of its own."),
   journey_shape: gap("The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.", LATER),
   insight_pick: gap("Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.", LATER),
@@ -290,6 +292,7 @@ export const LOOPS = {
   work_check_due: none("A person sets the date, the task to wait for or the measure; the rule only shows the check once it is due."),
   work_ready: gap("Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.", LATER),
   work_measure_kind: gap("The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.", LATER),
+  investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----
   waitlist_voice_chat: none("The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people."),

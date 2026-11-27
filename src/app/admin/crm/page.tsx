@@ -18,6 +18,11 @@ import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
 import { loadFunnel } from "@/lib/invites/funnel";
 import { LaunchFunnel } from "@/components/admin/invites/LaunchFunnel";
+import { readFieldList } from "@/lib/audience/fieldList";
+import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
+import { boardKind, raiseFieldsOf } from "@/lib/raise/pipeline/fields";
+import { NOUNS } from "@/lib/raise/pipeline/words";
+import type { TenantContext } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +37,21 @@ async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListRes
   } catch (err) {
     console.error(`[crm] ${label} failed to load`, err);
     return { items: [], nextCursor: null };
+  }
+}
+
+/**
+ * The investor or funding board's tab (RAISE_PIPELINE_ENABLED): Investors, or Funding when the brand
+ * has only the funding kit, while its People fields have a Stage set up for the board. Null with no
+ * Stage, and when the field list can't be read (logged: People still loads).
+ */
+async function investorsTab(ctx: TenantContext): Promise<{ tab: string } | null> {
+  try {
+    const rf = raiseFieldsOf((await readFieldList(ctx, "person")).items);
+    return rf.setUp ? { tab: NOUNS[boardKind(rf.kinds)].tab } : null;
+  } catch (err) {
+    console.error("[crm] investor board fields failed to load", err);
+    return null;
   }
 }
 
@@ -76,7 +96,7 @@ export default async function CrmPage({
   const pasteBatchId = canPasteList && isAgentActionId(sp.paste) ? sp.paste : null;
   // With person records on, people who only use a product aren't sign-ups: the Signups tab leaves them out.
   const signupsOnly = isPersonLinksEnabled() ? { launchesOnly: true } : {};
-  const [companies, contacts, engaged, funnel] = await Promise.all([
+  const [companies, contacts, engaged, funnel, investors] = await Promise.all([
     tab("companies", listCompanies(ctx, {})),
     oneView
       ? Promise.resolve({ items: [] as Awaited<ReturnType<typeof listContacts>>["items"], nextCursor: null })
@@ -84,6 +104,8 @@ export default async function CrmPage({
     tab("engaged", listEngagedContacts(ctx, {})),
     // Nav v2 phase 4: the growth path in numbers, for this launch or every launch.
     invites ? loadFunnel(ctx, { campaignId: launch?.id ?? null }).catch(() => null) : null,
+    // People › Investors (or Funding): on the one People list, once the brand is set up for it.
+    oneView && isRaisePipelineEnabled() ? investorsTab(ctx) : null,
   ]);
   const contactRows = invites ? await withInviteStages(ctx, contacts.items).catch(() => contacts.items) : contacts.items;
   // Launches are called ideas (nav phase 3, NEXT_PUBLIC_NAV_IDEAS_ENABLED and LAUNCH_IDEAS_ENABLED).
@@ -122,6 +144,7 @@ export default async function CrmPage({
         newPerson={canAddPerson && sp.new === "person"}
         newPersonDraft={newPersonDraft}
         views={views}
+        investors={investors}
         canPaste={canPasteList}
         pasteBatchId={pasteBatchId}
       />

@@ -282,3 +282,42 @@ describe("loadPersonTimeline", () => {
     expect(await loadPersonTimeline(ctx, "ct_not-an-id", { db })).toBeNull();
   });
 });
+
+describe("follow-ups from the investor board", () => {
+  it("read as YouGrow's follow-ups, never as Vizzy's suggestions", async () => {
+    for (const k of ["AUDIENCE_FIELDS_ENABLED", "RAISE_PIPELINE_ENABLED", "RAISE_FOLLOWUPS_ENABLED"]) vi.stubEnv(k, "true");
+    const { boardWorld } = await import("@/lib/raise/pipeline/testing/world");
+    const { decideFollowUp, followUpProposal } = await import("@/lib/raise/pipeline/followups");
+    const { proposeAgentAction } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    const w = await boardWorld(db);
+    db.seed("tenant_users", "m_admin", { tenantId: w.ctx.tenantId, userId: "u_admin", role: "admin" });
+    const sam = await w.add({ email: "sam@example.test", stage: "contacted", lastTouch: "2026-11-01", nextStepDate: "2026-11-10" });
+    const at = "2026-11-26T07:00:00.000Z";
+    const raise = (due: "quiet" | "next_step") =>
+      proposeAgentAction(
+        w.ctx,
+        followUpProposal({ personId: sam, due, day: due === "quiet" ? "2026-11-01" : "2026-11-10", stageOptionId: w.stage("contacted"), stageField: w.ids.stage, dateField: due === "quiet" ? w.ids.lastTouch : w.ids.nextStepDate, at }),
+        { db },
+      );
+    const quiet = await raise("quiet");
+    const nextStep = await raise("next_step");
+    const decide = { db, loadTenant: async () => null, now: () => new Date("2026-11-26T09:00:00.000Z"), forget: () => {} };
+    expect((await decideFollowUp(w.ctx, quiet.action.id, { op: "followed_up", rev: 1 }, decide)).status).toBe(200);
+    expect((await decideFollowUp(w.ctx, nextStep.action.id, { op: "dismiss", rev: 1 }, decide)).status).toBe(200);
+
+    const page = await loadPersonTimeline(w.ctx, sam, { db, lookup, nowMs: Date.parse("2026-11-26T10:00:00.000Z") });
+    const agent = page!.entries.filter((e) => e.kind === "agent").map((e) => [e.text, e.detail]);
+    expect(agent).toEqual(
+      expect.arrayContaining([
+        ["A follow-up came up: they were quiet for 14 days", "Followed up by Alex Morgan"],
+        ["A follow-up came up: their next step date passed", "Dismissed by Alex Morgan"],
+        ["A follow-up was cleared", null],
+      ]),
+    );
+    expect(agent).toHaveLength(3);
+    const touch = page!.entries.find((e) => e.kind === "field" && e.text.startsWith("Last touch changed"));
+    expect(touch?.detail).toBe("By Alex Morgan, from a follow-up");
+    expect(JSON.stringify(page!.entries)).not.toContain("Vizzy");
+  });
+});

@@ -2021,7 +2021,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
-    numbers: { none: "a value belongs to one record and is not a brand metric" },
+    // A value belongs to one record; the investor and funding board (RAISE_PIPELINE_ENABLED) counts the
+    // board's ready-made fields across People, by stage and pass reason, for Vizzy.
+    numbers: {
+      meanings: ["pipelinePeople", "stagePeople", "passedPeople", "reasonPasses", "noReasonPasses", "quietPeople", "nextStepPastPeople", "overduePeople", "openFollowUps", "quietAfterDays"],
+      tool: "get_raise_pipeline",
+    },
   },
   {
     id: "consent_purpose",
@@ -2600,7 +2605,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
     madeBy: [
@@ -2621,6 +2626,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "brand_map_research",
       "product_map",
       "autopilot",
+      "investor_quiet",
       "paste_columns",
     ],
     home: "brand",

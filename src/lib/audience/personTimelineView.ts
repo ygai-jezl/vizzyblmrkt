@@ -18,12 +18,15 @@ import { parseMoveFieldId } from "./personMoves";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
 import { voiceChatDone } from "@/lib/waitlist/voiceChat";
+import { RAISE_FOLLOWUP_ACTION } from "@/lib/raise/pipeline/followups";
+import { QUIET_AFTER_DAYS } from "@/lib/raise/pipeline/due";
+import { TIMELINE_WORDS } from "@/lib/raise/pipeline/words";
 import { PASTE_TIMELINE, timelineDetail } from "@/lib/crm/paste/words";
 
 /**
  * One person's timeline (AUDIENCE_TIMELINE_ENABLED), newest first, a page at a time: what their
  * event history holds (being added, consent, field changes, their stage, product, launch and
- * quiet moves, Vizzy's suggestions) beside their sign-ups, the emails their launches sent and
+ * quiet moves, Vizzy's suggestions, the investor board's follow-ups) beside their sign-ups, the emails their launches sent and
  * their voice chats, which stay in their own stores. Each product's own story (what they did in
  * it, its journeys and emails) stays on that product's part of the page, so it isn't repeated.
  *
@@ -178,6 +181,30 @@ function draftOutcome(a: AgentAction | null | undefined, names: Names): string |
   return "Not used";
 }
 
+/**
+ * What came of a follow-up from the investor or funding board: YouGrow raised it, not Vizzy, so it
+ * reads as waiting, followed up, dismissed, set aside or gone. Null when it is gone (erased).
+ */
+function followUpOutcome(a: AgentAction | null | undefined, names: Names): string | null {
+  if (!a) return null;
+  if (a.state === "proposed" || a.state === "approved") return a.expiresAt > names.now ? TIMELINE_WORDS.waiting : TIMELINE_WORDS.expired;
+  if (a.state === "acted") return TIMELINE_WORDS.followedUp(actorName(a.actedBy ?? a.decidedBy, names.people));
+  switch (a.declined?.reason) {
+    case "dismissed":
+      return TIMELINE_WORDS.dismissed(actorName(a.decidedBy, names.people));
+    case "expired":
+      return TIMELINE_WORDS.expired;
+    default:
+      return TIMELINE_WORDS.cleared;
+  }
+}
+
+/** A follow-up's due reason, from its dedupe key, which outlives its cleared details. */
+function followUpWasQuiet(a: AgentAction | null | undefined): boolean | null {
+  const due = a?.dedupeKey.split("|")[1];
+  return due === "quiet" ? true : due === "next_step" ? false : null;
+}
+
 /** One stored event as an entry, or null for one the timeline leaves out. */
 function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<string>): TimelineEntry | null {
   const base = { id: e.id, at: e.at };
@@ -246,7 +273,10 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
         return { ...base, kind: "field", text: `${label} set to ${fieldValueText(field, after, names.people)}`, detail: FIELD_MOVED_DETAIL };
       }
       const undo = source === "undo";
-      const detail = undo
+      const fromFollowUp = !!e.agentActionId && names.actions.get(e.agentActionId)?.action === RAISE_FOLLOWUP_ACTION;
+      const detail = fromFollowUp
+        ? TIMELINE_WORDS.fromFollowUp(by)
+        : undo
         ? by
           ? `${by} undid Vizzy's suggestion`
           : "Vizzy's suggestion undone"
@@ -268,12 +298,24 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
       return { ...base, kind: "field", text, detail };
     }
     case "agent.proposed":
+      // A follow-up from the investor or funding board: YouGrow's rule raised it, not Vizzy.
+      if (e.properties.action === RAISE_FOLLOWUP_ACTION) {
+        const a = names.actions.get(e.agentActionId ?? "");
+        const quiet = followUpWasQuiet(a);
+        return {
+          ...base,
+          kind: "agent",
+          text: quiet === false ? TIMELINE_WORDS.proposedNextStep : TIMELINE_WORDS.proposedQuiet(QUIET_AFTER_DAYS),
+          detail: followUpOutcome(a, names),
+        };
+      }
       // A New person draft: filled in for them before they were added.
       // Each says what came of it once someone decided, read from the action as it stands now.
       if (e.properties.action === "new_person.draft")
         return { ...base, kind: "agent", text: "Vizzy filled in New person for them", detail: draftOutcome(names.actions.get(e.agentActionId ?? ""), names) };
       return { ...base, kind: "agent", text: "Vizzy suggested a change", detail: suggestionOutcome(names.actions.get(e.agentActionId ?? ""), names) };
     case "agent.declined":
+      if (e.properties.action === RAISE_FOLLOWUP_ACTION) return { ...base, kind: "agent", text: TIMELINE_WORDS.declined, detail: null };
       return { ...base, kind: "agent", text: "A suggestion from Vizzy was set aside", detail: null };
     case "agent.undone":
       return { ...base, kind: "agent", text: "A change was undone", detail: by ? `By ${by}` : null };
@@ -330,9 +372,12 @@ async function besideEntries(ctx: TenantContext, contact: Contact, names: Names,
   });
 }
 
-/** The agent actions behind this page's suggestions, as they stand now (null when gone). */
+/**
+ * The agent actions behind this page's suggestions, and behind its field changes that one decided
+ * (so a follow-up's change reads as one), as they stand now (null when gone).
+ */
 async function suggestionActions(ctx: TenantContext, events: readonly StoredEvent[], db: FirestoreLike | undefined): Promise<Map<string, AgentAction | null>> {
-  const ids = [...new Set(events.flatMap((e) => (e.kind === "agent.proposed" && e.agentActionId ? [e.agentActionId] : [])))];
+  const ids = [...new Set(events.flatMap((e) => ((e.kind === "agent.proposed" || e.kind === "record.field_changed") && e.agentActionId ? [e.agentActionId] : [])))];
   const rows = await Promise.all(ids.map(async (id) => [id, await getAgentAction(ctx, id as AgentActionId, { db }).catch(() => null)] as const));
   return new Map(rows);
 }

@@ -12,11 +12,12 @@ import { EngagedView } from "./EngagedView";
 import { ProductUsersView } from "./ProductUsersView";
 import { PeopleList } from "../people/PeopleList";
 import { AudienceList } from "../audience/AudienceList";
+import { InvestorBoard } from "../investors/InvestorBoard";
 import { PASTE_WORDS } from "@/lib/crm/paste/words";
 import { PasteListSheet } from "./PasteListSheet";
 import { withoutPaste } from "./pasteApi";
 
-const TABS = ["contacts", "product", "people", "companies", "engaged"] as const;
+const TABS = ["contacts", "product", "people", "companies", "engaged", "investors"] as const;
 type Tab = (typeof TABS)[number];
 
 const pill = (active: boolean) =>
@@ -45,6 +46,7 @@ export function CrmClient({
   newPerson = false,
   newPersonDraft = null,
   views = null,
+  investors = null,
   canPaste = false,
   pasteBatchId = null,
 }: {
@@ -81,6 +83,11 @@ export function CrmClient({
   /** Views on People (CRM_VIEWS_ENABLED), and a saved view the page arrived with (?view=). */
   views?: { initialViewId: string | null } | null;
   /**
+   * The investor or funding board (RAISE_PIPELINE_ENABLED, with the one People list), for a brand
+   * set up for it: its tab's name, Investors or Funding. Null: no tab, and ?tab=investors lands on People.
+   */
+  investors?: { tab: string } | null;
+  /**
    * An admin with Paste a list on (RAISE_PASTE_ENABLED): Paste a list beside the tabs, and Remove
    * company on a company with no people.
    */
@@ -98,8 +105,8 @@ export function CrmClient({
   // props: Back restores the page as it was first rendered, with the address as it was left.
   const params = useSearchParams();
   const found = personView ? TABS.find((t) => t === (params.get("tab") ?? initialTab)) : undefined;
-  // Links to the old tabs land on People.
-  const asked = oneView && (found === "contacts" || found === "product") ? "people" : found;
+  // Links to the old tabs land on People; a link to a board this brand doesn't have lands on the first tab.
+  const asked = found === "investors" && !investors ? undefined : oneView && (found === "contacts" || found === "product") ? "people" : found;
   const tab: Tab = personView ? (asked ?? first) : picked;
   const setTab = (next: Tab) => {
     if (!personView) return setPicked(next);
@@ -148,6 +155,11 @@ export function CrmClient({
         <button className={pill(tab === "engaged")} onClick={() => setTab("engaged")}>
           Engaged
         </button>
+        {investors ? (
+          <button className={pill(tab === "investors")} onClick={() => setTab("investors")}>
+            {investors.tab}
+          </button>
+        ) : null}
         {canPaste ? (
           <button
             type="button"
@@ -190,6 +202,8 @@ export function CrmClient({
         />
       ) : tab === "product" ? (
         personView ? <PeopleList /> : <ProductUsersView />
+      ) : tab === "investors" && investors ? (
+        <InvestorBoard />
       ) : tab === "companies" ? (
         <CompaniesView
           key={`companies:${added}`}

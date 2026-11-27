@@ -8,6 +8,7 @@ import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
+import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
 import { isPasteEnabled } from "@/lib/crm/paste/flags";
 
 /**
@@ -31,7 +32,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "paste";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "raise_pipeline" | "paste";
 }
 
 /**
@@ -98,6 +99,8 @@ export interface HelpBodyProps {
   nextActionCard?: boolean;
   /** Review lists the email and image style and the notes Vizzy suggested (isAgentRecordEnabled(), a server switch: the drawer gets it from the admin shell). */
   agentRecord?: boolean;
+  /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  raiseFollowUps?: boolean;
   /** Admins paste a list on People (isPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
   paste?: boolean;
   /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
@@ -195,6 +198,13 @@ export const HELP_PAGES: HelpPage[] = [
     "audience_one_view",
   ),
   page(
+    "investors-and-funding",
+    "Investors and funding",
+    "grow",
+    "Set up investor or lender fields in one press, work a board by stage, log why each one passed and get follow-ups in Review.",
+    "raise_pipeline",
+  ),
+  page(
     "paste-a-list",
     "Paste a list",
     "grow",
@@ -230,6 +240,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
+  if (p.onlyWhen === "raise_pipeline") return isRaisePipelineEnabled();
   if (p.onlyWhen === "paste") return isPasteEnabled();
   return true;
 }

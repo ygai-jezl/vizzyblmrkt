@@ -66,12 +66,13 @@ describe("pasted lists in Review", () => {
     expect(TENANT_ID).not.toBe("ten_other");
   });
 
-  it("has its own section, right after suggestions about people, about the pasted columns rule", () => {
+  it("has its own section, after suggestions about people and the board's follow-ups, about the pasted columns rule", () => {
     expect(REVIEW_SECTIONS.paste_batch).toEqual({
       title: "Pasted lists",
       description: "Lists your team pasted on People, waiting for an admin to add them. Nobody is added until then.",
       from: ["paste_columns"],
     });
-    expect(REVIEW_ORDER.indexOf("paste_batch")).toBe(REVIEW_ORDER.indexOf("person_suggestion") + 1);
+    // After suggestions about people and the board's follow-ups (S2a).
+    expect(REVIEW_ORDER.indexOf("paste_batch")).toBe(REVIEW_ORDER.indexOf("raise_followup") + 1);
   });
 });

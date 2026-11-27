@@ -67,10 +67,11 @@ export type DeclineReason = (typeof DECLINE_REASONS)[number];
 /**
  * The agents that propose. "lifecycle" is for the AI lines follow-up. "research" is brand map
  * research and learning from a repo, whoever pressed it (the record's requestedBy says who; agent
- * record, ADR-0026). "paste" is the code that reads a list pasted on People into one card
- * (RAISE_PASTE_ENABLED), as "connector_signals" reads collected numbers.
+ * record, ADR-0026). "raise_followups" is YouGrow's follow-up rule on the investor and funding board.
+ * "paste" is the code that reads a list pasted on People into one card (RAISE_PASTE_ENABLED), as
+ * "connector_signals" reads collected numbers.
  */
-export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle", "research", "paste"] as const;
+export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle", "research", "raise_followups", "paste"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
 
 // --- Signals -----------------------------------------------------------------------------------

@@ -71,39 +71,47 @@ const hostAndPath = (url: string): { host: string; path: string } | null => {
   }
 };
 
+/** A path without its trailing slash, except the root: /blog/post and /blog/post/ are one page. */
+const trimSlash = (path: string) => (path.length > 1 ? path.replace(/\/+$/, "") || "/" : path);
+/** A page key (host and path) with its path's trailing slash taken off. */
+const sameKey = (key: string) => {
+  const at = key.indexOf("/");
+  return at < 0 ? key : `${key.slice(0, at)}${trimSlash(key.slice(at))}`;
+};
+
 /**
  * A joiner from a connection's page rows to the brand's article pages. Pure. A row matches by host
  * and path when it knows its host (its own, a full address, or the account's when the account is a
  * site); otherwise by path alone, and only when one article has that path (on the account's site,
- * or its subdomains, when the account is one). A row that matches nothing is left out.
+ * or its subdomains, when the account is one). A trailing slash never tells two pages apart. A row
+ * that matches nothing is left out. It answers the article's own key.
  */
 export function pageJoiner(pages: readonly OutcomePage[]): (row: Pick<UseRow, "keys">, account: string) => string | null {
-  const keys = new Set(pages.map((p) => p.key));
+  const keys = new Map<string, string>();
   const byPath = new Map<string, Array<{ key: string; host: string }>>();
   for (const p of pages) {
+    if (!keys.has(sameKey(p.key))) keys.set(sameKey(p.key), p.key);
     const hp = hostAndPath(p.url);
     if (!hp) continue;
-    byPath.set(hp.path, [...(byPath.get(hp.path) ?? []), { key: p.key, host: hp.host }]);
+    const path = trimSlash(hp.path);
+    byPath.set(path, [...(byPath.get(path) ?? []), { key: p.key, host: hp.host }]);
   }
+  const hit = (k: string | null) => (k ? (keys.get(sameKey(k)) ?? null) : null);
   return (row, account) => {
     const raw = (row.keys.page ?? "").trim();
     if (!raw) return null;
     if (/^https?:\/\//i.test(raw)) {
       const hp = hostAndPath(raw);
-      const k = hp ? pageKey(hp.host, hp.path) : null;
-      return k && keys.has(k) ? k : null;
+      return hit(hp ? pageKey(hp.host, hp.path) : null);
     }
     const own = (row.keys.host ?? "").trim();
-    if (own) {
-      const k = pageKey(bareHost(own), raw);
-      return keys.has(k) ? k : null;
-    }
+    if (own) return hit(pageKey(bareHost(own), raw));
     const site = hostOfAccount(account);
     if (site) {
-      const k = pageKey(site, raw);
-      if (keys.has(k)) return k;
+      const k = hit(pageKey(site, raw));
+      if (k) return k;
     }
-    const near = (byPath.get(cleanPagePath(raw)) ?? []).filter((p) => !site || p.host === site || p.host.endsWith(`.${site}`));
+    const near = (byPath.get(trimSlash(cleanPagePath(raw))) ?? []).filter((p) => !site || p.host === site || p.host.endsWith(`.${site}`));
     return near.length === 1 ? near[0]!.key : null;
   };
 }
@@ -137,6 +145,8 @@ export async function readOutcomes(ctx: TenantContext, pages: readonly OutcomePa
   const failed: OutcomeRead["failed"] = [];
   /** Each connection's read, by the source it was read for. */
   const got = new Map<string, { read: UseRead; source: OutcomeSource }>();
+  /** The connections read for each kind: only these are ranked for it. */
+  const readFor = new Map<OutcomeKind, Set<string>>(OUTCOME_KINDS.map((k) => [k, new Set<string>()]));
   const readKey = (connectionId: string, s: OutcomeSource) => `${connectionId}|${s.use}|${s.by}|${s.measures.join(",")}`;
 
   /** One kind: the first source a shared, working connection gives, then the next only if every read of it failed. */
@@ -156,6 +166,7 @@ export async function readOutcomes(ctx: TenantContext, pages: readonly OutcomePa
       const reads = result.reads.filter((r) => ids.has(r.connectionId));
       for (const r of reads) {
         got.set(readKey(r.connectionId, source), { read: r, source });
+        readFor.get(kind)!.add(r.connectionId);
         if (!source.siteOnly) {
           const account = accounts.get(r.connectionId) ?? "";
           matched[r.connectionId] = Math.max(matched[r.connectionId] ?? 0, new Set(r.rows.map((row) => join(row, account)).filter(Boolean)).size);
@@ -167,9 +178,19 @@ export async function readOutcomes(ctx: TenantContext, pages: readonly OutcomePa
   await Promise.all(OUTCOME_KINDS.map((k) => readKind(k).catch(() => undefined)));
 
   const hitOf = (c: Extract<KindCoverage, { state: "measured" }>) => [...got.values()].find((g) => g.read.connectionId === c.connectionId && g.source.measures[0] === c.measure);
-  // Each kind chooses among the connections that answered it: one that failed for this kind is left out of it alone.
+  // Each kind ranks only the connections actually read for it; every other one counts as not read
+  // for this kind alone, so the kind is failed only when none of its shared connections was read.
+  // Every connection still connected and shared for a kind, read or not, as the also connected list.
+  const all = outcomeCoverage(connections, catalog, { matched });
+  const othersThan = (i: number, chosen: string) => {
+    const a = all[i]!;
+    const list = a.state === "measured" ? [{ connectionId: a.connectionId, connector: a.connector }, ...a.alsoConnected] : [];
+    return list.filter((x, j) => x.connectionId !== chosen && list.findIndex((y) => y.connectionId === x.connectionId) === j);
+  };
   const coverage = OUTCOME_KINDS.map((kind, i): KindCoverage => {
-    const c = outcomeCoverage(connections, catalog, { matched, failed: failed.filter((f) => f.kind === kind).map((f) => f.connectionId) })[i]!;
+    const read = readFor.get(kind)!;
+    const ranked = outcomeCoverage(connections, catalog, { matched, failed: connections.filter((x) => !read.has(x.id)).map((x) => x.id) })[i]!;
+    const c: KindCoverage = ranked.state === "measured" ? { ...ranked, alsoConnected: othersThan(i, ranked.connectionId) } : ranked;
     // Measured, but no read of its source came back this time: it failed.
     if (c.state !== "measured" || hitOf(c)) return c;
     return { kind, state: "failed", connectionId: c.connectionId, connectorId: c.connectorId, connector: c.connector, href: connectionHref(c.connectionId) };

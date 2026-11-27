@@ -97,7 +97,44 @@ describe("joining a connection's rows to the brand's articles", () => {
   });
 });
 
+describe("a trailing slash never tells two pages apart", () => {
+  const slashed = [
+    { url: "https://acme.example/blog/post/", key: articlePageKey("https://acme.example/blog/post/")! },
+    { url: "https://acme.example/guides/heel", key: articlePageKey("https://acme.example/guides/heel")! },
+    { url: "https://acme.example/", key: articlePageKey("https://acme.example/")! },
+  ];
+  const join = pageJoiner(slashed);
+  it("for Search Console rows, Analytics landing pages and full addresses, either way round", () => {
+    // Search Console: the article has the slash, the row doesn't.
+    expect(join({ keys: { page: "/blog/post" } }, "sc-domain:acme.example")).toBe("acme.example/blog/post/");
+    expect(join({ keys: { page: "/blog/post", host: "acme.example" } }, "")).toBe("acme.example/blog/post/");
+    // Analytics: a path alone, with the slash where the article has none.
+    expect(join({ keys: { page: "/guides/heel/" } }, "properties/123456")).toBe("acme.example/guides/heel");
+    expect(join({ keys: { page: "/blog/post" } }, "properties/123456")).toBe("acme.example/blog/post/");
+    // An AI answers tool's full addresses.
+    expect(join({ keys: { page: "https://acme.example/guides/heel/" } }, "acme.example")).toBe("acme.example/guides/heel");
+    expect(join({ keys: { page: "https://acme.example/blog/post" } }, "acme.example")).toBe("acme.example/blog/post/");
+    // The home page stays the home page.
+    expect(join({ keys: { page: "/" } }, "acme.example")).toBe("acme.example/");
+  });
+});
+
 describe("readOutcomes", () => {
+  it("ranks only the connections actually read for a kind, and is failed only when none was", async () => {
+    await seed(A, "dcn_aaaaaaaaaaaaaaaaaaaa", "search-console", { account: "sc-domain:acme.example", createdAt: "2026-01-01T00:00:00.000Z" });
+    await seed(A, "dcn_cccccccccccccccccccc", "search-console", { account: "sc-domain:acme.example", createdAt: "2026-02-01T00:00:00.000Z" });
+    const row = { keys: { page: "/blog/running-knee" }, m: { searchClicks: 5, searchImpressions: 50 } };
+    const readOf = (connectionId: string) => ({ connectionId, connectorId: "search-console", connector: "Google Search Console", stream: "search_performance", from: "live" as const, period: null, rows: [row], more: false, notes: [], meanings: {} });
+    // The older connection gave no read and no failure this time: the newer one, which was read, counts.
+    const one: OutcomeDeps = { db, catalog: allConnectors, now: NOW, read: vi.fn(async () => ({ reads: [readOf("dcn_cccccccccccccccccccc")], failed: [] })) };
+    const r = await readOutcomes(A, PAGES, one);
+    expect(r.coverage.find((c) => c.kind === "search")).toMatchObject({ state: "measured", connectionId: "dcn_cccccccccccccccccccc", alsoConnected: [{ connectionId: "dcn_aaaaaaaaaaaaaaaaaaaa" }] });
+    expect(r.byPage["acme.example/blog/running-knee"]).toEqual({ searchClicks: 5, searchImpressions: 50 });
+    // Neither was read: failed.
+    const none: OutcomeDeps = { ...one, read: vi.fn(async () => ({ reads: [], failed: [] })) };
+    expect((await readOutcomes(A, PAGES, none)).coverage.find((c) => c.kind === "search")).toMatchObject({ state: "failed" });
+  });
+
   it("reads each kind from one connection by page over 28 days, joined to the brand's live articles", async () => {
     await seed(A, "dcn_aaaaaaaaaaaaaaaaaaaa", "search-console", { account: "sc-domain:acme.example" });
     await seed(A, "dcn_bbbbbbbbbbbbbbbbbbbb", "google-analytics", { account: "properties/123456" });

@@ -22,6 +22,7 @@ import {
   type WeekReportInput,
 } from "./heartbeat";
 import { LOOP_RULES } from "./registry";
+import { aiUsage } from "@/lib/plans/meter";
 import { looksInUse } from "./stages";
 
 /** The heartbeat (learning loops step 5, 4.6): each brand's closed week, counted once per organisation through its mark. */
@@ -125,7 +126,8 @@ describe("a brand's week", () => {
     const week = words("content_write", { made: 3, no_draft: 3 });
     const r = brandWeekReport(input({ window: [week, week, week, week] }));
     expect(r.stuck).toEqual(["content_write:stamped"]);
-    expect(r.orgCells).toEqual(expect.arrayContaining(["content_write/stuck/stamped/p/pro", "content_write/stuck/stamped/nodraft"]));
+    // Once in all as well as under its plan, so an organisation on two plans is one stuck organisation.
+    expect(r.orgCells).toEqual(expect.arrayContaining(["content_write/stuck/stamped/all", "content_write/stuck/stamped/p/pro", "content_write/stuck/stamped/nodraft"]));
     expect(r.things["content_write/nodraft"]).toBe(3);
   });
 
@@ -194,6 +196,22 @@ describe("an organisation's mark", () => {
     const cov = creditMark(null, report([], { "next_up/cov/stamped": 18, "next_up/cov/unstamped": 2 }), "t");
     const cov2 = cov.late ? null : creditMark(cov.mark, report([], { "next_up/cov/stamped": 10, "next_up/cov/unstamped": 10 }), "t2");
     expect(cov2).toMatchObject({ late: false, things: {} });
+  });
+
+  it("scales the reasons given with thumbs down by the votes' factor, so 'No reason given' keeps its share", () => {
+    // 100 voted, 50 liked: 50 thumbs down, 10 of them with a reason and 40 with none.
+    const c = creditMark(
+      null,
+      report([], { "image/out/learned/voted": 100, "image/out/learned/liked": 50, "image/why/disliked/fake": 10, "image/why/liked/warm": 5 }),
+      "t",
+    );
+    if (c.late) throw new Error("late");
+    const voted = c.things["image/out/learned/voted"]!;
+    const downs = voted - c.things["image/out/learned/liked"]!;
+    const given = c.things["image/why/disliked/fake"]!;
+    expect({ voted, downs, given }).toEqual({ voted: 20, downs: 10, given: 2 });
+    expect((downs - given) / downs).toBe(0.8);
+    expect(c.things["image/why/liked/warm"]).toBe(1);
   });
 
   it("never grows past its bounds", () => {
@@ -277,6 +295,32 @@ describe("calls since the last report", () => {
       seen: { blog_write: 5, trending: 0, judge: 0 },
       month: "2026-12",
     });
+  });
+});
+
+describe("calls by purpose, as the meter counts them", () => {
+  const ctx: TenantContext = { tenantId: "ten_lumen", region: "us", source: "system" };
+  beforeEach(() => vi.stubEnv("USAGE_METER_ENABLED", "true"));
+
+  it("counts a grounded call once, though it records its searches and its tokens", async () => {
+    const db = new FakeFirestore();
+    const usage = aiUsage(ctx, "situations", { db, now: () => NOW });
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    // What one grounded call records, and then a second call with no search.
+    await usage.recordSearches(3);
+    await usage.recordModel(1200, "gemini-x");
+    expect((await callsSince(ctx, {}, { now: NOW, db }))?.seen).toEqual({ situations: 1 });
+    await usage.recordModel(400, "gemini-x");
+    expect((await callsSince(ctx, {}, { now: NOW, db }))?.seen).toEqual({ situations: 2 });
+  });
+
+  it("counts a chat turn once, however many models answered in it", async () => {
+    const db = new FakeFirestore();
+    const usage = aiUsage(ctx, "vizzy_chat", { db, now: () => NOW });
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await usage.recordModel(900, "gemini-x");
+    await usage.recordModel(300, "gemini-y", { sameCall: true });
+    expect((await callsSince(ctx, {}, { now: NOW, db }))?.seen).toEqual({ vizzy_chat: 1 });
   });
 });
 

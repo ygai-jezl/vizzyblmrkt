@@ -134,17 +134,27 @@ Where the build follows the code, not the plan (the plan's intent kept):
   marks are an erase gap, as `brand` is. The fake Firestore has no batch, so `addToFleetCells` sends
   one merged increment per row, all at once; it still never counts twice.
 - The made exemption is `campaign_scheduled_posts.made`, not `scheduled_posts.made` as ADR-0028's
-  item 14 says. `setPostSpintax` takes no `made`: it saves a person's template.
+  item 14 says. `setPostSpintax` takes no `made`: it saves a person's template. `setPostCarousel`
+  keeps no stamp on the post either, whose one `made` is its words; the carousel counts made at its
+  route. The auto plug comment counts made where its job is saved (`enqueueAutoPlug`), once for
+  each publish.
 - The stamp scan found 53 unread files, not only the agent and v2 handlers, so 26 files were wired
   to count made. The two upload routes call no model and sit outside the scan. Four agent POSTs
   aren't read only: the article review, brand notes and business profile POSTs, and the canvas
   route, which works its kind out in code, are in `UNRESOLVED`.
 - `dropPick` also takes picks a run uses, so it counts kept or declined. An invite wave counts made at
-  its canvas save; its send counts kept or edited (`madeEdited`) and its delete declined. Field
+  its canvas save; its send counts kept or edited (`madeEdited`) and its delete declined. Its invite
+  emails count no `records_off` or `stamp_lost`: the wave keeps its own stamp, so the wave is one
+  made thing and one answer. `sendMetadata` counts nothing, as it runs before the send: it returns
+  `unrecorded`, and each sender counts it beside made once the email went, so a failed send or a
+  retry never counts it. Research, situations and their questions count their own made, so the
+  canvas route counts `canvas.brand_map` only for Vizzy's own suggestions. Field
   confirms skip `transitionAgentAction`, so `recordFieldWrites` counts them. Only dismissals count
   declined, never expiry, and only research's brand map suggestions count.
 - `fleet_cells` only adds, so the longest wait and the oldest week not yet folded are month and week
-  buckets. Calls are uses, so they aren't capped. Unused skips the image kinds, whose versions say it.
+  buckets. Calls are uses, so they aren't capped: a purpose's calls are the most any one resource
+  counted for it, since one call records each resource it spends (a grounded call its searches and
+  its tokens), and a chat turn's second model is recorded as the same call. Unused skips the image kinds, whose versions say it.
 - The heap test samples the heap and the memory outside it after a collection, since an image's
   Buffer and base64 sit outside the heap: step 5's peak is 16.9 MiB.
 - The judge's retry needed no new code: a post that lands in a promoted cluster runs the pass again.

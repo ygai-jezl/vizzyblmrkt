@@ -1,13 +1,17 @@
 import { notFound } from "next/navigation";
 import WhatYouGrowLearnedHelp from "@/components/help/pages/what-yougrow-learned";
 import { helpMetadata } from "@/lib/help/metadata";
-import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { helpPage, isHelpPageShown } from "@/lib/help/pages";
 
 export const dynamic = "force-dynamic";
 export const metadata = helpMetadata("what-yougrow-learned");
 
-/** Served only while image style versions are on (IMAGE_STYLE_VERSIONS_ENABLED). */
+/**
+ * Served while the page is listed: image style versions (IMAGE_STYLE_VERSIONS_ENABLED) or the
+ * learning loops (LOOPS_ENABLED) are on, the same rule as the /help list and llms.txt.
+ */
 export default function Page() {
-  if (!isImageStyleVersionsOn()) notFound();
+  const page = helpPage("what-yougrow-learned");
+  if (!page || !isHelpPageShown(page)) notFound();
   return <WhatYouGrowLearnedHelp />;
 }

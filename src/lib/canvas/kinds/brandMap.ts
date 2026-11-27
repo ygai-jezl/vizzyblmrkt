@@ -87,11 +87,20 @@ function parseChanges(raw: Array<Record<string, unknown>>): { ok: true; changes:
   return { ok: true, changes };
 }
 
-function outcome(args: { filed: number; waiting: number; summary: string; warnings: string[] }, url: string = BRAND_KIT_MAP_ROUTE): CanvasAuthorOutcome {
+/**
+ * The card and what the call saved. `countsItself`: research, situations and their questions
+ * count their own made where they file (as brand_map_research, situations or
+ * situation_questions), so the route counts nothing more for them (decision 20: made once per
+ * saved record). Only Vizzy's own suggestions (`add`) count as canvas.brand_map.
+ */
+function outcome(
+  args: { filed: number; waiting: number; summary: string; warnings: string[]; countsItself?: boolean },
+  url: string = BRAND_KIT_MAP_ROUTE,
+): CanvasAuthorOutcome {
   return {
     ok: true,
     // Made counts only when something new was filed: a call that filed nothing made nothing.
-    saved: args.filed > 0 ? "created" : "none",
+    saved: args.filed > 0 && !args.countsItself ? "created" : "none",
     id: "brand_map",
     status: "suggested",
     url,
@@ -137,6 +146,7 @@ export async function authorBrandMapSuggestions(
         ? `Research filed ${plural(r.filed, "suggestion")} for your brand map (${r.summary}). ${UNCHANGED}`
         : `Research found nothing new for your brand map. ${UNCHANGED.replace("them", "what waits")}`,
       warnings: r.notes,
+      countsItself: true,
     });
   }
 
@@ -229,6 +239,7 @@ async function researchSituations(
             .join("; ")}${r.found.length > 5 ? `; and ${r.found.length - 5} more` : ""}. Nothing on the map has changed: an admin adds the ones that fit on Brand › Brand map › Buying situations.`
         : `Research found no new buying situations${r.skipped ? ` (${plural(r.skipped, "was", "were")} already there or turned down)` : ""}. Nothing on the map has changed.`,
       warnings: r.notes,
+      countsItself: true,
     }, url);
   }
   if (!input.situationId) return { ok: false, status: 400, error: "invalid_input", issues: ["situationId: which buying situation to research"] };
@@ -253,6 +264,7 @@ async function researchSituations(
       (linked ? ` ${plural(linked, "question")} the map already had ${linked === 1 ? "is" : "are"} now linked to it.` : "") +
       " Nothing else on the map has changed: an admin adds the questions on Brand › Brand map.",
     warnings: [],
+    countsItself: true,
   }, url);
 }
 

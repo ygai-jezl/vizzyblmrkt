@@ -102,6 +102,19 @@ describe("makeBlogHero with image style versions on", () => {
     expect(sumWeek(db, "ten_hearth", WEEK)).toMatchObject({ c: { [NATURAL]: { blog_hero: { v1: { learned: { made: 1 } } } } }, t: { image_asset: { made: 1 } } });
   });
 
+  it("counts its stamp lost when the image row can't be written but the hero still goes on the article", async () => {
+    const { db, deps } = setup({ record: vi.fn(async () => Promise.reject(new Error("down"))) });
+    await seedBrand(hearth, tenant, { db, now: new Date(T0) });
+    ids.next = kept[0]!;
+    const r = await makeBlogHero(input(), deps);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.hero).toMatchObject({ assetId: null, heroRef: expect.any(String) });
+    expect(sumWeek(db, "ten_hearth", WEEK)).toMatchObject({
+      c: { [NATURAL]: { blog_hero: { v1: { learned: { made: 1 } } } } },
+      u: { blog_hero: { stamp_lost: 1 } },
+    });
+  });
+
   it("held back: the look stays out of the brief and the row says so", async () => {
     const { db, deps } = setup();
     await seedBrand(hearth, tenant, { db, now: new Date(T0) });

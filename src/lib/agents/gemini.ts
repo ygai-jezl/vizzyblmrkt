@@ -395,8 +395,8 @@ export type SearchLimited = UsageLimited;
  */
 export interface AiUsage {
   check(kind: "searches" | "images", units?: number): Promise<UsageLimited | null>;
-  /** `lost`: the call failed after it may have used tokens, so they couldn't be counted. */
-  recordModel(tokens: number, model: string, opts?: { lost?: boolean }): Promise<void>;
+  /** `lost`: the call failed after it may have used tokens, so they couldn't be counted. `sameCall`: another model in a use already counted. */
+  recordModel(tokens: number, model: string, opts?: { lost?: boolean; sameCall?: boolean }): Promise<void>;
   recordSearches(searches: number, opts?: { lost?: boolean }): Promise<void>;
   recordImages(images: number): Promise<void>;
 }

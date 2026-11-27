@@ -788,6 +788,18 @@ describe("what made an email (LOOPS_ENABLED, learning loops step 5)", () => {
     expect(counted(tracked.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
   });
 
+  it("counts records_off once the email went, never for an attempt that failed and was tried again", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const w = await world();
+    w.setResult(() => ({ sent: false, provider: "mandrill", reason: "http_400" }));
+    await w.run(T0);
+    expect(await w.run(T0 + 15 * MIN)).toBe("failed");
+    expect(counted(w.db)).toEqual([]);
+    w.setResult(() => ({ sent: true, provider: "mandrill", id: "m_2" }));
+    expect(await w.run(T0 + 20 * MIN)).toBe("sent");
+    expect(counted(w.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
+  });
+
   it("with LOOPS_ENABLED off sends the same email and never opens loop_days (decision 22)", async () => {
     const w = await world();
     await throughWelcome(w);

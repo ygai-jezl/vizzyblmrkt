@@ -26,7 +26,7 @@ import { seedFor } from "@/lib/content/imageStyle/render/templates/lineArt";
 import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
-import { countMade } from "@/lib/loops/count";
+import { countLostStamp, countMade } from "@/lib/loops/count";
 import { imageScopeOf, learnedFor } from "@/lib/loops/read";
 import { readRemake, recordRemake, remakeUsage } from "@/lib/loops/remake";
 import { settleStamp, type StampUse } from "@/lib/loops/stamp";
@@ -425,6 +425,9 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
   if (made && refs && saved.wrote) {
     await countMade(ctx, "blog_hero", stamp, { type: "image_asset", ...loopsDeps });
     if (recordedId) await recordRemake(ctx, remake, recordedId, loopsDeps);
+    // The image row is the only record that keeps a hero's stamp: the hero went on the article
+    // without it, so its stamp is lost (4.1).
+    else await countLostStamp(ctx, stamp, loopsDeps);
   }
   return { ok: true, node: saved.node, hero: saved.hero ?? claim.hero! };
 }

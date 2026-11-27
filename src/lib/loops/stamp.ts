@@ -162,29 +162,46 @@ export async function signStamp(ctx: TenantContext, stamp: LoopStamp, opts: { no
   return `${body}.${signatureOf(key, body).toString("base64url")}`;
 }
 
-/**
- * Check a token a save route was sent, before it stores the stamp: signed with this brand's key,
- * not past its expiry, and a stamp in shape. Anything else is refused with its reason, for the
- * caller to count; nothing is thrown for a bad token.
- */
-export async function verifyStamp(ctx: TenantContext, token: unknown, opts: { now?: Date; db?: FirestoreLike } = {}): Promise<VerifiedStamp> {
-  if (typeof token !== "string" || token.length > TOKEN_MAX_CHARS) return { ok: false, reason: "malformed" };
+/** A token's two parts, or null when it isn't a token in shape (checked before any key is read). */
+function tokenParts(token: unknown): { body: string; payload: string; sig: string } | null {
+  if (typeof token !== "string" || token.length > TOKEN_MAX_CHARS) return null;
   const parts = token.split(".");
-  if (parts.length !== 3 || parts[0] !== TOKEN_PREFIX || !parts[1] || !parts[2]) return { ok: false, reason: "malformed" };
+  if (parts.length !== 3 || parts[0] !== TOKEN_PREFIX || !parts[1] || !parts[2]) return null;
+  return { body: `${parts[0]}.${parts[1]}`, payload: parts[1], sig: parts[2] };
+}
 
-  const body = `${parts[0]}.${parts[1]}`;
-  const given = Buffer.from(parts[2], "base64url");
-  const wanted = signatureOf(await brandKey(ctx, opts.db), body);
+/** Check one token's signature with the brand's key, then its expiry and the stamp's shape. */
+function checkToken(t: { body: string; payload: string; sig: string }, key: string, now: Date): VerifiedStamp {
+  const given = Buffer.from(t.sig, "base64url");
+  const wanted = signatureOf(key, t.body);
   if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) return { ok: false, reason: "signature" };
 
   let payload: { s?: unknown; e?: unknown };
   try {
-    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as typeof payload;
+    payload = JSON.parse(Buffer.from(t.payload, "base64url").toString("utf8")) as typeof payload;
   } catch {
     return { ok: false, reason: "malformed" };
   }
   if (typeof payload?.e !== "number") return { ok: false, reason: "invalid" };
-  if ((opts.now ?? new Date()).getTime() > payload.e) return { ok: false, reason: "expired" };
+  if (now.getTime() > payload.e) return { ok: false, reason: "expired" };
   const s = LoopStampSchema.safeParse(payload.s);
   return s.success ? { ok: true, stamp: s.data as LoopStamp } : { ok: false, reason: "invalid" };
+}
+
+/**
+ * Check the tokens a save route was sent, before it stores their stamps: each signed with this
+ * brand's key, not past its expiry, and a stamp in shape. The key is read once for them all, and
+ * only when one is a token in shape, so each token costs one HMAC. Anything else is refused with
+ * its reason, for the caller to count; nothing is thrown for a bad token. In the order given.
+ */
+export async function verifyStamps(ctx: TenantContext, tokens: readonly unknown[], opts: { now?: Date; db?: FirestoreLike } = {}): Promise<VerifiedStamp[]> {
+  const parsed = tokens.map(tokenParts);
+  const key = parsed.some(Boolean) ? await brandKey(ctx, opts.db) : "";
+  const now = opts.now ?? new Date();
+  return parsed.map((t) => (t ? checkToken(t, key, now) : { ok: false as const, reason: "malformed" as const }));
+}
+
+/** Check one token, as verifyStamps does. */
+export async function verifyStamp(ctx: TenantContext, token: unknown, opts: { now?: Date; db?: FirestoreLike } = {}): Promise<VerifiedStamp> {
+  return (await verifyStamps(ctx, [token], opts))[0]!;
 }

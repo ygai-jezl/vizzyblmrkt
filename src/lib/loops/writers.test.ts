@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { schedulePost } from "@/lib/distribute/scheduler";
-import { sendMetadata, upsertEarlierSend } from "@/lib/email/sends";
+import { countSendUnrecorded, sendMetadata, upsertEarlierSend } from "@/lib/email/sends";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { CountBuffer } from "./count";
@@ -51,7 +51,7 @@ describe("with LOOPS_ENABLED off", () => {
     expect(stamp).toEqual({ unstamped: "loops_off" });
     const { post: p } = await schedulePost(hearth, post(stamp), db);
     expect(db.raw(POSTS, p.id)).not.toHaveProperty("made");
-    const meta = await sendMetadata(hearth, long, "lifecycle", { db: db as unknown as FirestoreLike, made: stamp, kind: "send_time" });
+    const { metadata: meta } = await sendMetadata(hearth, long, "lifecycle", { db: db as unknown as FirestoreLike, made: stamp });
     expect(db.raw("email_sends", meta.s!)).not.toHaveProperty("made");
   });
 });
@@ -74,19 +74,22 @@ describe("with LOOPS_ENABLED on", () => {
   it("keeps the sender's stamp on a new send record and never in the metadata", async () => {
     const db = new FakeFirestore();
     const { stamp } = await learnedFor(hearth, "send_time", {}, { now: NOW });
-    const meta = await sendMetadata(hearth, long, "lifecycle", { db: db as unknown as FirestoreLike, made: stamp, kind: "send_time" });
+    const { metadata: meta, unrecorded } = await sendMetadata(hearth, long, "lifecycle", { db: db as unknown as FirestoreLike, made: stamp });
+    expect(unrecorded).toBeNull();
     expect(Object.keys(meta).sort()).toEqual(["s", "t"]);
     expect(db.raw("email_sends", meta.s!)).toMatchObject({ made: { made: "m1.send_time.0.n", kind: "send_time" } });
   });
 
-  it("counts a stamp lost when its send record can't be written, in the run's buffer", async () => {
+  it("says a stamp is lost when its send record can't be written, for the run's buffer", async () => {
     const counted = new FakeFirestore();
     const broken = { collection: () => { throw new Error("down"); }, runTransaction: () => { throw new Error("down"); } } as unknown as FirestoreLike;
     const counts = new CountBuffer({ db: counted, now: NOW, random: () => 0 });
     const { stamp } = await learnedFor(hearth, "send_time", {}, { now: NOW });
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const meta = await sendMetadata(hearth, long, "lifecycle", { db: broken, made: stamp, kind: "send_time", counts });
-    expect(meta).toEqual(long);
+    const sent = await sendMetadata(hearth, long, "lifecycle", { db: broken, made: stamp });
+    expect(sent).toEqual({ metadata: long, unrecorded: "stamp_lost" });
+    // The sender counts it beside made, once the email went.
+    await countSendUnrecorded(hearth, stamp, "send_time", { counts }, sent.unrecorded!);
     await counts.flush();
     expect(sumWeek(counted, hearth.tenantId, WEEK)).toEqual({ u: { send_time: { stamp_lost: 1 } } });
   });

@@ -15,7 +15,6 @@ import { inviteConnections, inviteProductName } from "./eligibility";
 import { isInvitesEnabled } from "./flags";
 import { personIdForSignup } from "@/lib/ontology/personRef";
 import { renderInviteEmail } from "./render";
-import type { CountBuffer } from "@/lib/loops/count";
 import { inviteLinkUrl, signInviteToken } from "./token";
 
 /**
@@ -44,8 +43,6 @@ export async function processInviteJob(
   ctx: TenantContext,
   job: EmailJob,
   db?: FirestoreLike,
-  /** The email job run's counts (learning loops step 5): only a stamp lost with its record is counted here. */
-  counts?: CountBuffer,
 ): Promise<"done" | "hold"> {
   if (!isInvitesEnabled()) return "hold";
   const repos = forTenant(ctx, db);
@@ -118,6 +115,15 @@ export async function processInviteJob(
   const journeyId = inviteJourneyId(campaign.id);
   // The person, on the send record and the send row (ONTOLOGY_PERSON_IDS_ENABLED); never in the metadata.
   const personId = personIdForSignup(ctx.tenantId, signup);
+  // The wave's stamp goes on each invite's send record. The wave is one made thing however many
+  // emails it sends (learning loops step 5, 4.1): sendInviteWave counted it, and the wave's own
+  // record keeps its stamp, so an invite whose send record is off or lost counts nothing more.
+  const { metadata } = await sendMetadata(
+    ctx,
+    { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
+    "invite",
+    { db, personId, made: wave.made ?? { unstamped: "person_wrote" } },
+  );
   const res = await sendEmail({
     to: signup.email,
     subject: rendered.subject,
@@ -128,14 +134,7 @@ export async function processInviteJob(
     replyTo: sender.replyTo,
     ...(unsub.apiUrl ? { listUnsubscribe: { url: unsub.apiUrl, oneClick: true } } : {}),
     track: { opens: true, clicks: true },
-    metadata: await sendMetadata(
-      ctx,
-      { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
-      "invite",
-      // The wave's stamp: the wave counts as one made thing (sendInviteWave), so each invite
-      // reads it from the wave it already loads and counts nothing more.
-      { db, personId, made: wave.made ?? { unstamped: "person_wrote" }, kind: "canvas.invite_wave", counts },
-    ),
+    metadata,
     tags: ["invite", `wave-${wave.id}`],
   });
   // The log provider (dev, no key) counts as sent. An AMBIGUOUS result may have

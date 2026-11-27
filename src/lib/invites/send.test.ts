@@ -17,6 +17,9 @@ import { createWaveDraft, sendInviteWave } from "./waves";
 import { ctx, seedConnection, seedLaunch, seedSignup } from "./testing/fixtures";
 import { personIdForSignup } from "@/lib/ontology/personRef";
 import { metadataBytes, METADATA_LIMIT_BYTES } from "@/lib/email/mandrillWebhook";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import type { LoopStamp } from "@/lib/types/loopStamp";
 
 const send = sendEmail as unknown as ReturnType<typeof vi.fn>;
 const noKick = async () => undefined;
@@ -148,5 +151,48 @@ describe("the person on an invite's send (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
     await processEmailJobs(ctx, 25, db);
     expect(db.dump("email_sends")[0]).not.toHaveProperty("personId");
     expect(db.dump("email_events")[0]).not.toHaveProperty("personId");
+  });
+});
+
+describe("a wave's stamp on its invites (LOOPS_ENABLED, learning loops step 5)", () => {
+  const vizzy: LoopStamp = { made: "m1.canvas.invite_wave.0.n", kind: "canvas.invite_wave", scope: "canvas.invite_wave", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, by: "vizzy", at: "2026-11-20T10:00:00.000Z" };
+  const week = (db: FakeFirestore) => sumWeek(db, ctx.tenantId, loopWeekOf(new Date()));
+
+  async function vizzyWave() {
+    const db = new FakeFirestore();
+    seedLaunch(db);
+    seedConnection(db);
+    seedSignup(db, "s1", { amountReferred: 3 });
+    seedSignup(db, "s2", { amountReferred: 2 });
+    seedSignup(db, "s3", { amountReferred: 1 });
+    const draft = await createWaveDraft(ctx, "beta", { size: 3 }, { authoredBy: "agent", made: vizzy }, db);
+    if (!draft.ok) throw new Error("draft failed");
+    await sendInviteWave(ctx, draft.value.id, {}, { db, kick: noKick });
+    return db;
+  }
+
+  beforeEach(() => vi.stubEnv("LOOPS_ENABLED", "true"));
+
+  it("counts nothing per invite with send records off: the wave is one made thing and keeps its own stamp", async () => {
+    const db = await vizzyWave();
+    await processEmailJobs(ctx, 25, db);
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(week(db)).toEqual({ c: { "canvas.invite_wave": { "canvas.invite_wave": { v0: { none: { kept: 1 } } } } } });
+  });
+
+  it("counts nothing for an invite whose send failed and was tried again", async () => {
+    const db = await vizzyWave();
+    send.mockResolvedValue({ sent: false, provider: "mandrill", reason: "http_400" });
+    await processEmailJobs(ctx, 25, db);
+    expect(week(db)).toEqual({ c: { "canvas.invite_wave": { "canvas.invite_wave": { v0: { none: { kept: 1 } } } } } });
+  });
+
+  it("keeps the wave's stamp on each invite's send record with send records on", async () => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    const db = await vizzyWave();
+    await processEmailJobs(ctx, 25, db);
+    expect(db.dump("email_sends")).toHaveLength(3);
+    for (const rec of db.dump("email_sends")) expect(rec.made).toMatchObject({ made: vizzy.made, kind: "canvas.invite_wave" });
+    expect(week(db)).not.toHaveProperty("u");
   });
 });

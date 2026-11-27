@@ -73,6 +73,26 @@ describe("with LOOPS_ENABLED on", () => {
     expect(sumWeek(db, hearth.tenantId, "2027-W03")).toMatchObject({ u: { brand_voice: { token_expired: 1 } } });
   });
 
+  it("reads the brand's key once for a save's tokens, and writes its refusals once", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(hearth, "brand_kit", {}, { now: NOW });
+    const token = (await handBack(hearth, "brand_kit", stamp, { db, now: NOW }))!;
+    const [p, body] = token.split(".");
+    const forged = `${p}.${body}.${Buffer.from("not the signature").toString("base64url")}`;
+    const before = db.collectionCalls(LOOP_DAYS);
+    const got = await stampsFromTokens(hearth, ["brand_kit"], [token, token, token, forged, forged, "junk"], { db, now: NOW });
+    expect(got).toEqual([stamp, stamp, stamp]);
+    // One read of the key and one write of the refusals, however many tokens came.
+    expect(db.collectionCalls(LOOP_DAYS) - before).toBe(2);
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toMatchObject({ u: { brand_kit: { token_signature: 2, token_malformed: 1 } } });
+  });
+
+  it("reads no key for a save whose tokens are none of them tokens", async () => {
+    const db = new FakeFirestore();
+    await stampsFromTokens(hearth, ["brand_kit"], ["junk", 7, null], { db, now: NOW });
+    expect(db.raw(LOOP_DAYS, loopDayId.key(hearth.tenantId))).toBeUndefined();
+  });
+
   it("checks at most SAVE_TOKENS_MAX tokens a save", async () => {
     const db = new FakeFirestore();
     const many = Array.from({ length: SAVE_TOKENS_MAX + 5 }, () => "junk");

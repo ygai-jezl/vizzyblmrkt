@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { METADATA_LIMIT_BYTES, fitMetadata, metadataBytes, type MandrillEvent } from "./mandrillWebhook";
-import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, sendMetadata, transactionalTag } from "./sends";
+import { attributionOfSend, countSendUnrecorded, readSendRef, readTenantTag, sendIdOf, sendMetadata as sendMetadataOf, transactionalTag } from "./sends";
 import { personIdForAddress } from "@/lib/ontology/personRef";
 import type { CountBuffer } from "@/lib/loops/count";
 import { learnedFor } from "@/lib/loops/read";
 
 /** What made the email, as every sender must say (learning loops step 5): words a person wrote. */
-const SENT_BY_PERSON = { made: { unstamped: "person_wrote" }, kind: "journeys" } as const;
+const SENT_BY_PERSON = { made: { unstamped: "person_wrote" } } as const;
+/** The metadata alone, for the tests about its form. */
+const sendMetadata = async (...a: Parameters<typeof sendMetadataOf>) => (await sendMetadataOf(...a)).metadata;
 
 // Made-up brand and people. The longest ids the app makes: tenant `ten_` + 40, launch slugs of 60,
 // canvas node `email_<uuid>`, signup/enrolment/product user `xxx_` + 40.
@@ -90,18 +92,36 @@ describe("sendMetadata", () => {
     expect(await attributionOfSend({ ...ctx, source: "system" }, sendIdOf(LONGEST_TENANT, "evt:nothing"), { db })).toBeNull();
   });
 
-  it("counts records_off for a stamped email with no record to keep its stamp, and nothing for one with no stamp", async () => {
+  it("says records_off for a stamped email with no record to keep its stamp, and nothing for one with no stamp", async () => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore() as unknown as FirestoreLike;
+    const stamp = (await learnedFor({ ...ctx, source: "system" }, "send_time")).stamp;
+    expect(await sendMetadataOf(ctx, longWaitlist, "waitlist_v2", { db, made: stamp })).toEqual({ metadata: longWaitlist, unrecorded: "records_off" });
+    expect((await sendMetadataOf(ctx, longWaitlist, "waitlist_v2", { db, ...SENT_BY_PERSON })).unrecorded).toBeNull();
+  });
+
+  it("counts nothing itself, as it runs before the send: the sender counts what it says once the email went", async () => {
     vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
     vi.stubEnv("LOOPS_ENABLED", "true");
     const unstamped = vi.fn();
     const counts = { unstamped } as unknown as CountBuffer;
     const db = new FakeFirestore() as unknown as FirestoreLike;
     const stamp = (await learnedFor({ ...ctx, source: "system" }, "send_time")).stamp;
-    expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, made: stamp, kind: "send_time", counts })).toBe(longWaitlist);
+    const { unrecorded } = await sendMetadataOf(ctx, longWaitlist, "waitlist_v2", { db, made: stamp });
+    expect(unstamped).not.toHaveBeenCalled();
+    await countSendUnrecorded(ctx, stamp, "send_time", { counts }, unrecorded!);
     expect(unstamped).toHaveBeenCalledWith(expect.objectContaining({ tenantId: LONGEST_TENANT }), "send_time", "records_off");
     unstamped.mockClear();
-    await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, ...SENT_BY_PERSON, counts });
+    await countSendUnrecorded(ctx, { unstamped: "person_wrote" }, "send_time", { counts }, "stamp_lost");
     expect(unstamped).not.toHaveBeenCalled();
+  });
+
+  it("says nothing to count with LOOPS_ENABLED off", async () => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
+    const db = new FakeFirestore() as unknown as FirestoreLike;
+    const stamp = (await learnedFor({ ...ctx, source: "system" }, "send_time")).stamp;
+    expect((await sendMetadataOf(ctx, longWaitlist, "waitlist_v2", { db, made: stamp })).unrecorded).toBeNull();
   });
 
   it("falls back to the long form when the record can't be written", async () => {

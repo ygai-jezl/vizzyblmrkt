@@ -667,6 +667,25 @@ async function deliver(
   // What made the email (LOOPS_ENABLED, learning loops step 5): YouGrow picked when it went, in
   // the journey's window, and its AI line, when one went out, is its root. Read once per run.
   const made = withRoot(await s.cache.stamps.stamp(ctx, "send_time"), useAi ? rootOf(lineMade) : undefined);
+  // The send record and its short {t, s}, for an email that doesn't name its enrolment.
+  const sent =
+    mode === "shadow" || recorded
+      ? null
+      : await sendMetadata(
+          ctx,
+          {
+            tenantId: ctx.tenantId,
+            journeyId: journey.id,
+            nodeId: d.nodeId,
+            signupId: user.id,
+            variantId: item.id,
+            campaignId: "",
+            recipientKind: "product_user",
+            connectionId: connection.id,
+          },
+          "lifecycle",
+          { db: deps.db, personId, made },
+        );
 
   const result = await (deps.send ?? sendEmail)({
     to,
@@ -683,25 +702,9 @@ async function deliver(
       : {
           tags: ["lifecycle"],
           // Named by its enrolment: its opens and clicks belong to this entry, not to an earlier
-          // one's same email — and the whole of it fits what the provider keeps (250 bytes; the
+          // one's same email, and the whole of it fits what the provider keeps (250 bytes; the
           // older form is 240 for a seven-letter brand id, and is dropped whole once it's over).
-          metadata: recorded
-            ? enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id })
-            : await sendMetadata(
-                ctx,
-                {
-                  tenantId: ctx.tenantId,
-                  journeyId: journey.id,
-                  nodeId: d.nodeId,
-                  signupId: user.id,
-                  variantId: item.id,
-                  campaignId: "",
-                  recipientKind: "product_user",
-                  connectionId: connection.id,
-                },
-                "lifecycle",
-                { db: deps.db, personId, made, kind: "send_time", counts: s.cache.counts },
-              ),
+          metadata: sent ? sent.metadata : enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id }),
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
   }).catch(
@@ -724,8 +727,10 @@ async function deliver(
     if (mode !== "shadow") {
       s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
       // An email that names its enrolment writes no send record, so no record keeps its stamp:
-      // counted `records_off` beside made, so coverage shows it (4.2 row 4).
+      // counted `records_off` beside made, so coverage shows it (4.2 row 4). Otherwise what its
+      // send record didn't keep, if anything.
       if (recorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts });
+      else if (sent?.unrecorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts }, sent.unrecorded);
     }
     if (result.sent && mode !== "shadow") {
       await recordEmailEvent(

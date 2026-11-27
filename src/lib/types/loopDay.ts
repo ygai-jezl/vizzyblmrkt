@@ -232,7 +232,7 @@ export const LaneStateSchema = z.object({
    */
   heartbeatWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /**
-   * The usage meter's calls by purpose (`callsByPurpose`, every resource added up) the heartbeat
+   * The usage meter's calls by purpose (`callsByPurpose`, the most any resource counted) the heartbeat
    * last saw, for `meterMonth`: a purpose it no longer sees is kept at 0, so the next week counts
    * only calls since.
    */

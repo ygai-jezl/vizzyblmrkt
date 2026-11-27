@@ -213,6 +213,8 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     }
     if (st.reached) reached.push(`${row}:${st.reached}`);
     if (st.stuck) {
+      // Once in all, as the steps are, so an organisation stuck on brands of two plans counts once.
+      org(row, "stuck", st.stuck, "all");
       org(row, "stuck", st.stuck, "p", input.plan);
       if (st.topReason) org(row, "stuck", st.stuck, "why", input.plan, st.topReason);
       // Stuck at Stamped with posts that went out with no AI draft kept: nothing could count as kept or edited (4.4).
@@ -286,13 +288,16 @@ export type MarkCredit = { late: true } | { late: false; mark: LaneMark; orgCell
  * The budget an output counts against, and the group whose outputs scale together (4.6, the cap
  * of LOOP_RULES.orgOutputsCap): a kind's outputs by arm (`<row>/out/<arm>/<signal>`) share one
  * budget for each signal across the arms, so its made counts at most the cap however it was made;
- * an image style's (`<row>/scope/<style>/<arm>/<signal>`) the same for each style; coverage
+ * the reasons given with its votes (`<row>/why/<direction>/<reason>`) scale with those outputs, on
+ * one budget per direction, so reasons never outgrow the thumbs down they explain; an image
+ * style's (`<row>/scope/<style>/<arm>/<signal>`) the same for each style; coverage
  * (`<row>/cov/<k>`) one budget in all; any other output is its own. Budgets are kept on the mark
  * only, never sent: a `*` in their keys, which no cell has, keeps them apart.
  */
 export function budgetOf(key: string): { group: string; budget: string } {
   const p = key.split("/");
   if (p.length === 4 && p[1] === "out") return { group: `${p[0]}/out`, budget: `${p[0]}/out/*/${p[3]}` };
+  if (p.length === 4 && p[1] === "why") return { group: `${p[0]}/out`, budget: `${p[0]}/why/${p[2]}/*` };
   if (p.length === 5 && p[1] === "scope") return { group: `${p[0]}/scope/${p[2]}`, budget: `${p[0]}/scope/${p[2]}/*/${p[4]}` };
   if (p.length === 3 && p[1] === "cov") return { group: `${p[0]}/cov`, budget: `${p[0]}/cov/*` };
   return { group: key, budget: key };
@@ -436,11 +441,16 @@ export function weeksToReport(lastReported: string | undefined, foldedThrough: s
   return weeks;
 }
 
-/** Calls by purpose (every resource's callsByPurpose added up) in a month's meter. */
+/**
+ * Calls by purpose in a month's meter: for each purpose, the most any one resource counted. One
+ * call records each resource it spent (a grounded call its searches and its tokens, an image its
+ * tokens and the image), so adding them up would count it twice; every AI call records its
+ * tokens, failed ones included, so the largest is the number of calls.
+ */
 function callsIn(meters: Partial<Record<string, ResourceCount>>): Counts {
   const out: Counts = {};
   for (const r of Object.values(meters)) {
-    for (const [p, n] of Object.entries(r?.callsByPurpose ?? {})) if (KEY_PART.test(p) && p.length <= 60) out[p] = (out[p] ?? 0) + num(n);
+    for (const [p, n] of Object.entries(r?.callsByPurpose ?? {})) if (KEY_PART.test(p) && p.length <= 60) out[p] = Math.max(out[p] ?? 0, num(n));
   }
   return out;
 }

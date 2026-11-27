@@ -262,6 +262,29 @@ describe("a closed week, every block of screen 6", () => {
     ]);
   });
 
+  it("never says none are stuck at a step where a plan is stuck whole, and counts an organisation on two plans once", () => {
+    const data = (n: Record<string, unknown>) =>
+      loopsData({ week: W, orgs: { orgs: 20, p: { free: 12, pro: 6, ultra: 2 } }, rows: new Map([["image_style", n]]) }, { meterOn: true, today: NOW, docsUrl: "https://example.test/docs" });
+    // Pro is stuck whole at Signalled; one Pro and one Ultra organisation only made.
+    const amber = data({
+      orgs: 11,
+      st: { stamped: { p: { pro: 9, ultra: 2 } }, signalled: { p: { pro: 8, ultra: 1 } }, learning: { p: { ultra: 1 } } },
+      stuck: { stamped: { p: { pro: 1, ultra: 1 } }, signalled: { p: { pro: 8 }, why: { pro: { plan: 8 } } } },
+    });
+    expect(amber.stalls).toEqual([
+      { amber: true, text: "Image style, Pro: all 8 organisations that reached Signalled are stuck there, none Learning for 28 days. Top reason: not in the brand's plan (8)." },
+      { amber: false, text: "Image style: 2 organisations stuck at Stamped with no votes (Pro 1, Ultra 1). No other plan stuck at Signalled." },
+    ]);
+    // Acme has a Pro brand and a granted brand that only made: one organisation, in two plans' counts.
+    const twoPlans = data({
+      orgs: 6,
+      st: { stamped: { all: 5, p: { free: 2, pro: 2, granted: 2 } }, signalled: { all: 3, p: { free: 1, pro: 1, granted: 1 } } },
+      stuck: { stamped: { all: 2, p: { free: 1, pro: 1, granted: 1 } } },
+    });
+    expect(twoPlans.stalls).toHaveLength(1);
+    expect(twoPlans.stalls[0]!.text).toMatch(/^Image style: 2 organisations stuck at Stamped with no votes \(.*\)\. None stuck at Signalled\.$/);
+  });
+
   it("lists why learners didn't learn, in organisations, in plain words", async () => {
     const fake = new FakeFirestore();
     seedWeek(fake, W, copy());
@@ -310,7 +333,7 @@ describe("a closed week, every block of screen 6", () => {
     expect(d.holdback[1]).toBe("From this week's counts across 12 organisations, at their pace; a style shows only from 10 of them.");
     expect(d.industries).toEqual([{ k: "Unknown", v: "17", faint: false }]);
     expect(d.differs).toEqual([LOOPS_COPY.differsNone]);
-    expect(d.cleanup).toBe("Brands still holding a look in the old place: 2. Clear it once versions have been on for 30 days; the self-host guide says how.");
+    expect(d.cleanup).toBe("Brands still holding a look in the old place: 2. It stays there for switching back: a brand's Forget or Reset clears its own, and there is no step yet to clear the rest.");
   });
 
   it("lists every line that doesn't learn by its label, with its reason, gaps open and the overdue ones marked", async () => {

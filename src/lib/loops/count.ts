@@ -335,8 +335,9 @@ const BUFFER_BRANDS_MAX = 200;
 
 /**
  * A batch run's counts, added up and written once per brand when the run ends (4.1 of the plan
- * for steps 4 and 5): the lifecycle runner, the waitlist runner, the email job worker and the
- * invite sender add one made per email here instead of one write each. Each count is checked
+ * for steps 4 and 5): the lifecycle runner, the waitlist runner and the email job worker add one
+ * made per email here instead of one write each (an invite wave counts once, at its save and its
+ * send, so its emails add nothing). Each count is checked
  * against its kind's switch as it is added, so an off kind adds nothing. `flush` writes each
  * brand's tree in one merged write and never throws; a run that ends without flushing loses only
  * its counts, never its work. Small: a brand's tree holds counters, never words.

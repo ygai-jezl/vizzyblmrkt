@@ -170,6 +170,6 @@ describe("the stamp key stays in stamp.ts", () => {
 
   it("is never handed back: stamp.ts exports nothing that returns it", async () => {
     const mod = await import("./stamp");
-    expect(Object.keys(mod).sort()).toEqual(["STAMP_REFUSALS", "madeIdOf", "parseMadeId", "promptStamp", "settleStamp", "signStamp", "verifyStamp"]);
+    expect(Object.keys(mod).sort()).toEqual(["STAMP_REFUSALS", "madeIdOf", "parseMadeId", "promptStamp", "settleStamp", "signStamp", "verifyStamp", "verifyStamps"]);
   });
 });

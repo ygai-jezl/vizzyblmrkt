@@ -68,6 +68,8 @@ export interface KindView {
   styleOrgs: Counts;
   /** Organisations stuck at Stamped whose things went out with no AI draft kept to compare (shown below 10, as stuck is). */
   stuckNoDraft: number;
+  /** Organisations stuck at each step, each once whatever plans its brands are on (shown below 10, as stuck is); 0 in a row written before. */
+  stuckAll: Record<StuckStep, number>;
   /** Organisations that reached each step, through the furthest (shown below 10). */
   stages: Record<Stage, number>;
   /** By plan (shown below 10). */
@@ -184,6 +186,7 @@ export function kindView(n: unknown): KindView {
     weekOrgs,
     styleOrgs: counts(at(n, "styles")),
     stuckNoDraft: num(at(n, "stuck", "stamped", "nodraft")),
+    stuckAll: Object.fromEntries(STUCK_STEPS.map((step) => [step, num(at(n, "stuck", step, "all"))])) as Record<StuckStep, number>,
     stages,
     plans,
     refused: counts(at(n, "refused")),

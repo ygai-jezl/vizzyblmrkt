@@ -38,6 +38,25 @@ function attributionOf(long: Record<string, string>): Omit<EventMetadata, "tenan
   };
 }
 
+/** Why a stamped email's send record doesn't keep its stamp: send records are off, or the record couldn't be written. */
+export type SendUnrecorded = "records_off" | "stamp_lost";
+
+/** What sendMetadata gives the sender: the email's metadata, and what to count beside made once it has gone. */
+export interface SendMetadata {
+  metadata: Record<string, string>;
+  /**
+   * Counted by the sender beside made, only once the email went (never for a send that failed, and
+   * once however many attempts it took); null when the record keeps the stamp, or there is none.
+   */
+  unrecorded: SendUnrecorded | null;
+}
+
+/** The reason a stamped email's record doesn't keep its stamp, or null for an email with no stamp. */
+function unrecordedOf(made: Made, why: SendUnrecorded): SendUnrecorded | null {
+  const kept = keptMade(made);
+  return kept && !("unstamped" in kept) ? why : null;
+}
+
 /**
  * The metadata for an attributed email. Switch off: the long form, exactly as the engine built it.
  * Switch on: writes (or finds) the email's send record and returns {t, s}. If the record can't be
@@ -47,10 +66,10 @@ function attributionOf(long: Record<string, string>): Omit<EventMetadata, "tenan
  * which Mandrill drops whole past 250 bytes, and never onto a record that was already there.
  *
  * `made` (learning loops step 5, decision 19) is required: what made the email, its stamp or why
- * it has none, kept on a new record with LOOPS_ENABLED on and never in the metadata. The sender
- * counts made itself; a stamp whose record couldn't be written counts `stamp_lost` here, and one
- * with no record to keep it (send records off) counts `records_off`, in the run's CountBuffer
- * when one is given.
+ * it has none, kept on a new record with LOOPS_ENABLED on and never in the metadata. This counts
+ * nothing, as it runs before the send: it says in `unrecorded` whether a stamp went without a
+ * record to keep it (`records_off`) or lost its record (`stamp_lost`), and the sender counts that
+ * beside made once the email has gone (countSendUnrecorded).
  */
 export async function sendMetadata(
   ctx: Pick<TenantContext, "tenantId" | "region">,
@@ -61,20 +80,11 @@ export async function sendMetadata(
     now?: () => Date;
     personId?: ContactPersonId | null;
     made: Made;
-    /** The kind the email counts under, for `stamp_lost`. */
-    kind: LoopKind;
-    counts?: CountBuffer;
   },
-): Promise<Record<string, string>> {
-  if (!isEmailSendRecordsEnabled()) {
-    await countSendUnrecorded(ctx, deps.made, deps.kind, deps);
-    return long;
-  }
+): Promise<SendMetadata> {
+  if (!isEmailSendRecordsEnabled()) return { metadata: long, unrecorded: unrecordedOf(deps.made, "records_off") };
   const a = attributionOf(long);
-  if (!a) {
-    await countSendUnrecorded(ctx, deps.made, deps.kind, deps);
-    return long;
-  }
+  if (!a) return { metadata: long, unrecorded: unrecordedOf(deps.made, "records_off") };
   const id = sendIdOf(ctx.tenantId, emailEventKeyBase(a));
   const now = (deps.now ?? (() => new Date()))().toISOString();
   const made = keptMade(deps.made);
@@ -84,35 +94,32 @@ export async function sendMetadata(
       () => ({ engine, ...a, ...personStamp(deps.personId), mandrillMessageId: null, ...(made ? { made } : {}), createdAt: now, updatedAt: now }) as never,
       () => null,
     );
-    return { t: ctx.tenantId, s: id };
+    return { metadata: { t: ctx.tenantId, s: id }, unrecorded: null };
   } catch (err) {
     console.warn("[email] couldn't write the send record; sending the long metadata:", err instanceof Error ? err.message.slice(0, 160) : "error");
     // The email still goes, so its stamp is lost with the record (4.1).
-    if (made && !("unstamped" in made)) {
-      const full: TenantContext = { ...ctx, source: "system" };
-      if (deps.counts) deps.counts.unstamped(full, deps.kind, "stamp_lost");
-      else await countUnstamped(full, deps.kind, "stamp_lost", { db: deps.db });
-    }
-    return long;
+    return { metadata: long, unrecorded: unrecordedOf(deps.made, "stamp_lost") };
   }
 }
 
 /**
- * An email that goes with a stamp but no record to keep it on (4.2 row 4): send records are off,
- * or a product journey's email names its enrolment instead (LIFECYCLE_SEND_TRACKING). The sender
- * still counts it made, as the plan says, and this counts `records_off` beside it, so coverage
- * shows the gap instead of reading 100%. Nothing for an email with no stamp. Never throws.
+ * An email that went with a stamp but no record to keep it on (4.2 row 4): send records are off,
+ * a product journey's email names its enrolment instead (LIFECYCLE_SEND_TRACKING), or the record
+ * couldn't be written (`stamp_lost`). The sender counts it made, as the plan says, and calls this
+ * beside it, only once the email went, so coverage shows the gap instead of reading 100%. Nothing
+ * for an email with no stamp. Never throws.
  */
 export async function countSendUnrecorded(
   ctx: Pick<TenantContext, "tenantId" | "region">,
   made: Made,
   kind: LoopKind,
   deps: { db?: FirestoreLike; counts?: CountBuffer } = {},
+  why: SendUnrecorded = "records_off",
 ): Promise<void> {
-  if ("unstamped" in made) return;
+  if (!unrecordedOf(made, why)) return;
   const full: TenantContext = { ...ctx, source: "system" };
-  if (deps.counts) deps.counts.unstamped(full, kind, "records_off");
-  else await countUnstamped(full, kind, "records_off", { db: deps.db });
+  if (deps.counts) deps.counts.unstamped(full, kind, why);
+  else await countUnstamped(full, kind, why, { db: deps.db });
 }
 
 /**

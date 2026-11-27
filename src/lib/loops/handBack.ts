@@ -1,8 +1,8 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { LoopStamp, Made } from "@/lib/types/loopStamp";
-import { countMade, countRefusedToken, countsFor } from "./count";
+import { CountBuffer, countMade, countsFor } from "./count";
 import type { LoopKind } from "./registry";
-import { signStamp, verifyStamp } from "./stamp";
+import { signStamp, verifyStamps } from "./stamp";
 
 /**
  * Outputs handed to the browser and saved later (learning loops step 5, decision 20 and 4.2 of the
@@ -25,7 +25,7 @@ export interface HandBackDeps {
   type?: string;
 }
 
-/** The most tokens one save checks: each is one HMAC and, once per brand, one key read. */
+/** The most tokens one save checks: each is one HMAC, with one key read and one count write for the save. */
 export const SAVE_TOKENS_MAX = 20;
 
 /**
@@ -59,9 +59,10 @@ export function withStampToken<T extends object>(body: T, token: string | null):
 
 /**
  * At the save: the stamps the tokens it was sent carry, each checked against this brand's key, its
- * expiry and the kinds this save takes. A refused token is counted by its reason under the first
- * kind and left out; nothing is thrown. With every kind's switch off, nothing is read and none
- * come back. At most SAVE_TOKENS_MAX are checked.
+ * expiry and the kinds this save takes. The key is read once for the save. A refused token is
+ * counted by its reason under the first kind, in one write for the save, and left out; nothing
+ * is thrown. With every kind's switch off, nothing is read and none come back. At most
+ * SAVE_TOKENS_MAX are checked.
  */
 export async function stampsFromTokens(
   ctx: TenantContext,
@@ -71,11 +72,14 @@ export async function stampsFromTokens(
 ): Promise<LoopStamp[]> {
   const on = kinds.filter((k) => countsFor(k));
   if (on.length === 0 || !Array.isArray(tokens) || tokens.length === 0) return [];
+  const some = tokens.slice(0, SAVE_TOKENS_MAX);
+  const checked = await verifyStamps(ctx, some, deps).catch(() => some.map(() => ({ ok: false as const, reason: "malformed" as const })));
   const out: LoopStamp[] = [];
-  for (const token of tokens.slice(0, SAVE_TOKENS_MAX)) {
-    const v = await verifyStamp(ctx, token, deps).catch(() => ({ ok: false as const, reason: "malformed" as const }));
+  const refused = new CountBuffer({ db: deps.db, now: deps.now });
+  for (const v of checked) {
     if (v.ok && on.includes(v.stamp.kind)) out.push(v.stamp);
-    else await countRefusedToken(ctx, on[0]!, v.ok ? "invalid" : v.reason, deps);
+    else refused.unstamped(ctx, on[0]!, `token_${v.ok ? "invalid" : v.reason}`);
   }
+  await refused.flush();
   return out;
 }

@@ -393,7 +393,15 @@ function stallLines(views: ReadonlyMap<string, KindView>): Array<{ text: string;
     const byStep = Object.fromEntries(
       STUCK_STEPS.map((step) => [step, plans.filter((p) => !whole.has(`${p}:${step}`) && kv.plans[p]!.stuck[step] > 0).map((p) => [p, kv.plans[p]!.stuck[step]] as [string, number])]),
     ) as Record<StuckStep, Array<[string, number]>>;
-    const total = (step: StuckStep) => byStep[step].reduce((n, [, k]) => n + k, 0);
+    // A plan stuck whole at a step has its own amber line, so the rest of that step is no total.
+    const amberAt = (step: StuckStep) => plans.some((p) => whole.has(`${p}:${step}`));
+    // Each organisation once (`stuck.<step>.all`): one whose brands are on two plans is in both
+    // plans' counts. A row written before that cell existed falls back to the plans added up.
+    const total = (step: StuckStep) => {
+      const sum = byStep[step].reduce((n, [, k]) => n + k, 0);
+      const all = kv.stuckAll[step];
+      return all > 0 ? Math.min(all, sum) : sum;
+    };
     const whyAt = (step: StuckStep) => {
       const c: Record<string, number> = {};
       for (const [p] of byStep[step]) addCounts(c, kv.plans[p]!.why[step]);
@@ -410,18 +418,21 @@ function stallLines(views: ReadonlyMap<string, KindView>): Array<{ text: string;
       });
       continue;
     }
-    const atStamped = total("stamped");
-    const atSignalled = total("signalled");
+    const atStamped = byStep.stamped.length > 0;
+    const atSignalled = byStep.signalled.length > 0;
     const top = whyAt("signalled");
-    const stamped = `${orgsWords(atStamped)} stuck at Stamped ${noSignal(row)} (${breakdown(byStep.stamped)})`;
-    const signalled = `${atSignalled} at Signalled (${breakdown(byStep.signalled)})`;
+    // With a plan in amber at the step, the other plans only, never a total that leaves it out.
+    const howMany = (step: StuckStep) => (amberAt(step) ? "organisations on other plans" : orgsWords(total(step)));
+    const stamped = `${howMany("stamped")} stuck at Stamped ${noSignal(row)} (${breakdown(byStep.stamped)})`;
+    const signalled = `${amberAt("signalled") ? "others" : total("signalled")} at Signalled (${breakdown(byStep.signalled)})`;
     const why = top ? ` Top reason at Signalled: ${reasonWords(top[0], "inline")} (${top[1]}).` : "";
+    const noneAt = (step: StuckStep) => (amberAt(step) ? ` No other plan stuck at ${STEP[step]}.` : ` None stuck at ${STEP[step]}.`);
     const text =
-      atStamped > 0 && atSignalled > 0
+      atStamped && atSignalled
         ? `${label}: ${stamped}, and ${signalled}.${why}`
-        : atStamped > 0
-          ? `${label}: ${stamped}. None stuck at Signalled.`
-          : `${label}: ${orgsWords(atSignalled)} stuck at Signalled (${breakdown(byStep.signalled)}). None stuck at Stamped.${why}`;
+        : atStamped
+          ? `${label}: ${stamped}.${noneAt("signalled")}`
+          : `${label}: ${howMany("signalled")} stuck at Signalled (${breakdown(byStep.signalled)}).${noneAt("stamped")}${why}`;
     rest.push({ amber: false, text });
   }
   // Stuck at Stamped because nothing could count: the posts went out with no AI draft kept to compare.
@@ -678,7 +689,7 @@ export function loopsData(week: LoopsWeekRows, opts: { meterOn: boolean; today: 
     docsUrl: opts.docsUrl,
     cleanup:
       ov.oldCopy > 0
-        ? `Brands still holding a look in the old place: ${ov.oldCopy}. Clear it once versions have been on for 30 days; the self-host guide says how.`
+        ? `Brands still holding a look in the old place: ${ov.oldCopy}. It stays there for switching back: a brand's Forget or Reset clears its own, and there is no step yet to clear the rest.`
         : "Brands still holding a look in the old place: none.",
   };
 }

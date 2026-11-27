@@ -115,7 +115,16 @@ describe("Vizzy's brand map suggestions", () => {
       },
     );
     expect(r.ok && r.summary).toMatch(/^Research filed \d+ suggestions for your brand map \(.*\)\. Nothing in the map has changed/);
+    // Research counts its own made where it files, so the route counts no canvas.brand_map beside it.
+    expect(r.ok && r.card.stats[0]!.value).toBeGreaterThan(0);
+    expect(r).toMatchObject({ ok: true, saved: "none" });
     const read = await readBrandMap(admin, db);
     expect(read.state === "ok" && read.map.rev).toBe(0);
+  });
+
+  it("counts Vizzy's own suggestions as created, and nothing for a call that filed none", async () => {
+    const db = new FakeFirestore();
+    expect(await author({ mode: "add", changes: [{ type: "add_name", name: "Rivalco", kind: "alternative" }] }, admin, db)).toMatchObject({ ok: true, saved: "created" });
+    expect(await author({ mode: "add", changes: [{ type: "add_name", name: "Rivalco", kind: "alternative" }] }, admin, db)).toMatchObject({ ok: true, saved: "none" });
   });
 });

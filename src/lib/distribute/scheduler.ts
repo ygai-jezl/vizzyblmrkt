@@ -42,7 +42,7 @@ import {
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
-import { countDraftOutcome } from "@/lib/loops/count";
+import { countDraftOutcome, countMade } from "@/lib/loops/count";
 import { keptMade, rootOf } from "@/lib/loops/made";
 import { learnedFor } from "@/lib/loops/read";
 import type { Made } from "@/lib/types/loopStamp";
@@ -330,7 +330,7 @@ async function publishPost(
       // done (above): publish-first is deliberate so a crash here can only LOSE a
       // follow-up (silent miss), never re-publish the parent (double-tweet). The
       // enqueue can't be atomic with the X post (no idempotency key).
-      if (post.autoPlug) await enqueueAutoPlug(ctx, repo, post, outcome.remoteId, now);
+      if (post.autoPlug) await enqueueAutoPlug(ctx, repo, post, outcome.remoteId, now, db);
       // Closed loop: only enqueue a harvest job while the loop is enabled (else junk).
       if (isClosedLoopEnabled()) {
         await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now);
@@ -510,6 +510,9 @@ async function countPublished(ctx: TenantContext, post: ScheduledPost, db?: Fire
  * rule. A separate `auto_plug_comment` job (deterministic id → idempotent) polls the
  * post's metrics at +AUTO_PLUG_DELAY_MS and posts the promo comment if the threshold
  * is crossed. Only for a REAL X publish (needs the tweet's remoteId).
+ *
+ * The job is the comment's record, so its made counts here where it is saved (decision 20), once
+ * for each publish: a re-armed rule saves a new comment, with a new stamp, for the new post.
  */
 async function enqueueAutoPlug(
   ctx: TenantContext,
@@ -517,11 +520,13 @@ async function enqueueAutoPlug(
   parent: ScheduledPost,
   remoteId: string,
   now: string,
+  db?: FirestoreLike,
 ): Promise<void> {
   if (!parent.autoPlug) return;
   const id = `autoplug:${parent.dedupeKey}`;
   // What makes the comment: the auto plug rule firing for the post it promotes (`root`), LOOPS_ENABLED.
-  const made = keptMade((await learnedFor(ctx, "auto_plug", { root: rootOf(parent.made) })).stamp);
+  const { stamp } = await learnedFor(ctx, "auto_plug", { root: rootOf(parent.made) });
+  const made = keptMade(stamp);
   const scheduledAt = new Date(Date.parse(now) + AUTO_PLUG_DELAY_MS).toISOString();
   // Re-arm the rule to THIS publish: fresh (firedAt cleared) and targeting the new
   // tweet. UPSERT (not create) so a re-armed + republished parent re-points its
@@ -553,6 +558,7 @@ async function enqueueAutoPlug(
   } else {
     await repo.create(id, { ...fields, createdAt: now } as never);
   }
+  await countMade(ctx, "auto_plug", stamp, { type: "scheduled_post", db });
 }
 
 /**

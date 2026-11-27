@@ -17,7 +17,7 @@ import {
 } from "@/lib/types/lifecycle";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressed } from "@/lib/email/suppression";
-import { sendMetadata } from "@/lib/email/sends";
+import { countSendUnrecorded, sendMetadata } from "@/lib/email/sends";
 import { journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveSender } from "@/lib/email/sender";
@@ -335,6 +335,23 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   // What made the email (LOOPS_ENABLED, learning loops step 5): when it went is YouGrow's, its
   // words a person's or Vizzy's journey draft. Read once per run.
   const made = await s.cache.stamps.stamp(ctx, "send_time");
+  // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s}: a canvas node's id alone takes this form past Mandrill's 250 bytes.
+  const sent = shadow
+    ? null
+    : await sendMetadata(
+        ctx,
+        {
+          tenantId: ctx.tenantId,
+          campaignId: campaign.id,
+          journeyId: journey.id,
+          nodeId: d.nodeId,
+          signupId: signup.id,
+          variantId: d.item.id,
+          recipientKind: "signup",
+        },
+        "waitlist_v2",
+        { db: deps.db, personId, made },
+      );
   const result = await (deps.send ?? sendEmail)({
     to,
     subject: email.subject,
@@ -346,26 +363,7 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
     ...(unsub.apiUrl ? { listUnsubscribe: { url: unsub.apiUrl, oneClick: true } } : {}),
     track: { opens: settings.tracking.opens, clicks: settings.tracking.clicks },
     // Shadow mail isn't attributed: opens in the operator's inbox aren't the person's.
-    ...(shadow
-      ? { tags: ["lifecycle-shadow"] }
-      : {
-          tags: ["journey", `node-${d.nodeId}`],
-          // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s}: a canvas node's id alone takes this form past Mandrill's 250 bytes.
-          metadata: await sendMetadata(
-            ctx,
-            {
-              tenantId: ctx.tenantId,
-              campaignId: campaign.id,
-              journeyId: journey.id,
-              nodeId: d.nodeId,
-              signupId: signup.id,
-              variantId: d.item.id,
-              recipientKind: "signup",
-            },
-            "waitlist_v2",
-            { db: deps.db, personId, made, kind: "send_time", counts: s.cache.counts },
-          ),
-        }),
+    ...(!sent ? { tags: ["lifecycle-shadow"] } : { tags: ["journey", `node-${d.nodeId}`], metadata: sent.metadata }),
   }).catch(
     // sendEmail doesn't throw; if it ever does, the message may have gone out.
     (err): EmailResult => ({ sent: false, provider: "mandrill", reason: err instanceof Error ? err.message.slice(0, 120) : "error", ambiguous: true }),
@@ -374,6 +372,8 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   if (result.sent || result.provider === "log" || result.ambiguous) {
     // Counted once per email, in the run's buffer; shadow mail goes to the operator, not a person.
     if (!shadow) s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
+    // Beside made, once the email went: a stamp its send record doesn't keep (4.2 row 4).
+    if (sent?.unrecorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts }, sent.unrecorded);
     // Recorded as the original engine records it (also for the log provider and
     // an ambiguous answer), so launch analytics count it the same way.
     if (!shadow) {

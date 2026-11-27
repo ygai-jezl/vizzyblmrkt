@@ -79,6 +79,20 @@ describe("publishing counts what happened to Vizzy's draft", () => {
     expect(cellOf(db)).toEqual({ v0: { none: { no_draft: 1 } } });
   });
 
+  it("counts the auto plug comment made once where its job is saved, rooted at its post", async () => {
+    vi.stubEnv("DISTRIBUTE_SOCIAL_ENABLED", "true");
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    const id = await scheduleDue(db, "n_x", "x", AI, stamp);
+    db.seed(COLLECTION, id, { ...(db.raw(COLLECTION, id) as object), autoPlug: { thresholdMetric: "likes", thresholdValue: 40, commentBody: "Order a loaf at Hearth Bakery" } });
+    expect(await processScheduledPosts(ctx, 25, db)).toMatchObject({ done: 1 });
+    const job = db.dump(COLLECTION).find((p) => p.jobKind === "auto_plug_comment")!;
+    expect(job.made).toMatchObject({ kind: "auto_plug", root: (stamp as { made: string }).made });
+    const week = sumWeek(db, ctx.tenantId, loopWeekOf(new Date())) as { c?: Record<string, Record<string, unknown>>; t?: Record<string, unknown> };
+    expect(week.c?.auto_plug?.auto_plug).toEqual({ v0: { none: { made: 1 } } });
+    expect(week.t).toMatchObject({ scheduled_post: { made: 1 } });
+  });
+
   it("with LOOPS_ENABLED off counts nothing (decision 22)", async () => {
     const db = new FakeFirestore();
     const { stamp } = await learnedFor(ctx, "content_write");

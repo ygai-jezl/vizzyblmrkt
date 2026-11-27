@@ -30,8 +30,12 @@ export interface UsageLimited {
 export interface UsageMeter {
   /** Before spending `units` (1 by default): null to go ahead, or the cap reached. */
   check(units?: number): Promise<UsageLimited | null>;
-  /** `lost`: the call failed after it may have spent units, so they couldn't be counted. `model`: AI model use only. */
-  record(units: number, opts?: { lost?: boolean; model?: string }): Promise<void>;
+  /**
+   * `lost`: the call failed after it may have spent units, so they couldn't be counted. `model`: AI
+   * model use only. `sameCall`: another record of a use already counted (a chat turn's second
+   * model), so its units count but no second call by purpose.
+   */
+  record(units: number, opts?: { lost?: boolean; model?: string; sameCall?: boolean }): Promise<void>;
 }
 
 export interface MeterDeps {
@@ -157,7 +161,7 @@ export function usageMeter<R extends ResourceId>(
                 lostCalls: lost ? 1 : 0,
                 byPurpose: { [purpose]: n },
                 // In the same merged increment: a call of this purpose, whatever it spent.
-                callsByPurpose: { [purpose]: 1 },
+                ...(recordOpts.sameCall ? {} : { callsByPurpose: { [purpose]: 1 } }),
                 ...(model ? { byModel: { [model]: n } } : {}),
               },
             },

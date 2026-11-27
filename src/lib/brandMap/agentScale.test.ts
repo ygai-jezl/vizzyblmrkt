@@ -125,7 +125,8 @@ describe("what Vizzy proposes on a map at any size", () => {
     vi.stubEnv("BRAND_MAP_SITUATIONS_ENABLED", "true");
     const grounded = vi.fn(async () => ({ text: "Q: Which AI engines should a brand watch first? | how_to | NEW: Engine coverage", model: "m", sources: [], supports: [] }));
     const r = await author({ mode: "situation_questions", situationId }, db, { ask: { modelReady: () => true, grounded, embed: quiet } });
-    expect(r).toMatchObject({ ok: true });
+    // The questions count their own made where they are filed: nothing more for the canvas route to count.
+    expect(r).toMatchObject({ ok: true, saved: "none" });
     if (r.ok) expect(r.summary).toBe("Proposed 1 question people in that situation ask (1 on new subjects): “Which AI engines should a brand watch first?”. Nothing else on the map has changed: an admin adds the questions on Brand › Brand map.");
     expect(await author({ mode: "situation_questions" }, db)).toMatchObject({ ok: false, status: 400 });
   });

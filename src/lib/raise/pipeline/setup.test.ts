@@ -82,7 +82,7 @@ describe("planRaiseSetup", () => {
     const kept = after.options!.filter((o) => stage.options!.some((s) => s.id === o.id));
     expect(kept.map((o) => [o.id, o.label])).toEqual(stage.options!.map((o) => [o.id, o.label]));
     expect(kept.map((o) => o.preset ?? null)).toEqual(["research", "contacted", null, "diligence", "committed", "passed"]);
-    expect(p.adopt).toEqual([{ label: "Stage" }]);
+    expect(p.adopt).toEqual([{ label: "Stage", preset: "raise.stage" }]);
     expect(p.addFields.map((f) => f.label)).not.toContain("Stage");
     expect(() => assertNoRemoval([stage], p.items)).not.toThrow();
   });
@@ -143,6 +143,19 @@ describe("planRaiseSetup", () => {
     expect(p.addFields).toEqual([]);
     expect(p.added).toEqual({ fields: 0, options: 6 });
     expect(raiseFieldsOf(p.items).kinds).toEqual(["raising", "funding"]);
+    // Stage and Relationship came from the first press: they gain options, and aren't called the team's own.
+    expect(p.adopt).toEqual([]);
+  });
+
+  it("names every field of the team's it starts using, even when it adds nothing", () => {
+    // A team that made all ten fields by hand, by the same names: nothing to add, everything used.
+    const own = plan([]).items.map(({ preset: _p, ...f }) => ({ ...f, ...(f.options ? { options: f.options.map(({ preset: _o, ...o }) => o) } : {}) }) as RecordField);
+    const p = plan(own);
+    expect(p.nothing).toBe(false);
+    expect(p.added).toEqual({ fields: 0, options: 0 });
+    expect(p.adopt.map((a) => a.label)).toEqual(own.map((f) => f.label));
+    expect(p.adopt.find((a) => a.preset === "raise.stage")).toEqual({ label: "Stage", preset: "raise.stage" });
+    expect(raiseFieldsOf(p.items).setUp).toBe(true);
   });
 
   it("sets up a plant shop's bank loan on its own", () => {
@@ -255,6 +268,28 @@ describe("the setup requests", () => {
     expect(second.body).toMatchObject({ added: { fields: 0, options: 0 }, message: "Everything is already here. Nothing was added.", rev: 1 });
     expect((await setupRequest(admin, { kit: "raising", extra: 1 }, { db, loadTenant })).status).toBe(400);
     expect((await setupRequest(admin, null, { db, loadTenant })).status).toBe(400);
+  });
+
+  it("say where the board is after a press that only uses the team's own fields", async () => {
+    const own = plan([]).items.map(({ preset: _p, ...f }) => ({ ...f, ...(f.options ? { options: f.options.map(({ preset: _o, ...o }) => o) } : {}) }) as RecordField);
+    await commitSettingsChange(admin, { subject: "fields:person", baseRev: 0, value: { items: own }, by, source: "editor" }, db);
+    const r = await setupRequest(admin, { kit: "raising", currency: "GBP" }, { db, loadTenant, nowIso: NOW, ...ids() });
+    expect(r.body).toMatchObject({ added: { fields: 0, options: 0 }, changed: true, board: "raising", message: "Nothing new was added. The board now uses fields you already have." });
+    expect((r.body as { adopted: string[] }).adopted).toHaveLength(10);
+    expect(versions(db).at(-1)!.message).toMatch(/^Set up for raising: used your Relationship, Firm and Tier and more$/);
+    const again = await setupRequest(admin, { kit: "raising" }, { db, loadTenant, nowIso: NOW, ...ids() });
+    expect(again.body).toMatchObject({ changed: false, board: "raising", adopted: [] });
+  });
+
+  it("answer no board while the team's own Stage is of another type", async () => {
+    await commitSettingsChange(admin, { subject: "fields:person", baseRev: 0, value: { items: [field("fld_textstage002", "Stage", "text")] }, by, source: "editor" }, db);
+    const r = await setupRequest(admin, { kit: "raising", currency: "GBP" }, { db, loadTenant, nowIso: NOW, ...ids() });
+    expect(r.body).toMatchObject({ changed: true, board: null });
+  });
+
+  it("give the preview its own counter, so trying kits never uses up the press", async () => {
+    for (let i = 0; i < 12; i++) expect((await setupPreviewRequest(admin, { kit: i % 2 ? "raising" : "funding" }, { db, loadTenant, nowIso: NOW })).status).toBe(200);
+    expect((await setupRequest(admin, { kit: "raising", currency: "GBP" }, { db, loadTenant, nowIso: NOW, ...ids() })).status).toBe(200);
   });
 
   it("pick the first kit from the business profile", () => {

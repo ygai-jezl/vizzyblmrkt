@@ -10,6 +10,8 @@ import type { RaiseKit } from "./presets";
  */
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
+/** "Stage, Tier and Cheque". */
+const listOf = (words: readonly string[]) => (words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : (words[0] ?? ""));
 
 /** What the board calls the people on it. */
 export const NOUNS: Record<RaiseKit, { one: string; many: string; tab: string }> = {
@@ -27,7 +29,7 @@ export function setupMessage(kit: RaiseKit, added: { fields: number; options: nu
     const list = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0]!;
     parts.push(`used your ${list}${used.length > 3 ? " and more" : ""}`);
   }
-  return `${name}: ${parts.join(", and ") || "nothing to add"}`.slice(0, 200);
+  return `${name}: ${parts.join(", and ") || "used what you already have"}`.slice(0, 200);
 }
 
 export const SETUP_WORDS = {
@@ -42,9 +44,22 @@ export const SETUP_WORDS = {
   } satisfies Record<RaiseKit, { button: string; line: string }>,
   amountsIn: "Amounts in",
   preview: (fields: number, options: number) => `Adds ${plural(fields, "field", "fields")} and ${plural(options, "option", "options")}.`,
+  /** A press that only starts using what the team has: nothing new to add. */
+  usesOnly: "Nothing new to add. The board will use fields you already have.",
+  /** The team's own fields a press starts using, named before anything changes. */
+  uses: (labels: readonly string[]) =>
+    labels.length === 1
+      ? `Uses your own ${labels[0]} field, so the board reads what is already in it.`
+      : `Uses your own ${listOf(labels)} fields, so the board reads what is already in them.`,
+  /** Their own Stage: who shows on the board straight away. */
+  usesStage: (label: string) => `Everyone who has a ${label} shows on the board.`,
   keeps: "Keeps every field and option you already have, in the order you have them.",
   busy: "Setting up…",
   done: (fields: number, options: number) => `Added ${plural(fields, "field", "fields")} and ${plural(options, "option", "options")}.`,
+  doneUses: "Nothing new was added. The board now uses fields you already have.",
+  /** The preview didn't load for the kit and currency picked: the button waits for it. */
+  previewLoading: "Working out what this adds…",
+  tryAgain: "Try again",
   where: (kit: RaiseKit) => `Your board is on People, under ${NOUNS[kit].tab}.`,
   openBoard: "Open the board",
   nothing: "Everything is already here. Nothing was added.",

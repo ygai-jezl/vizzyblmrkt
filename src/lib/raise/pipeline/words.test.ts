@@ -55,7 +55,19 @@ describe("the board's words", () => {
     expect(setupMessage("raising", { fields: 9, options: 7 }, ["Stage"])).toBe("Set up for raising: added 9 fields and 7 options, and used your Stage");
     expect(setupMessage("funding", { fields: 0, options: 6 }, ["Stage", "Relationship"])).toBe("Set up for funding: added 0 fields and 6 options, and used your Stage and Relationship");
     expect(setupMessage("raising", { fields: 0, options: 0 }, ["Stage"])).toBe("Set up for raising: used your Stage");
+    // Only options of the team's marked: a version still says what it did.
+    expect(setupMessage("raising", { fields: 0, options: 0 }, [])).toBe("Set up for raising: used what you already have");
     expect(setupMessage("raising", { fields: 1, options: 1 }, Array.from({ length: 9 }, () => "x".repeat(60))).length).toBeLessThanOrEqual(200);
+  });
+
+  it("name the team's own fields a press uses", () => {
+    expect(SETUP_WORDS.uses(["Stage"])).toBe("Uses your own Stage field, so the board reads what is already in it.");
+    expect(SETUP_WORDS.uses(["Stage", "Priority", "Amount"])).toBe("Uses your own Stage, Priority and Amount fields, so the board reads what is already in them.");
+    expect(SETUP_WORDS.usesStage("Stage")).toBe("Everyone who has a Stage shows on the board.");
+    for (const t of [SETUP_WORDS.uses(["Stage", "Priority"]), SETUP_WORDS.usesStage("Stage"), SETUP_WORDS.usesOnly, SETUP_WORDS.doneUses, SETUP_WORDS.previewLoading]) {
+      expect(dashesIn(t), t).toEqual([]);
+      expect(aiTellsIn(t), t).toEqual([]);
+    }
   });
 
   it("word Review's rows with only the stage's name", () => {

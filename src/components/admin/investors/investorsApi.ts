@@ -74,7 +74,8 @@ export interface SetupPreview {
   plan: {
     addFields: Array<{ label: string; type: string }>;
     addOptions: Array<{ field: string; label: string }>;
-    adopt: Array<{ label: string }>;
+    /** The team's own fields a press starts using, with the ready-made field each becomes. */
+    adopt: Array<{ label: string; preset: string }>;
     kept: Array<{ label: string; note: string }>;
     nothing: boolean;
   };
@@ -86,9 +87,11 @@ export interface SetupDone {
   kept: Array<{ label: string; note: string }>;
   message: string;
   rev: number;
+  /** A new version was saved: fields or options added, or the team's own marked. */
+  changed: boolean;
   boardHref: string;
-  /** The board's tab after the press: funding only while the brand has no raising stage. */
-  board?: RaiseKit;
+  /** The board's tab after the press, funding only while the brand has no raising stage; null while it has no board. */
+  board: RaiseKit | null;
 }
 
 export function setupPreview(kit?: RaiseKit, currency?: string) {

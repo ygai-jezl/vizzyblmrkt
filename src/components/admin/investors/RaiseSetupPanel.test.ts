@@ -7,7 +7,7 @@ import type { SetupPreview } from "./investorsApi";
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { kitOrder, previewLines, SetupView } = await import("./RaiseSetupPanel");
+const { kitOrder, pressOutcome, previewIsFor, previewLines, SetupView } = await import("./RaiseSetupPanel");
 
 // A plant shop that keeps its own Stage field: funding adds the fields it lacks and four stages.
 const PLAN: SetupPreview["plan"] = {
@@ -20,7 +20,7 @@ const PLAN: SetupPreview["plan"] = {
     { field: "Stage", label: "Plan" },
     { field: "Stage", label: "Applied" },
   ],
-  adopt: [{ label: "Stage" }],
+  adopt: [{ label: "Stage", preset: "raise.stage" }],
   kept: [{ label: "Tier", note: SETUP_WORDS.keptArchived("Tier") }],
   nothing: false,
 };
@@ -51,6 +51,7 @@ describe("Ready-made fields", () => {
     expect(previewLines(PLAN)).toEqual({
       summary: "Adds 2 fields and 3 options.",
       lines: ["Relationship, Firm", "Stage: Plan, Applied"],
+      uses: ["Uses your own Stage field, so the board reads what is already in it.", "Everyone who has a Stage shows on the board."],
       keeps: SETUP_WORDS.keeps,
       notes: ["You archived ‘Tier’, so it stays archived. Bring it back in Data model if you want it."],
     });
@@ -58,10 +59,50 @@ describe("Ready-made fields", () => {
 
   it("says when everything is already here, and the button stays", () => {
     const nothing = { addFields: [], addOptions: [], adopt: [], kept: [], nothing: true };
-    expect(previewLines(nothing)).toEqual({ summary: SETUP_WORDS.nothing, lines: [], keeps: null, notes: [] });
+    expect(previewLines(nothing)).toEqual({ summary: SETUP_WORDS.nothing, lines: [], uses: [], keeps: null, notes: [] });
     const html = view({ preview: preview(nothing) });
     expect(html).toContain(SETUP_WORDS.nothing);
     expect(html).toContain(`>${SETUP_WORDS.kits.funding.button}</button>`);
+  });
+
+  it("names the team's own fields before a press that only uses them, never Adds 0 fields", () => {
+    // A plant shop's own Stage (Lead, Customer) and Amount, found by name: nothing new, both used.
+    const adoptOnly = { addFields: [], addOptions: [], adopt: [{ label: "Stage", preset: "raise.stage" }, { label: "Amount", preset: "raise.cheque" }], kept: [], nothing: false };
+    const lines = previewLines(adoptOnly);
+    expect(lines.summary).toBe(SETUP_WORDS.usesOnly);
+    expect(lines.uses).toEqual(["Uses your own Stage and Amount fields, so the board reads what is already in them.", "Everyone who has a Stage shows on the board."]);
+    const html = view({ preview: preview(adoptOnly) });
+    expect(html).not.toContain("Adds 0 fields");
+    expect(html).toContain("Everyone who has a Stage shows on the board.");
+    // Not their Stage: no line about who shows.
+    expect(previewLines({ ...adoptOnly, adopt: [{ label: "Amount", preset: "raise.cheque" }] }).uses).toEqual(["Uses your own Amount field, so the board reads what is already in it."]);
+  });
+
+  it("never shows or presses an old kit's plan while the new pick's preview loads or fails", () => {
+    expect(previewIsFor(preview(), "funding", "GBP")).toBe(true);
+    expect(previewIsFor(preview(), "raising", "GBP")).toBe(false);
+    expect(previewIsFor(preview(), "funding", "EUR")).toBe(false);
+    expect(previewIsFor(null, "funding", "GBP")).toBe(false);
+    const press = `>${SETUP_WORDS.kits.raising.button}</button>`;
+    // Raising picked, the box still holding funding's plan: no plan shown, the button waits.
+    const loading = view({ kit: "raising", looking: true });
+    expect(loading).toContain(SETUP_WORDS.previewLoading);
+    expect(loading).not.toContain("Adds 2 fields and 3 options.");
+    expect(loading).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*${press}`));
+    const failed = view({ kit: "raising", previewError: SETUP_WORDS.errors.fields_changed, onRetry: () => {} });
+    expect(failed).toContain(SETUP_WORDS.errors.fields_changed);
+    expect(failed).toContain(SETUP_WORDS.tryAgain);
+    expect(failed).not.toContain("Adds 2 fields and 3 options.");
+    expect(failed).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*${press}`));
+    // The preview for the pick: the button can be pressed.
+    expect(view()).not.toMatch(/<button[^>]*disabled=""/);
+  });
+
+  it("says where the board is after any press on a brand with a board, and reloads the fields only after a change", () => {
+    const base = { message: SETUP_WORDS.doneUses, boardHref: "/admin/crm?tab=investors" };
+    expect(pressOutcome({ ...base, board: "funding", changed: true })).toEqual({ done: { message: SETUP_WORDS.doneUses, board: "funding", href: "/admin/crm?tab=investors" }, reload: true });
+    expect(pressOutcome({ ...base, message: SETUP_WORDS.nothing, board: "raising", changed: false })).toMatchObject({ done: { board: "raising" }, reload: false });
+    expect(pressOutcome({ ...base, board: null, changed: true }).done.board).toBeNull();
   });
 
   it("draws both kits, the currency, the preview and the press", () => {

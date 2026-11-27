@@ -45,8 +45,11 @@ export interface SetupPlan {
   items: RecordField[];
   addFields: Array<{ label: string; type: FieldType }>;
   addOptions: Array<{ field: string; label: string }>;
-  /** The team's own fields the press uses (marked, nothing else changed). */
-  adopt: Array<{ label: string }>;
+  /**
+   * The team's own fields the press starts using: each gains its ready-made marker (and maybe kit
+   * options) and keeps its name, type and values. Never a field an earlier press made or marked.
+   */
+  adopt: Array<{ label: string; preset: string }>;
   kept: Array<{ label: string; note: string }>;
   added: { fields: number; options: number };
   nothing: boolean;
@@ -91,7 +94,8 @@ export function planRaiseSetup(items: readonly RecordField[], kit: RaiseKit, opt
   let next: RecordField[] = [...items];
   const plan: Omit<SetupPlan, "items" | "nothing" | "ok"> = { addFields: [], addOptions: [], adopt: [], kept: [], added: { fields: 0, options: 0 } };
   const claimed = new Set<string>();
-  const touched = new Set<string>();
+  /** The team's own fields marked by this press, by key, with the preset each takes. */
+  const adopted = new Map<string, string>();
   const madeNow = new Set<string>();
   const people = (f: RecordField) => f.object === "person";
 
@@ -104,7 +108,7 @@ export function planRaiseSetup(items: readonly RecordField[], kit: RaiseKit, opt
       if (i < 0) i = next.findIndex((f) => free(f) && fits(f) && labelMatches(f.label, p));
       if (i >= 0) {
         next = next.map((f, j) => (j === i ? ({ ...f, preset: p.preset } as RecordField) : f));
-        touched.add(next[i]!.key);
+        adopted.set(next[i]!.key, p.preset);
       } else {
         const sameName = next.find((f) => free(f) && sameLabel(f.label, p.label));
         if (sameName) {
@@ -158,13 +162,13 @@ export function planRaiseSetup(items: readonly RecordField[], kit: RaiseKit, opt
       plan.added.options += 1;
       changed = true;
     });
-    if (changed) {
-      next = next.map((x) => (x.key === f.key ? ({ ...x, options } as RecordField) : x));
-      touched.add(f.key);
-    }
+    if (changed) next = next.map((x) => (x.key === f.key ? ({ ...x, options } as RecordField) : x));
   }
 
-  for (const f of items) if (touched.has(f.key)) plan.adopt.push({ label: f.label });
+  for (const f of items) {
+    const preset = adopted.get(f.key);
+    if (preset) plan.adopt.push({ label: f.label, preset });
+  }
   if (fieldListProblems(next, "person").length) return { ok: false, error: "field_list_full" };
   const nothing = JSON.stringify(next) === JSON.stringify(items);
   if (!nothing && !FieldListSchema.safeParse({ items: next }).success) return { ok: false, error: "invalid_field" };
@@ -232,7 +236,7 @@ export async function applyRaiseSetup(
       },
       db,
     );
-    if (r.ok) return { ok: true, plan, rev: r.rev, message: SETUP_WORDS.done(plan.added.fields, plan.added.options) };
+    if (r.ok) return { ok: true, plan, rev: r.rev, message: plan.added.fields + plan.added.options > 0 ? SETUP_WORDS.done(plan.added.fields, plan.added.options) : SETUP_WORDS.doneUses };
   }
   return { ok: false, error: "fields_changed" };
 }
@@ -242,6 +246,8 @@ export async function applyRaiseSetup(
 export type ApiResult = { status: number; body: unknown };
 
 export const SETUP_LIMIT: RateLimitConfig = { prefix: "raise_setup", burstLimit: 10, hourlyLimit: 60 };
+/** The preview's own counter, so trying the other kit or currency never uses up the press's. */
+export const SETUP_PREVIEW_LIMIT: RateLimitConfig = { prefix: "raise_setup_preview", burstLimit: 30, hourlyLimit: 300 };
 export const BOARD_HREF = "/admin/crm?tab=investors";
 
 export interface SetupDeps {
@@ -271,7 +277,7 @@ const shownPlan = (p: SetupPlan) => ({ addFields: p.addFields, addOptions: p.add
 export async function setupPreviewRequest(ctx: TenantContext, query: Record<string, string>, deps: SetupDeps = {}): Promise<ApiResult> {
   const q = PreviewQuery.safeParse(query);
   if (!q.success) return { status: 400, body: { error: "invalid_input" } };
-  if (await isRateLimited(`tenant:${ctx.tenantId}`, SETUP_LIMIT, { db: deps.db })) return LIMITED;
+  if (await isRateLimited(`tenant:${ctx.tenantId}`, SETUP_PREVIEW_LIMIT, { db: deps.db })) return LIMITED;
   const [tenant, list] = await Promise.all([(deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null), readFieldList(ctx, "person", deps.db)]);
   const firstKit = firstKitOf(tenant);
   const kit = q.data.kit ?? firstKit;
@@ -293,6 +299,7 @@ export async function setupRequest(ctx: TenantContext, raw: unknown, deps: Setup
     deps.db,
   );
   if (!r.ok) return { status: STATUS[r.error], body: { error: r.error } };
+  const after = raiseFieldsOf(r.plan.items);
   return {
     status: 200,
     body: {
@@ -301,9 +308,12 @@ export async function setupRequest(ctx: TenantContext, raw: unknown, deps: Setup
       kept: r.plan.kept,
       message: r.message,
       rev: r.rev,
+      // A new version was saved (fields or options added, or the team's own marked).
+      changed: !r.plan.nothing,
       boardHref: BOARD_HREF,
-      // The board's tab after the press: Funding only while the brand has no raising stage.
-      board: boardKind(raiseFieldsOf(r.plan.items).kinds),
+      // The board's tab after the press, Funding only while the brand has no raising stage; null
+      // while it has no board (its own Stage is of another type).
+      board: after.setUp ? boardKind(after.kinds) : null,
     },
   };
 }

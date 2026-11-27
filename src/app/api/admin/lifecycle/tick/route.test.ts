@@ -38,6 +38,8 @@ const agentRecord = vi.hoisted(() => ({ runAgentRecordCatchUp: vi.fn(async () =>
 vi.mock("@/lib/agentRecord/catchUp", () => (loaded.add("agent-record"), agentRecord));
 const raiseFollowups = vi.hoisted(() => ({ runRaiseFollowups: vi.fn(async () => ({ brands: 1, proposed: 2, acted: 0, cleared: 1, expired: 0 })) }));
 vi.mock("@/lib/raise/pipeline/followupsTick", () => (loaded.add("raise-followups"), raiseFollowups));
+const translations = vi.hoisted(() => ({ runTranslations: vi.fn(async () => ({ brands: 1, planned: 1, queued: 2, made: 2, failed: 0, capped: 0 })) }));
+vi.mock("@/lib/i18n/translationsTick", () => (loaded.add("translations"), translations));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
 const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
@@ -305,6 +307,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
     ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
     ["raise-followups", "@/lib/raise/pipeline/followupsTick", raiseFollowups],
+    ["translations", "@/lib/i18n/translationsTick", translations],
   ];
 
   /**
@@ -393,6 +396,29 @@ describe("each job's code loads only when its switch is on", () => {
     const own = await post(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
     expect(await own.json()).toMatchObject({ ok: true, mode: "tenant" });
     expect(raiseFollowups.runRaiseFollowups).not.toHaveBeenCalled();
+  });
+
+  it("loads the translations lane only with ASSET_TRANSLATIONS_ENABLED and what it needs on, within its budget, never on an admin's own call", async () => {
+    for (const n of ["LANGUAGE_READERS_ENABLED", "CONTENT_LANGUAGE_ENABLED"]) vi.stubEnv(n, "true");
+    vi.stubEnv("ASSET_TRANSLATIONS_ENABLED", "true");
+    // The readers per language need the person records too: without them, no lane.
+    let post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).not.toContain("translations");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, translations: { brands: 1, made: 2 } });
+    expect(jobLines().some((l) => /^\[tick\] translations \d+ms$/.test(l))).toBe(true);
+    const [{ deadlineMs }] = translations.runTranslations.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(95_000 + 1000);
+    translations.runTranslations.mockClear();
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_a", region: "us", source: "idtoken", userId: "u_admin", role: "admin" });
+    post = await freshRoute();
+    const own = await post(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
+    expect(await own.json()).toMatchObject({ ok: true, mode: "tenant" });
+    expect(translations.runTranslations).not.toHaveBeenCalled();
   });
 
   it("loads How it went's monthly look only with STRATEGY_RESULTS_ENABLED and the strategy on, within its own 25 s budget, whatever Competitors says", async () => {

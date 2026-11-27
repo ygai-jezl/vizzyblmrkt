@@ -17,6 +17,18 @@ import { EditModeView } from "../editor/EditModeView";
 import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
 import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
 import { useWords } from "../nav/WordsProvider";
+import type { EmailLanguage } from "@/lib/email/emailRender";
+import type { TranslationsViewBody } from "@/lib/i18n/translationsAdmin";
+import type { EmailWords } from "@/lib/types/translation";
+import { LanguageStrip, TranslationPanel } from "./LanguageTabs";
+
+/** The journey's translations (ASSET_TRANSLATIONS_ENABLED), for each email's language tabs. */
+export interface PoolTranslations {
+  journeyId: string;
+  view: TranslationsViewBody;
+  canAct: boolean;
+  onChanged: () => void;
+}
 
 /**
  * Content pools: the emails each Email step can send. A step sends the FIRST
@@ -74,6 +86,7 @@ function renderWaitlistPreview(
   launchName: string,
   brand: string,
   style: ResolvedEmailStyle | null,
+  language: EmailLanguage | null = null,
 ): { subject: string; html: string } {
   const signup = { id: "preview", firstName: "Alex", lastName: "Doe", email: "alex@example.com", amountReferred: 2, referralLink: "https://example.com/r/alex" } as unknown as Signup;
   const campaign = { id: "preview", waitlistName: launchName, productName: launchName } as unknown as Campaign;
@@ -81,6 +94,8 @@ function renderWaitlistPreview(
     { subject: item.subject, body: item.body, heroImageUrl: item.heroImageUrl ?? null },
     { signup, campaign, rank: 12, footer: { brand, unsubscribeUrl: "#", managePreferencesUrl: "#", privacyUrl: "#" } },
     style,
+    undefined,
+    language,
   );
   return { subject: c.subject, html: c.html };
 }
@@ -113,6 +128,7 @@ export function PoolsEditor({
   onFocusPool,
   onChange,
   waitlist = false,
+  translations = null,
 }: {
   pools: ContentPool[];
   fields: FieldOption[];
@@ -130,6 +146,8 @@ export function PoolsEditor({
   onChange: (pools: ContentPool[]) => void;
   /** A launch's welcome journey (engine move): `productName` is then the launch's name. */
   waitlist?: boolean;
+  /** Each email's language tabs (ASSET_TRANSLATIONS_ENABLED); null = none, as before. */
+  translations?: PoolTranslations | null;
 }) {
   const current = pools.find((p) => p.id === focusPoolId) ?? pools[0] ?? null;
   const w = ideaWord(useWords().ideas);
@@ -139,7 +157,8 @@ export function PoolsEditor({
   const setItems = (pool: ContentPool, items: PoolItem[]) => setPool(pool.id, { items });
 
   const addPool = () => {
-    const id = uniqueId("pool", new Set(pools.map((p) => p.id)));
+    // Random like a new email's id, so a pool added after one was deleted never inherits its translations.
+    const id = uniqueId(`pool_${Math.random().toString(36).slice(2, 6)}`, new Set(pools.map((p) => p.id)));
     onChange([...pools, { id, label: "New content", items: [waitlist ? waitlistItem("control", "Email") : blankItem("email_1")] }]);
     onFocusPool(id);
   };
@@ -249,6 +268,8 @@ export function PoolsEditor({
                   emailStyleEnabled={emailStyleEnabled}
                   readOnly={readOnly}
                   waitlist={waitlist ? { launchName: productName, brand, arm: current.abTest ? (i === 0 ? "Control" : `Variant ${String.fromCharCode(65 + i)}`) : null } : null}
+                  poolId={current.id}
+                  translations={translations}
                   onChange={(next) => setItems(current, current.items.map((x, j) => (j === i ? next : x)))}
                   onMove={(dir) => {
                     const items = [...current.items];
@@ -269,7 +290,9 @@ export function PoolsEditor({
           {!readOnly && !waitlist && current.items.length < 10 ? (
             <Button
               onClick={() => {
-                const id = uniqueId(`email_${current.items.length + 1}`, new Set(current.items.map((x) => x.id)));
+                // A short random part, so a new email never takes the id of one deleted before: a
+                // translation kept for that one (ASSET_TRANSLATIONS_ENABLED) can't fit this one.
+                const id = uniqueId(`email_${current.items.length + 1}_${Math.random().toString(36).slice(2, 6)}`, new Set(current.items.map((x) => x.id)));
                 setItems(current, [...current.items, blankItem(id)]);
               }}
             >
@@ -328,6 +351,8 @@ function ItemEditor({
   emailStyleEnabled,
   readOnly,
   waitlist,
+  poolId,
+  translations,
   onChange,
   onMove,
   onRemove,
@@ -342,6 +367,8 @@ function ItemEditor({
   readOnly: boolean;
   /** A launch's welcome-journey email: its launch, brand, and A/B arm label. */
   waitlist: { launchName: string; brand: string; arm: string | null } | null;
+  poolId: string;
+  translations: PoolTranslations | null;
   onChange: (next: PoolItem) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -358,6 +385,15 @@ function ItemEditor({
     return renderLifecycleEmail({ item, values, style: emailStyle });
   }, [preview, item, values, waitlist, emailStyle]);
   const eligibility = item.eligibility ?? { match: "all" as const, conditions: [] };
+  // Its language tabs (ASSET_TRANSLATIONS_ENABLED): only once the email is in the published journey.
+  const [lang, setLang] = useState<string | null>(null);
+  const tabs = translations?.view.emails.find((e) => e.poolId === poolId && e.itemId === item.id)?.tabs ?? null;
+  const selectedTab = (lang && tabs?.find((t) => t.lang === lang)) || null;
+  const names = Object.fromEntries((translations?.view.languages ?? []).map((l) => [l.code, l.nativeName]));
+  const previewIn = (words: EmailWords, language: EmailLanguage | null) =>
+    waitlist
+      ? renderWaitlistPreview({ ...item, ...words }, waitlist.launchName, waitlist.brand, emailStyle, language)
+      : renderLifecycleEmail({ item: { ...item, ...words }, values, style: emailStyle, language });
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800">
@@ -388,6 +424,22 @@ function ItemEditor({
       </div>
       {open ? (
         <div className="space-y-3 border-t border-neutral-200 p-3 dark:border-neutral-800">
+          {translations && tabs?.length ? (
+            <LanguageStrip baseName={translations.view.base.nativeName} tabs={tabs} names={names} selected={selectedTab ? lang : null} onSelect={setLang} />
+          ) : null}
+          {translations && selectedTab ? (
+            <TranslationPanel
+              journeyId={translations.journeyId}
+              tab={selectedTab}
+              view={translations.view}
+              base={{ subject: item.subject, previewText: item.previewText ?? null, body: item.body }}
+              waitlist={Boolean(waitlist)}
+              canAct={translations.canAct}
+              preview={previewIn}
+              onChanged={translations.onChanged}
+            />
+          ) : (
+          <>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Name (internal)">
               <input className={inputClass} value={item.label} disabled={readOnly} onChange={(e) => set({ label: e.target.value.slice(0, 120) })} />
@@ -505,6 +557,8 @@ function ItemEditor({
               </div>
             ) : null}
           </div>
+          </>
+          )}
         </div>
       ) : null}
     </div>

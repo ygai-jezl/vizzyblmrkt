@@ -10,6 +10,7 @@ import {
   renderFooter,
   wrap,
   wrapLetter,
+  type EmailLanguage,
 } from "@/lib/email/emailRender";
 import { accentFor, readableOn, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { fontFor } from "@/lib/email/emailFonts";
@@ -149,16 +150,18 @@ function checklistBlock(steps: RenderValues["checklist"], emailStyle: ResolvedEm
 }
 
 /** One line per entity: its name, its progress, and a few of its facts. Nothing when there are none. */
-function entitiesBlock(e: RenderValues["entities"], letter: boolean, emailStyle: ResolvedEmailStyle | null): string {
+function entitiesBlock(e: RenderValues["entities"], letter: boolean, emailStyle: ResolvedEmailStyle | null, language: EmailLanguage | null = null): string {
   if (!e || e.rows.length === 0) return "";
+  const stepsDone = (done: number, total: number) =>
+    language ? language.stepsDone.replace("{done}", String(done)).replace("{total}", String(total)) : `${done} of ${total} steps done`;
   const line = (r: NonNullable<RenderValues["entities"]>["rows"][number]) => {
     const parts = [
-      ...(r.total > 0 ? [`${r.done} of ${r.total} steps done`] : []),
+      ...(r.total > 0 ? [stepsDone(r.done, r.total)] : []),
       ...r.facts.map((f) => `${f.label}: ${f.value}`),
     ];
     return `<strong>${escapeHtml(r.name)}</strong>${parts.length ? ` — ${escapeHtml(parts.join(" · "))}` : ""}`;
   };
-  const more = e.more > 0 ? `and ${e.more} more` : "";
+  const more = e.more > 0 ? (language ? language.more.replace("{n}", String(e.more)) : `and ${e.more} more`) : "";
   if (letter) return `<p style="margin:0 0 16px">${e.rows.map(line).join("<br>")}${more ? `<br>${more}` : ""}</p>`;
   const font = fontFor(emailStyle, "body");
   const rows = e.rows
@@ -195,6 +198,8 @@ interface RenderState {
   insightUsed: boolean;
   /** The Email style whose accent the blocks use; null = today's #111 (always, for letters). */
   emailStyle: ResolvedEmailStyle | null;
+  /** Sent in another language (ASSET_TRANSLATIONS_ENABLED): the blocks' fixed words in it. */
+  language: EmailLanguage | null;
 }
 
 function renderTokens(
@@ -210,7 +215,7 @@ function renderTokens(
       if (mode === "text") return "";
       if (key === "block.checklist") return checklistBlock(v.checklist, st.emailStyle);
       if (key === "block.next_step") return nextStepBlock(v.nextStep, letter, st.emailStyle);
-      if (key === "block.entities") return entitiesBlock(v.entities, letter, st.emailStyle);
+      if (key === "block.entities") return entitiesBlock(v.entities, letter, st.emailStyle, st.language);
       if (key === "block.insight") {
         if (v.insight) st.insightUsed = true;
         return insightBlock(v.insight, letter, st.emailStyle);
@@ -251,12 +256,18 @@ export function renderLifecycleEmail(input: {
   shadowFor?: string | null;
   /** The tenant's resolved Email style (branded emails only); null/absent = today's look. */
   style?: ResolvedEmailStyle | null;
+  /**
+   * The email goes out in another language (ASSET_TRANSLATIONS_ENABLED): `item` holds its words,
+   * and this its code, direction and the footer's and blocks' fixed words. Absent: as today.
+   */
+  language?: EmailLanguage | null;
 }): RenderedEmail {
   const { item, values } = input;
   const letter = item.format === "letter";
   // Letters stay plain: no band, and the blocks keep today's colours.
   const style = letter ? null : (input.style ?? null);
-  const st: RenderState = { missing: new Set<string>(), insightUsed: false, emailStyle: style };
+  const language = input.language ?? null;
+  const st: RenderState = { missing: new Set<string>(), insightUsed: false, emailStyle: style, language };
 
   const subject = renderTokens(item.subject, values, "text", letter, st).replace(/[\r\n]+/g, " ").trim();
 
@@ -266,7 +277,7 @@ export function renderLifecycleEmail(input: {
   const source = item.layout ? renderEmailLayout(item.layout, { style }) : item.body;
   let inner = looksHtml(source) ? source : paragraphize(escapeHtml(source));
   inner = inner.replace(/<p>\s*(\{\{\s*block\.[a-z_]+\s*\}\})\s*<\/p>/g, "$1");
-  if (!hasFooter(inner)) inner += renderFooter(null, { withAddress: Boolean(values.footer.postalAddress), style });
+  if (!hasFooter(inner)) inner += renderFooter(null, { withAddress: Boolean(values.footer.postalAddress), style, words: language?.footer });
 
   const body =
     (input.shadowFor ? shadowBanner(input.shadowFor, style) : "") +
@@ -275,7 +286,9 @@ export function renderLifecycleEmail(input: {
   return {
     subject,
     // wrap() puts the preheader ahead of the band, so the band never becomes the inbox snippet.
-    html: letter ? wrapLetter(preheaderHtml(preheader) + body) : wrap(body, null, { style, preheader }),
+    html: letter
+      ? wrapLetter(preheaderHtml(preheader) + body, language ? { lang: language.lang, dir: language.dir } : {})
+      : wrap(body, null, { style, preheader, ...(language ? { lang: language.lang, dir: language.dir } : {}) }),
     text: htmlToText(body),
     missing: [...st.missing],
     insightUsed: st.insightUsed,

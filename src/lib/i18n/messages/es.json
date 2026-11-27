@@ -122,5 +122,11 @@
   "article.keyTakeaways": "Puntos clave",
   "article.bottomLine": "En conclusión",
   "article.sources": "Fuentes",
-  "article.aboutAuthor": "Sobre el autor"
+  "article.aboutAuthor": "Sobre el autor",
+  "email.footer.sentBy": "{{sender_brand}} te ha enviado este correo.",
+  "email.footer.preferences": "Gestionar preferencias",
+  "email.footer.unsubscribe": "Darse de baja",
+  "email.footer.privacy": "Política de privacidad",
+  "email.steps.done": "{done} de {total} pasos completados",
+  "email.steps.more": "y {n} más"
 }

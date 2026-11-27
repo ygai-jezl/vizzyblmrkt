@@ -619,6 +619,7 @@ An email journey on the lifecycle engine, for a product's users or a launch's wa
   - `lifecycle_journeys`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `lifecycle_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Published versions never change.
   - `lifecycle_counters`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `translations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Its emails in other languages, each with a draft and the approved words.
 - Links: `enrolment` through journeyId (many); `product` through connectionId; `idea` through campaignId, for a waitlist journey
 - Erase:
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (a launch's waitlist journey goes with it)
@@ -626,7 +627,7 @@ An email journey on the lifecycle engine, for a product's users or a launch's wa
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `journey_email`
 - Numbers: `sends`, `delivered`, `people`, `deliveryRate`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `totalOpens`, `totalClicks`, `hardBounces`, `softBounces`, `deferrals`, `complaints`, `unsubscribes`, through `get_email_results`
-- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape`, `ab_winner` (see Learning)
+- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape`, `ab_winner`, `translation` (see Learning)
 
 ### Journey enrolment (`enrolment`)
 
@@ -2124,11 +2125,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-103 kinds: 0 learn, 0 fleet only, 26 own, 35 gap and 42 none.
+104 kinds: 0 learn, 0 fleet only, 26 own, 36 gap and 42 none.
 
-124 call sites: 0 learn, 0 fleet only, 36 own, 41 gap and 47 none.
+125 call sites: 0 learn, 0 fleet only, 36 own, 42 gap and 47 none.
 
-Not learning: 88 of 124 call sites, under gap and none lines.
+Not learning: 89 of 125 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2259,6 +2260,8 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
+- `translation` (AI purpose, Email translations), look again by 2027-05-01. A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.
+  - `src/lib/i18n/translate.ts`
 - `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.
   - `src/app/api/admin/agent/chat/route.ts`
 - `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.

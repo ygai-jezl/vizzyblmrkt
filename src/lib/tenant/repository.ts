@@ -73,6 +73,7 @@ import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
 import type { BusinessFact, OnboardingConversation } from "@/lib/types/onboarding";
 import type { NextActionRecord } from "@/lib/types/nextAction";
+import type { Translation } from "@/lib/types/translation";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -666,6 +667,11 @@ export interface TenantRepositories {
    * and the newest outcomes of its steps (./nextActionCards.ts and src/lib/nextAction/service.ts).
    */
   nextActionCards: TenantCollection<NextActionRecord>;
+  /**
+   * Journey emails in other languages (ASSET_TRANSLATIONS_ENABLED): one record per email and
+   * language, its draft and its approved words (./translations.ts, src/lib/i18n/).
+   */
+  translations: TenantCollection<Translation>;
 }
 
 /**
@@ -843,5 +849,7 @@ export function forTenant(
     businessFacts: new TenantCollection<BusinessFact>(regionalDb, "business_facts", t),
     // The card can hold the founder's words (its lines, a dismissal's reason): regional, beside the facts.
     nextActionCards: new TenantCollection<NextActionRecord>(regionalDb, "next_action_cards", t),
+    // A brand's own email words in another language: regional, beside the journeys they translate.
+    translations: new TenantCollection<Translation>(regionalDb, "translations", t),
   };
 }

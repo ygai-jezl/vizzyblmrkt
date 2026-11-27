@@ -90,6 +90,8 @@ interface Shell {
   languageReaders: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server), for the How to drawer. */
   raiseFollowUps: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), from the server), for the How to drawer. */
+  assetTranslations: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -158,6 +160,7 @@ export function ShellProvider({
   agentRecord = false,
   languageReaders = false,
   raiseFollowUps = false,
+  assetTranslations = false,
   children,
 }: {
   names: CrumbNames;
@@ -231,6 +234,8 @@ export function ShellProvider({
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server): the How to drawer says so. */
   raiseFollowUps?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), from the server): the How to drawer says so. */
+  assetTranslations?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -333,9 +338,10 @@ export function ShellProvider({
       agentRecord,
       languageReaders,
       raiseFollowUps,
+      assetTranslations,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, saved, work, workVizzy],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, assetTranslations, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

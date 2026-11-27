@@ -124,7 +124,7 @@ def test_root_reads_pasted_lists_through_the_app_and_never_records_consent():
     # Each setup guide message read_help_page can return is covered by name, and the general setup
     # rule ("help from what you know") never names a list.
     assert "isn't switched on" in shc._ERRORS["unavailable"] and "isn't available" in shc._ERRORS["canvas_auth_unconfigured"]
-    assert "except for where to find investors or a list, where you name no list" in ROOT_SYSTEM_INSTRUCTION
+    assert "except for where to find investors, lenders or a public list of them to start from, where you name no list" in ROOT_SYSTEM_INSTRUCTION
     # The pasted list line comes right after the add a person line.
     assert ROOT_SYSTEM_INSTRUCTION.index("To **add a pasted list**") > ROOT_SYSTEM_INSTRUCTION.index("To **add a person**")
     for text in [*plc._ERRORS.values(), plc._TOO_LONG]:

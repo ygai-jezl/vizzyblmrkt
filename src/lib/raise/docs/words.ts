@@ -322,3 +322,42 @@ export const PRESENT_WORDS = {
 
 /** The card Vizzy's chat shows after it saves a deck. */
 export const CARD_NOTE = "A draft. Nothing is sent or shared.";
+
+// ----- Vizzy in chat (src/lib/canvas/kinds/raiseDeck.ts) ----------------------------------------
+
+/** What Vizzy relays after it drafts or changes a deck. Vizzy says these, so they speak as "I". */
+export const CHAT_WORDS = {
+  drafted: (slides: number, kind: string) => `Saved a first draft of ${slides} slides as version 1 (${kind}).`,
+  outlineOnly: "I couldn't write the words just now, so each slide says what goes there. Ask me to draft it again later.",
+  needs: (n: number, list: string) => `${n} ${n === 1 ? "slide still needs" : "slides still need"} something: ${list}.`,
+  noNeeds: "No slide is waiting on anything.",
+  checks: (n: number) => (n === 0 ? "No checks to look at." : `${n} ${n === 1 ? "check" : "checks"} to look at on the deck's page.`),
+  draftOnly: "It's a draft: nothing is sent or shared.",
+  saved: (n: number, note: string) => `Saved version ${n}. ${note}`,
+  unchanged: "Nothing changed, so no new version was saved.",
+  upToDate: "Every number is up to date, so no new version was saved.",
+  cta: "Open deck",
+} as const;
+
+/** Soft issues after a change: the version still saved. */
+export const CHANGE_WARNINGS = {
+  layoutHidesNumbers: (n: number) => `Slide ${n}'s layout shows numbers only inside its words: rewrite the slide to use the number, or change its layout to Big number.`,
+  noData: (n: number, what: string) => `YouGrow has no ${what} to show yet, so slide ${n} shows a Needs instead.`,
+  notRewritten: (n: number) => `I couldn't rewrite slide ${n} just now, so it is as it was.`,
+  addOutline: (n: number) => `I couldn't write slide ${n} just now, so it says what goes there.`,
+  emptyNotes: (n: number) => `I couldn't write new notes for slide ${n} just now, so they are as they were.`,
+} as const;
+
+/** Why a change can't be made, each after "Some of that change wasn't valid". */
+export const OP_ISSUES = {
+  noSlide: (n: number, count: number) => `there is no slide ${n}, the deck has ${count}`,
+  noPlace: (n: number, count: number) => `there is no place ${n} to move to, the deck has ${count} slides`,
+  tooFew: "a deck keeps at least 3 slides",
+  tooMany: "a deck holds at most 16 slides",
+  full: (n: number) => `slide ${n} already holds 3 numbers`,
+  removed: (n: number) => `slide ${n} is removed in the same change`,
+  noPeopleList: "a launch's people need the one People list, which is off here",
+  noLaunch: (name: string) => `no launch called "${name}"`,
+  needsLaunch: "say which launch",
+  notInQuote: (digits: string) => `the number ${digits} isn't in what the person said`,
+} as const;

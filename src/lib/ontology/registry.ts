@@ -1576,7 +1576,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { paths: [{ fn: "exportRaiseDoc", file: "src/lib/raise/docs/store.ts", trigger: "member", when: "an admin downloads the deck's data on its page" }] },
     search: { kinds: ["raise_doc"] },
     numbers: { meanings: ["waitlistSignups", "launchSignups", "signupGrowth", "talkSeconds"], tool: "get_raise_doc" },
-    madeBy: ["raise_write", "deck_outline"],
+    madeBy: ["raise_write", "deck_outline", "canvas.raise_deck"],
   },
   {
     id: "next_action_card",

@@ -32,7 +32,7 @@ import { NOTE_WORDS } from "./words";
  * projection and sort in memory, so no composite index is needed.
  */
 
-export type RaiseResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string; version?: number };
+export type RaiseResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string; version?: number; issues?: string[] };
 
 export interface StoreDeps {
   db?: FirestoreLike;
@@ -121,6 +121,8 @@ interface NextVersion {
   note: string;
   by: string;
   at: string;
+  /** The deck's context lines, when a revise read new ones (only ever added to, so older slides' ids still hold). */
+  sources?: PackLine[];
 }
 
 /** The deck with a new version on top: versions trimmed, its line in `changes`, the counts again. Pure. */
@@ -128,7 +130,8 @@ export function withVersion(doc: RaiseDoc, v: NextVersion): RaiseDoc {
   const n = doc.version + 1;
   const version: DeckVersion = { n, note: v.note.slice(0, L.note), by: v.by, at: v.at, title: v.title, slides: v.slides };
   const changes: DeckChange[] = [{ n, note: version.note, by: v.by, at: v.at }, ...doc.changes].slice(0, L.changes);
-  const next: RaiseDoc = { ...doc, title: v.title, version: n, current: { title: v.title, slides: v.slides }, changes, ...deckTotals(v.slides), updatedAt: v.at, updatedBy: v.by };
+  const sources = v.sources ? v.sources.slice(0, L.sources) : doc.sources;
+  const next: RaiseDoc = { ...doc, title: v.title, version: n, current: { title: v.title, slides: v.slides }, changes, sources, ...deckTotals(v.slides), updatedAt: v.at, updatedBy: v.by };
   const { versions: _v, ...rest } = next;
   return { ...next, versions: trimVersions([...doc.versions, version], rest) };
 }
@@ -259,6 +262,8 @@ export interface VersionInput {
    * revise passes false and sets `ai` itself on the slides it wrote.
    */
   keepAi?: boolean;
+  /** The deck's context lines after a revise read new ones; left out, they stay as they are. */
+  sources?: PackLine[];
 }
 
 export interface Saved {
@@ -291,7 +296,7 @@ export async function saveRaiseVersion(ctx: TenantContext, id: string, input: Ve
       return null;
     }
     const note = input.note?.trim() || changeNote(doc.current, { title, slides });
-    const next = withVersion(doc, { title, slides, note, by: input.by, at });
+    const next = withVersion(doc, { title, slides, note, by: input.by, at, ...(input.sources ? { sources: input.sources } : {}) });
     if (!parseRaiseDoc(next)) {
       outcome = fail(400, "invalid_deck");
       return null;

@@ -67,11 +67,12 @@ export interface Drafted {
   warnings: string[];
 }
 
-const clip = (s: unknown, n: number) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, n) : "");
+/** Text on one line, cut to `n` characters; "" for anything that isn't text. */
+export const clip = (s: unknown, n: number) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, n) : "");
 
 // ----- The prompt ------------------------------------------------------------------------------
 
-function audienceWords(audience: DeckAudience, stage: DeckStage): string {
+export function audienceWords(audience: DeckAudience, stage: DeckStage): string {
   if (audience === "lender") {
     return "a bank or other lender, for a business loan. A loan is not an investment: use no equity words such as shares, valuation, round, equity or investors.";
   }
@@ -84,12 +85,12 @@ function outlineText(outline: Outline): string {
     .join("\n");
 }
 
-function packText(pack: RaisePack): string {
+export function packText(pack: RaisePack): string {
   if (!pack.lines.length) return "(nothing yet)";
   return pack.lines.map((l) => `${l.id} [${SOURCE_LABEL_WORDS[l.label]}] ${l.text}`).join("\n");
 }
 
-function numbersText(pack: RaisePack): string {
+export function numbersText(pack: RaisePack): string {
   const out: string[] = [];
   if (pack.numbers.waitlist.hasData) out.push('waitlistSignups: sign-ups to the brand\'s launches each week, for the last 12 weeks. Ask with grain "week" for the chart and grain "total" for the number.');
   if (pack.numbers.growth.hasData) out.push("signupGrowth: the second half of the weeks against the first, as a percent.");
@@ -156,7 +157,8 @@ export function responseSchema(): Record<string, unknown> {
 // ----- Checking the answer ---------------------------------------------------------------------
 
 const Str = z.string().catch("");
-const ModelSlide = z.object({
+/** One slide as the model wrote it, every field read softly (a draft's and a revise's answer share it). */
+export const ModelSlideSchema = z.object({
   section: Str,
   layout: Str,
   headline: Str,
@@ -171,15 +173,20 @@ const ModelSlide = z.object({
   needs: z.array(Str).catch([]),
   sources: z.array(Str).catch([]),
 });
-const ModelAnswer = z.object({ title: Str, slides: z.array(ModelSlide) });
-type ModelSlide = z.infer<typeof ModelSlide>;
+const ModelAnswer = z.object({ title: Str, slides: z.array(ModelSlideSchema) });
+export type ModelSlide = z.infer<typeof ModelSlideSchema>;
 
 const MODEL_TOKEN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
-/** The model's {{b1}} tokens renamed to the blocks' ids; any other token dropped. */
-function renameTokens(text: string, ids: ReadonlyMap<string, string>, dropped: string[]): string {
+/**
+ * The model's {{b1}} tokens renamed to the blocks' ids. A token for one of the slide's own blocks
+ * (`keep`, when a revise shows the model the slide as it is) stays; any other token is dropped.
+ */
+export function renameTokens(text: string, ids: ReadonlyMap<string, string>, dropped: string[], keep: ReadonlySet<string> = new Set()): string {
   return text
     .replace(MODEL_TOKEN, (m, inner: string) => {
+      const own = /^(mb_[a-z0-9]{8})(?::(period))?$/.exec(inner);
+      if (own && keep.has(own[1]!)) return own[2] ? `{{${own[1]}:period}}` : `{{${own[1]}}}`;
       const t = /^(b[1-3])(?::(period))?$/.exec(inner);
       const id = t ? ids.get(t[1]!) : undefined;
       if (!id) {
@@ -192,7 +199,7 @@ function renameTokens(text: string, ids: ReadonlyMap<string, string>, dropped: s
     .trim();
 }
 
-interface BuildCtx {
+export interface BuildCtx {
   outline: Outline;
   pack: RaisePack;
   reader: MetricReader;
@@ -201,11 +208,14 @@ interface BuildCtx {
 
 const WEEKS = new Set([4, 8, 12]);
 
-/** The model's block asks, as server requests: a launch by its L number, the default window 12 weeks. */
-function requestsOf(m: ModelSlide, pack: RaisePack, warnings: string[], n: number): Array<{ key: string; req: BlockRequest }> {
+/**
+ * The model's block asks, as server requests: a launch by its L number, the default window 12
+ * weeks. At most `room` of them (a slide holds 3 blocks).
+ */
+export function requestsOf(m: ModelSlide, pack: RaisePack, warnings: string[], n: number, room: number = L.blocks): Array<{ key: string; req: BlockRequest }> {
   const out: Array<{ key: string; req: BlockRequest }> = [];
   for (const b of m.blocks) {
-    if (out.length >= L.blocks) break;
+    if (out.length >= room) break;
     if (!/^b[1-3]$/.test(b.key) || out.some((o) => o.key === b.key)) continue;
     if (!(SERVER_MEANINGS as readonly string[]).includes(b.meaning)) {
       warnings.push(`Slide ${n} asked for a number YouGrow doesn't hold, so it was left out.`);
@@ -237,7 +247,8 @@ function defaultRequests(section: SectionKey, pack: RaisePack): BlockRequest[] {
   ];
 }
 
-function needsFor(section: SectionKey, pack: RaisePack, extra: string[]): SlideNeed[] {
+/** A slide's Needs: what the model said is missing, what the pack couldn't see for this section, and the amount on an ask. */
+export function needsFor(section: SectionKey, pack: RaisePack, extra: string[]): SlideNeed[] {
   const texts = [
     ...extra,
     ...pack.missing.filter((k) => MISSING_SECTION[k] === section).map((k) => MISSING_WORDS[k]),
@@ -248,7 +259,8 @@ function needsFor(section: SectionKey, pack: RaisePack, extra: string[]): SlideN
   return [...new Set(texts)].slice(0, L.needs).map((text) => ({ id: newId("nd"), text }));
 }
 
-async function filled(reqs: BlockRequest[], reader: MetricReader, warnings: string[]): Promise<{ blocks: MetricBlock[]; needs: string[] }> {
+/** Server blocks filled now; one with no data becomes the words of a Needs instead, never a 0. */
+export async function filled(reqs: BlockRequest[], reader: MetricReader, warnings: string[]): Promise<{ blocks: MetricBlock[]; needs: string[] }> {
   const blocks: MetricBlock[] = [];
   const needs: string[] = [];
   for (const req of reqs) {
@@ -263,12 +275,37 @@ async function filled(reqs: BlockRequest[], reader: MetricReader, warnings: stri
   return { blocks, needs };
 }
 
+/** A team slide's people, only from the brand's own team list by A number; with none named, the whole list. */
+export function teamPeople(asked: ModelSlide["people"], pack: RaisePack, n: number, warnings: string[]): NonNullable<Slide["people"]> {
+  const byRef = new Map(pack.authors.map((a) => [a.ref, a]));
+  const picked: NonNullable<Slide["people"]> = [];
+  for (const p of asked) {
+    const a = byRef.get(p.author.trim());
+    if (!a) {
+      warnings.push(`Slide ${n} named someone who isn't on your team list, so they were left out.`);
+      continue;
+    }
+    if (picked.some((x) => x.authorId === a.id)) continue;
+    picked.push({ name: a.name, role: a.role, line: clip(p.line, L.personLine) || clip(a.bio, L.personLine), authorId: a.id });
+  }
+  if (!picked.length) for (const a of pack.authors) picked.push({ name: a.name, role: a.role, line: clip(a.bio, L.personLine), authorId: a.id });
+  return picked.slice(0, L.people);
+}
+
+export interface BuildSlide {
+  section: SectionKey;
+  /** The slide's number, for warnings. */
+  n: number;
+  /** The layout asked for; else the model's, else the section's default. */
+  layout?: LayoutKey;
+  /** The prompt stamped on the slide's AI original. */
+  prompt?: string;
+}
+
 /** One slide from the model's answer: checked, capped, numbers filled by the server. */
-async function slideFrom(m: ModelSlide | undefined, i: number, c: BuildCtx, warnings: string[]): Promise<Slide> {
-  const section = c.outline.sections[i]!;
-  const n = i + 1;
-  if (!m) return outlineSlide(section, c, "", warnings);
-  const layout: LayoutKey = (LAYOUT_KEYS as readonly string[]).includes(m.layout) ? (m.layout as LayoutKey) : DEFAULT_LAYOUT[section];
+export async function buildSlide(m: ModelSlide, at: BuildSlide, c: BuildCtx, warnings: string[]): Promise<Slide> {
+  const { section, n } = at;
+  const layout: LayoutKey = at.layout ?? ((LAYOUT_KEYS as readonly string[]).includes(m.layout) ? (m.layout as LayoutKey) : DEFAULT_LAYOUT[section]);
 
   // Numbers: the model's asks, then the slide's defaults, all filled here. A block with no data
   // becomes a need, and its tokens go.
@@ -308,23 +345,7 @@ async function slideFrom(m: ModelSlide | undefined, i: number, c: BuildCtx, warn
       : undefined;
   if (dropped.length) warnings.push(`Slide ${n} named a number it didn't ask for, so it was left out.`);
 
-  // People only from the brand's own team list, by A number.
-  let people: Slide["people"];
-  if (section === "team" || layout === "team") {
-    const byRef = new Map(c.pack.authors.map((a) => [a.ref, a]));
-    const picked: NonNullable<Slide["people"]> = [];
-    for (const p of m.people) {
-      const a = byRef.get(p.author.trim());
-      if (!a) {
-        warnings.push(`Slide ${n} named someone who isn't on your team list, so they were left out.`);
-        continue;
-      }
-      if (picked.some((x) => x.authorId === a.id)) continue;
-      picked.push({ name: a.name, role: a.role, line: clip(p.line, L.personLine) || clip(a.bio, L.personLine), authorId: a.id });
-    }
-    if (!picked.length) for (const a of c.pack.authors) picked.push({ name: a.name, role: a.role, line: clip(a.bio, L.personLine), authorId: a.id });
-    people = picked.slice(0, L.people);
-  }
+  const people = section === "team" || layout === "team" ? teamPeople(m.people, c.pack, n, warnings) : undefined;
 
   const known = new Set(c.pack.lines.map((l) => l.id));
   const notes = clip(m.notes, L.notes);
@@ -340,19 +361,26 @@ async function slideFrom(m: ModelSlide | undefined, i: number, c: BuildCtx, warn
     notes,
     needs: needsFor(section, c.pack, [...m.needs, ...needTexts]),
     sources: [...new Set(m.sources.map((s) => s.trim()).filter((s) => known.has(s)))].slice(0, L.sources),
-    ai: { headline: clip(headline, L.headline), points, notes, at: c.now.toISOString(), prompt: DRAFT_PROMPT_TAG },
+    ai: { headline: clip(headline, L.headline), points, notes, at: c.now.toISOString(), prompt: at.prompt ?? DRAFT_PROMPT_TAG },
   };
 }
 
-/** A slide of the outline alone: its section, default layout, the server's numbers and what it needs. No model words. */
-async function outlineSlide(section: SectionKey, c: BuildCtx, title: string, warnings: string[]): Promise<Slide> {
+/** One slide of the outline from the model's answer, or the outline alone when the model left it out. */
+async function slideFrom(m: ModelSlide | undefined, i: number, c: BuildCtx, warnings: string[]): Promise<Slide> {
+  const section = c.outline.sections[i]!;
+  if (!m) return outlineSlide(section, c, "", warnings);
+  return buildSlide(m, { section, n: i + 1 }, c, warnings);
+}
+
+/** A slide of the outline alone: its section, its layout, the server's numbers and what it needs. No model words. */
+export async function outlineSlide(section: SectionKey, c: BuildCtx, title: string, warnings: string[], layout: LayoutKey = DEFAULT_LAYOUT[section]): Promise<Slide> {
   const { blocks, needs } = await filled(defaultRequests(section, c.pack), c.reader, warnings);
   const slideNeeds = needsFor(section, c.pack, needs);
   const people = section === "team" && c.pack.authors.length ? c.pack.authors.map((a) => ({ name: a.name, role: a.role, line: clip(a.bio, L.personLine), authorId: a.id })) : undefined;
   return {
     id: newId("sl"),
     section,
-    layout: DEFAULT_LAYOUT[section],
+    layout,
     headline: section === "cover" ? title : SECTION_LABEL[section],
     points: [],
     ...(people ? { people } : {}),

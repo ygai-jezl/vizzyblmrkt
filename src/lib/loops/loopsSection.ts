@@ -10,7 +10,7 @@ import { lookName } from "./learnedWords";
 import { BY_LEARNER, decisionKind, LOOP_RULES, LOOPS, type Decision, type DecisionKind, type LoopKind } from "./registry";
 import { keyWords, kindLabel, reasonWords, unstampedWords } from "./reasonWords";
 import { voteReasonLabel } from "./reasons";
-import { IMAGE_POOL, LOGGED_OWN_KINDS, ROW_KINDS, rowKindOf, rowLine, STAGES, STUCK_STEPS, type Stage, type StuckStep } from "./stages";
+import { HOLDBACK_ARMS, IMAGE_POOL, LOGGED_OWN_KINDS, ROW_KINDS, rowKindOf, rowLine, STAGES, STUCK_STEPS, type Stage, type StuckStep } from "./stages";
 import { monthsUntilHoldbackReads } from "./verdict";
 import { shortDay } from "./verdictWords";
 
@@ -44,7 +44,7 @@ export const LOOPS_COPY = {
   reasonsTitle: "Why learners didn't learn, in organisations",
   reasonsNone: `No learner turned a brand down in the last ${LOOP_RULES.stallDays} days.`,
   downsTitle: "Thumbs down by reason",
-  downsNote: `This week. Each organisation counts at most ${LOOP_RULES.orgOutputsCap} for each reason, rounded to 2 figures`,
+  downsNote: `This week. At most ${LOOP_RULES.orgOutputsCap} thumbs down per organisation per kind, rounded to 2 figures`,
   downsHead: ["Kind", "Organisations", "Thumbs down, by the reason given"],
   downsNone: "No thumbs down this week.",
   noReasonGiven: "No reason given",
@@ -200,7 +200,13 @@ export async function loopsSection(input: { week?: string | null; now: Date; db?
     console.warn("[loops] the Loops section didn't load", err instanceof Error ? err.message.slice(0, 200) : "error");
   }
   const views = read?.map((r) => orgsView(r.orgs));
-  const hasData = (i: number) => (views?.[i]?.orgs ?? 0) > 0;
+  // A week has counts once the lane wrote its row: organisations that reported, or only the brands
+  // it listed and visited and its fold alarm, as when every brand's fold is behind. Then the
+  // coverage rows and the behind banner show, never "Counts start after the first closed week".
+  const hasData = (i: number) => {
+    const v = views?.[i];
+    return Boolean(v && (v.orgs > 0 || v.listed > 0 || v.visited > 0 || v.foldBehindWeeks !== null));
+  };
   const asked = input.week ? weeks.indexOf(input.week) : -1;
   const at = asked >= 0 ? asked : Math.max(0, weeks.findIndex((_, i) => hasData(i)));
   const links = weeks.map((week, i) => ({ week, label: weekLabel(week), on: i === at, off: read !== null && !hasData(i), href: `${PAGE}?week=${week}` }));
@@ -571,7 +577,7 @@ function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
   const band = BY_LEARNER.votes.band;
   const styles = Object.entries(kv.things.scope)
     .map(([style, byArm]) => {
-      const sum = (s: string) => ["learned", "holdback"].reduce((n, arm) => n + (byArm[arm]?.[s] ?? 0), 0);
+      const sum = (s: string) => [...HOLDBACK_ARMS].reduce((n, arm) => n + (byArm[arm]?.[s] ?? 0), 0);
       return { style, voted: sum("voted"), liked: sum("liked"), made: sum("made"), remade: sum("remade") };
     })
     .filter((s) => s.voted > 0 || s.made > 0)
@@ -584,19 +590,21 @@ function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
       continue;
     }
     const name = lookName(`image_style.${s.style}`);
+    // The organisations behind this style's own numbers, not every one that made images.
+    const across = `across ${kv.styleOrgs[s.style]} organisations`;
     const votes = s.voted * WEEKS_A_MONTH;
     const images = s.made * WEEKS_A_MONTH;
     const check = s.voted > 0 ? monthsUntilHoldbackReads({ perMonth: votes, rate: Math.min(1, s.liked / s.voted), band }) : null;
     const guard = s.made > 0 ? monthsUntilHoldbackReads({ perMonth: images, rate: Math.min(1, s.remade / s.made), band }) : null;
     if (check !== null && (guard === null || check >= guard)) {
-      out.push(`${name}: ${monthsWords(check)} at ${roundTwo(votes)} votes a month${guard !== null ? ` (the remake check alone: ${monthsWords(guard)})` : ""}.`);
+      out.push(`${name}: ${monthsWords(check)} at ${roundTwo(votes)} votes a month ${across}${guard !== null ? ` (the remake check alone: ${monthsWords(guard)})` : ""}.`);
     } else if (guard !== null) {
-      out.push(`${name}: ${monthsWords(guard)} for the remake check at ${roundTwo(images)} images a month${check !== null ? ` (the likes check alone: ${monthsWords(check)})` : " (no votes this week)"}.`);
+      out.push(`${name}: ${monthsWords(guard)} for the remake check at ${roundTwo(images)} images a month ${across}${check !== null ? ` (the likes check alone: ${monthsWords(check)})` : " (no votes this week)"}.`);
     }
   }
   if (!styles.length) return ["No image votes this week."];
   if (few) out.push(out.length ? "Other styles: fewer than 10 organisations each." : "Every style: fewer than 10 organisations each.");
-  out.push(`From this week's counts across ${kv.weekOrgs} organisations, at their pace; a style shows only from 10 of them.`);
+  out.push("From this week's counts, at the pace of the organisations behind each style; a style shows only from 10 of them.");
   return out;
 }
 

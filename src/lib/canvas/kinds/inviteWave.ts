@@ -3,6 +3,7 @@ import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Campaign } from "@/lib/types/campaign";
 import { INVITE_LIMITS, type InviteWave } from "@/lib/types/invite";
+import type { Made } from "@/lib/types/loopStamp";
 import { draftCopy } from "@/lib/agents/creative";
 import type { AiUsage } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
@@ -64,6 +65,9 @@ const writeWithAgent: InviteCopyWriter = async ({ campaign, brief, productName, 
   return v?.subject && v?.body ? { subject: v.subject, body: v.body } : null;
 };
 
+/** Whether a wave already keeps Vizzy's stamp: counted made when the canvas saved it. */
+const vizzyStamped = (made: Made | null | undefined): boolean => Boolean(made && !("unstamped" in made) && made.kind === "canvas.invite_wave");
+
 /** The agent record: the wave as Vizzy left it, about its launch (soft, never fails the save). */
 async function recorded(ctx: CanvasAuthorArgs["ctx"], wave: InviteWave, db?: FirestoreLike): Promise<void> {
   await recordDraft(
@@ -80,8 +84,12 @@ async function recorded(ctx: CanvasAuthorArgs["ctx"], wave: InviteWave, db?: Fir
   );
 }
 
-/** `edited`: Vizzy's new words on a wave it already drafted, which was counted made when it was drafted. */
-function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasAuthorOutcome {
+/**
+ * `edited`: Vizzy's new words on a wave already there. `counted`: that wave already kept Vizzy's
+ * stamp, so it was counted made when it was drafted; a person's own wave Vizzy rewrites is counted
+ * made now, once, as its send counts kept or edited against Vizzy's stamp from then on.
+ */
+function outcome(wave: InviteWave, campaign: Campaign, edited: boolean, counted = edited): CanvasAuthorOutcome {
   const url = `/admin/launches/${campaign.id}/invites?wave=${wave.id}`;
   return {
     ok: true,
@@ -106,7 +114,7 @@ function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasA
       ],
       warnings: 0,
     },
-    saved: edited ? "rewritten" : "created",
+    saved: counted ? "rewritten" : "created",
   };
 }
 
@@ -165,7 +173,7 @@ export async function authorInviteWaveDraft(
     );
     if (!r.ok) return { ok: false, status: r.status, error: r.error };
     await recorded(ctx, r.value, deps.db);
-    return outcome(r.value, setup.campaign, true);
+    return outcome(r.value, setup.campaign, true, vizzyStamped(current.made));
   }
 
   const waiting = await forTenant(ctx, deps.db)

@@ -1105,7 +1105,8 @@ function PasteNotes({ subjects, onAdded }: { subjects: NoteSubject[] | null; onA
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [found, setFound] = useState<Candidate[] | null>(null);
-  // The split's stamp token, sent with each note added from it (learning loops step 5).
+  // The split's stamp token, sent with the first note added from it, as the split is one made
+  // thing whose save counts kept once (learning loops step 5).
   const [stampToken, setStampToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "find" | "add">(null);
   const [error, setError] = useState<string | null>(null);
@@ -1146,14 +1147,18 @@ function PasteNotes({ subjects, onAdded }: { subjects: NoteSubject[] | null; onA
     setBusy("add");
     setError(null);
     const added: BrandNote[] = [];
+    let token = stampToken;
     for (const f of ticked) {
-      const r = await send("/api/admin/brand-kit/notes", "POST", { text: f.text, kind: f.kind, subjectIds: f.subjectIds, canName: f.canName, source: "paste" }, stampHeaders([stampToken]));
+      const r = await send("/api/admin/brand-kit/notes", "POST", { text: f.text, kind: f.kind, subjectIds: f.subjectIds, canName: f.canName, source: "paste" }, stampHeaders([token]));
       if (!r.ok || !r.data.note) {
         setError(`${added.length ? `Added ${added.length}. ` : ""}${problem(r.status, r.data)}`);
         break;
       }
       added.push(r.data.note as BrandNote);
+      // Counted once: the notes after it go without the token.
+      token = null;
     }
+    if (added.length) setStampToken(null);
     setBusy(null);
     if (added.length) onAdded(added);
     if (added.length === ticked.length) {

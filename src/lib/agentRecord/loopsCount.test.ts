@@ -1,12 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 
+// The launch journey canvas reads and writes with no injected database: every repository, 0e
+// writer and count falls back to this test's fake one. Every other test here passes its own.
+let fake = new FakeFirestore();
 vi.mock("@/lib/tenant", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tenant")>();
-  return { ...actual, getTenantById: vi.fn(async () => null) };
+  return {
+    ...actual,
+    getTenantById: vi.fn(async () => null),
+    forTenant: (ctx: Parameters<typeof actual.forTenant>[0], db?: Parameters<typeof actual.forTenant>[1]) => actual.forTenant(ctx, db ?? fake),
+    proposeAgentAction: (ctx: Parameters<typeof actual.proposeAgentAction>[0], p: Parameters<typeof actual.proposeAgentAction>[1], opts: { db?: FakeFirestore } = {}) =>
+      actual.proposeAgentAction(ctx, p, { db: opts.db ?? fake }),
+    transitionAgentAction: (ctx: Parameters<typeof actual.transitionAgentAction>[0], id: string, t: Parameters<typeof actual.transitionAgentAction>[2], opts: { db?: FakeFirestore } = {}) =>
+      actual.transitionAgentAction(ctx, id as never, t, { db: opts.db ?? fake }),
+  };
 });
+vi.mock("@/lib/tenant/loops", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tenant/loops")>();
+  return { ...actual, addToLoopDay: (...[ctx, id, tree, opts, db]: Parameters<typeof actual.addToLoopDay>) => actual.addToLoopDay(ctx, id, tree, opts, db ?? fake) };
+});
+vi.mock("@/lib/agents/creative", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agents/creative")>();
+  return { ...actual, draftCopy: vi.fn(async () => ({ variants: [{ subject: "Welcome aboard", body: "Hi {{first_name}}" }], source: "agent3" })) };
+});
+vi.mock("@/lib/content/create/activeBrandVoice", () => ({ activeBrandVoiceText: vi.fn(async () => null) }));
 
 import { forTenant } from "@/lib/tenant";
-import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import type { TenantContext } from "@/lib/tenant/types";
 import { CONNECTION_ID, ctx as lifecycleAdmin, seedWorld } from "@/lib/lifecycle/testing/fixtures";
@@ -18,6 +38,13 @@ import { authorImageStyleSuggestion } from "@/lib/canvas/kinds/imageStyle";
 import { authorJourneyStyle } from "@/lib/canvas/kinds/journeyStyle";
 import { ctx as invitesAdmin, seedConnection, seedLaunch, seedSignup } from "@/lib/invites/testing/fixtures";
 import { removeWave, sendWave } from "@/lib/invites/adminApi";
+import { createWave } from "@/lib/invites/adminApi";
+import { createLifecycleJourney } from "@/lib/lifecycle/service";
+import { journeyCanvasKind } from "@/lib/canvas/kinds/journey";
+import { countCanvasMade } from "@/lib/canvas/made";
+import type { CanvasKindName } from "@/lib/canvas/names";
+import type { CanvasAuthorOutcome } from "@/lib/canvas/types";
+import { CAMPAIGN_ID, publishWaitlist, seedLaunch as seedWaitlistLaunch } from "@/lib/lifecycle/waitlist/testing/fixtures";
 import { agentSuggestNotes } from "@/lib/brandNotes/agentApi";
 import { removeFromRequest, updateFromRequest } from "@/lib/brandNotes/api";
 import { loopWeekOf } from "@/lib/loops/count";
@@ -49,7 +76,19 @@ async function vizzyStamp(ctx: TenantContext, kind: LoopKind): Promise<LoopStamp
   return stamp;
 }
 
-/** A brand's counts for one kind this week, at version 0 and arm none (the canvas route's made isn't run here). */
+/**
+ * A canvas save with its made counted exactly as the canvas route counts it (countCanvasMade), so
+ * a test can see made never outrun the answers.
+ */
+async function viaRoute(kind: CanvasKindName, ctx: TenantContext, save: (made: LoopStamp) => Promise<CanvasAuthorOutcome>, db?: FakeFirestore) {
+  const made = await vizzyStamp(ctx, `canvas.${kind}`);
+  const r = await save(made);
+  if (!r.ok) throw new Error(r.error);
+  await countCanvasMade(ctx, kind, r.saved, made, { db });
+  return r;
+}
+
+/** A brand's counts for one kind this week, at version 0 and arm none (made only where a test counts it through viaRoute). */
 function answers(db: FakeFirestore, tenantId: string, kind: string): Record<string, number> {
   const tree = sumWeek(db, tenantId, week()) as { c?: Record<string, Record<string, Record<string, Record<string, Record<string, number>>>>> };
   return tree.c?.[kind]?.[kind]?.v0?.none ?? {};
@@ -61,6 +100,7 @@ async function records(db: FakeFirestore, ctx: TenantContext): Promise<AgentActi
 
 beforeEach(() => {
   __resetRateLimitState();
+  fake = new FakeFirestore();
   vi.stubEnv("AGENT_RECORD_ENABLED", "true");
   vi.stubEnv("LOOPS_ENABLED", "true");
 });
@@ -111,6 +151,24 @@ describe("a lifecycle journey Vizzy drafts, counted where its record closes", ()
       { ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId }, mode: "template", options: { reminders } }, made: await vizzyStamp(agent, "canvas.lifecycle"), brief: "Warm" },
       { db, generate },
     );
+  /** The same draft through the canvas route's made count. */
+  const draftViaRoute = (db: FakeFirestore, reminders = 2, journeyId?: string) =>
+    viaRoute(
+      "lifecycle",
+      agent,
+      (made) => authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId }, mode: "template", options: { reminders } }, made, brief: "Warm" }, { db, generate }),
+      db,
+    );
+  const styleViaRoute = (db: FakeFirestore, journeyId: string) => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    return viaRoute(
+      "journey_style",
+      agent,
+      (made) => authorJourneyStyle({ ctx: { ...agent, role: "admin" }, input: { journeyId, mode: "custom", headerColor: "#225533", buttonColor: "#aa3300" }, made, brief: "green header" }, { db }),
+      db,
+    );
+  };
 
   beforeEach(() => {
     vi.stubEnv("LIFECYCLE_ENABLED", "true");
@@ -151,36 +209,66 @@ describe("a lifecycle journey Vizzy drafts, counted where its record closes", ()
     expect(answers(other, agent.tenantId, "canvas.lifecycle")).toEqual({ declined: 1 });
   });
 
-  it("counts one answer when Vizzy rewrote it first: the record it superseded counts nothing", async () => {
+  it("counts made once and one answer when Vizzy rewrote it first: the record it superseded counts nothing", async () => {
     const db = new FakeFirestore();
     seedWorld(db);
-    const r = await draftIt(db, 2);
-    if (!r.ok) throw new Error(r.error);
-    const again = await draftIt(db, 1, r.id);
-    if (!again.ok) throw new Error(again.error);
+    const r = await draftViaRoute(db, 2);
+    expect(r.saved).toBe("created");
+    const again = await draftViaRoute(db, 1, r.id);
     expect(again).toMatchObject({ id: r.id, saved: "rewritten" });
     expect((await records(db, agent)).map((a) => `${a.state}:${a.declined?.reason ?? ""}`).sort()).toEqual(["declined:superseded", "proposed:"]);
     await publishJourney(lifecycleAdmin, r.id, undefined, db);
-    expect(answers(db, agent.tenantId, "canvas.lifecycle")).toEqual({ kept: 1 });
+    expect(answers(db, agent.tenantId, "canvas.lifecycle")).toEqual({ made: 1, kept: 1 });
   });
 
-  it("a style Vizzy then suggests stays one draft, its answer counted under the journey Vizzy drafted", async () => {
+  it("counts a new draft after a person published the first as made again, so each answer has its made", async () => {
     const db = new FakeFirestore();
     seedWorld(db);
-    const r = await draftIt(db);
-    if (!r.ok) throw new Error(r.error);
-    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
-    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
-    const styled = await authorJourneyStyle(
-      { ctx: { ...agent, role: "admin" }, input: { journeyId: r.id, mode: "custom", headerColor: "#225533", buttonColor: "#aa3300" }, made: await vizzyStamp(agent, "canvas.journey_style"), brief: "green header" },
-      { db },
-    );
-    expect(styled).toMatchObject({ ok: true, saved: "created" });
+    const r = await draftViaRoute(db, 2);
+    await publishJourney(lifecycleAdmin, r.id, undefined, db);
+    // The first record is closed: the redraft opens a new one, a new thing to answer.
+    const again = await draftViaRoute(db, 1, r.id);
+    expect(again).toMatchObject({ id: r.id, saved: "created" });
+    await publishJourney(lifecycleAdmin, r.id, undefined, db);
+    expect(answers(db, agent.tenantId, "canvas.lifecycle")).toEqual({ made: 2, kept: 2 });
+  });
+
+  it("counts Vizzy's first draft of a journey a person built as made once", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const mine = await createLifecycleJourney(lifecycleAdmin, { name: "Hearth onboarding", connectionId: CONNECTION_ID, template: "product_onboarding" }, { db, authoredBy: "human" });
+    if (!mine.ok) throw new Error(String(mine.error));
+    const r = await draftViaRoute(db, 2, mine.value.journey.id);
+    expect(r).toMatchObject({ id: mine.value.journey.id, saved: "created" });
+    await publishJourney(lifecycleAdmin, r.id, undefined, db);
+    expect(answers(db, agent.tenantId, "canvas.lifecycle")).toEqual({ made: 1, kept: 1 });
+  });
+
+  it("a style Vizzy then suggests stays one draft, its answer and its one made counted under the journey Vizzy drafted", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const r = await draftViaRoute(db);
+    const styled = await styleViaRoute(db, r.id);
+    // The journey's made already waits for this draft's answer: the style counts no made of its own.
+    expect(styled).toMatchObject({ ok: true, saved: "rewritten" });
     const [open] = await openRecordsFor(agent, { kind: "lifecycle_journey", ref: r.id }, db);
     expect(open).toMatchObject({ action: "lifecycle_journey.draft", made: { kind: "canvas.lifecycle" } });
     await publishJourney(lifecycleAdmin, r.id, undefined, db);
-    expect(answers(db, agent.tenantId, "canvas.lifecycle")).toEqual({ kept: 1 });
+    expect(answers(db, agent.tenantId, "canvas.lifecycle")).toEqual({ made: 1, kept: 1 });
     expect(answers(db, agent.tenantId, "canvas.journey_style")).toEqual({});
+  });
+
+  it("counts a style on a person's own journey made once, and its answer under the style", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const mine = await createLifecycleJourney(lifecycleAdmin, { name: "Hearth onboarding", connectionId: CONNECTION_ID, template: "product_onboarding" }, { db, authoredBy: "human" });
+    if (!mine.ok) throw new Error(String(mine.error));
+    const styled = await styleViaRoute(db, mine.value.journey.id);
+    expect(styled).toMatchObject({ ok: true, saved: "created" });
+    // Styled again before anyone answers: the same draft, already counted.
+    expect(await styleViaRoute(db, mine.value.journey.id)).toMatchObject({ ok: true, saved: "rewritten" });
+    await publishJourney(lifecycleAdmin, mine.value.journey.id, undefined, db);
+    expect(answers(db, agent.tenantId, "canvas.journey_style")).toEqual({ made: 1, kept: 1 });
   });
 
   it("counts kept once when the catch-up finds it published another way, and nothing when it expires", async () => {
@@ -220,6 +308,35 @@ describe("a lifecycle journey Vizzy drafts, counted where its record closes", ()
   });
 });
 
+describe("a launch's welcome emails Vizzy drafts on the lifecycle engine", () => {
+  const agent: TenantContext = { ...lifecycleAdmin, source: "agent" };
+  const graph = () => ({
+    nodes: [
+      { id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: {} },
+      { id: "e1", type: "email", position: { x: 0, y: 100 }, data: { label: "Welcome" } },
+    ],
+    edges: [{ id: "a", source: "trigger", target: "e1", sourceHandle: null }],
+  });
+  const draftViaRoute = () =>
+    viaRoute("journey", agent, (made) => journeyCanvasKind.authorDraft({ ctx: agent, input: { scope: { campaignId: CAMPAIGN_ID }, graph: graph() }, made, brief: "Warm welcome" }));
+
+  beforeEach(() => {
+    vi.stubEnv("WAITLIST_ENGINE_ENABLED", "true");
+    vi.stubEnv("EMAIL_LINK_ORIGIN", "https://mk.test");
+  });
+
+  it("counts Vizzy's first draft made once, though the launch's welcome journey was there from the start", async () => {
+    seedWaitlistLaunch(fake, { waitlistEngine: "lifecycle" });
+    const { journey } = await publishWaitlist(fake);
+    const r = await draftViaRoute();
+    expect(r).toMatchObject({ id: journey.id, saved: "created" });
+    // Vizzy's new words before anyone answered: the same draft, already counted.
+    expect(await draftViaRoute()).toMatchObject({ id: journey.id, saved: "rewritten" });
+    await publishJourney({ ...lifecycleAdmin, userId: "usr_2" }, journey.id, undefined, fake);
+    expect(answers(fake, agent.tenantId, "canvas.journey")).toEqual({ made: 1, kept: 1 });
+  });
+});
+
 describe("an invite wave Vizzy drafts, counted at its own path", () => {
   const write = vi.fn(async () => ({ subject: "You're in", body: "Hi {{first_name}}, it is ready for you." }));
   const world = () => {
@@ -247,6 +364,19 @@ describe("an invite wave Vizzy drafts, counted at its own path", () => {
     expect((await sendWave(invitesAdmin, "beta", r.id, { db, kick: async () => undefined })).status).toBe(200);
     expect((await records(db, invitesAdmin))[0]!.state).toBe("acted");
     expect(answers(db, invitesAdmin.tenantId, "canvas.invite_wave")).toEqual({ kept: 1 });
+  });
+
+  it("counts Vizzy's rewrite of a person's wave made once, and its send kept once", async () => {
+    const db = world();
+    const mine = await createWave(invitesAdmin, "beta", { connectionId: "pcn_prod", size: 2, subject: "You're in", body: "Hi {{first_name}}, come in: {{invite_link}}" }, db);
+    expect(mine.status).toBe(201);
+    const waveId = (mine.body as { wave: { id: string } }).wave.id;
+    const r = await viaRoute("invite_wave", invitesAdmin, (made) => authorInviteWaveDraft({ ctx: invitesAdmin, input: { scope: { campaignId: "beta", waveId }, size: 2 }, made, brief: "Warmer" }, { db, write }), db);
+    expect(r).toMatchObject({ id: waveId, saved: "created" });
+    expect((await sendWave(invitesAdmin, "beta", waveId, { db, kick: async () => undefined })).status).toBe(200);
+    const tree = sumWeek(db, invitesAdmin.tenantId, week()) as { u?: Record<string, unknown> };
+    expect(answers(db, invitesAdmin.tenantId, "canvas.invite_wave")).toEqual({ made: 1, kept: 1 });
+    expect(tree.u?.["canvas.invite_wave"]).toBeUndefined();
   });
 
   it("counts a wave deleted unsent declined once", async () => {

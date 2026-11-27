@@ -28,6 +28,13 @@ export const IMAGE_POOL = "image_style" as const;
 export const STAGES = ["stamped", "signalled", "learning", "checked"] as const;
 export type Stage = (typeof STAGES)[number];
 
+/**
+ * The arms the holdback compares (a learned look against images held back from it): an image
+ * style's holdback line adds up these, and an organisation counts behind a style's numbers only
+ * when it has counts in one of them. Arm none (no learned look yet) adds nothing to the line.
+ */
+export const HOLDBACK_ARMS: ReadonlySet<string> = new Set(["learned", "holdback"]);
+
 /** The only steps a brand can be stuck at. */
 export const STUCK_STEPS = ["stamped", "signalled"] as const;
 export type StuckStep = (typeof STUCK_STEPS)[number];

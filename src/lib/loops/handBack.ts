@@ -1,6 +1,6 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { LoopStamp, Made } from "@/lib/types/loopStamp";
-import { CountBuffer, countMade, countsFor } from "./count";
+import { CountBuffer, countMade, countSignals, countsFor } from "./count";
 import type { LoopKind } from "./registry";
 import { signStamp, verifyStamps } from "./stamp";
 
@@ -9,8 +9,8 @@ import { signStamp, verifyStamps } from "./stamp";
  * plan for steps 4 and 5): email assist, Edit mode Vizzy, the brand voice and brand kit drafts,
  * notes extract, Suggest an angle, the email layout and the email images. The route that makes
  * one counts it made once; for a kind whose save checks a token (TOKEN_SAVES) it also hands back
- * its stamp as a signed token beside the output, and the save route checks the token before it
- * stores what the person saved.
+ * its stamp as a signed token beside the output, and the save route checks the token and counts
+ * what the person saved kept against it (keptFromTokens).
  *
  * With the kind's switch off (decision 22) nothing is counted, signed or read: no token goes out,
  * and a save reads no key. A token is good for LOOP_RULES.stampTokenDays and its signature covers
@@ -82,4 +82,29 @@ export async function stampsFromTokens(
   }
   await refused.flush();
   return out;
+}
+
+/**
+ * At a TOKEN_SAVES save, once it stored what the person saved: each stamp its tokens carry
+ * (stampsFromTokens) counts kept once against that stamp, as made, kept and edited count once per
+ * saved record (decision 20), so a draft the person saved never reads as unused. A stamp sent
+ * twice in one save counts once (by its made id and time); the pages send a token with one save
+ * only. The token carries the stamp, not the words handed back, so the save can't tell a draft
+ * changed before it was saved from one kept as it was: it counts kept. Returns the stamps counted.
+ */
+export async function keptFromTokens(
+  ctx: TenantContext,
+  kinds: readonly LoopKind[],
+  tokens: unknown,
+  deps: Omit<HandBackDeps, "type"> = {},
+): Promise<LoopStamp[]> {
+  const seen = new Set<string>();
+  const once = (await stampsFromTokens(ctx, kinds, tokens, deps)).filter((s) => {
+    const key = `${s.made}\n${s.at}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  await Promise.all(once.map((s) => countSignals(ctx, s, { kept: 1 }, deps)));
+  return once;
 }

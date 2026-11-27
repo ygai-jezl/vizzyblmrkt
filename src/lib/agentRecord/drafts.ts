@@ -3,7 +3,7 @@ import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { Made } from "@/lib/types/loopStamp";
 import { lifecycleDraftPrint, planPrint } from "./fingerprints";
-import { closeDraft, memberOf, recordDraft, type RecordDeps, type RecordOutcome } from "./record";
+import { closeDraft, memberOf, recordDraft, recordDraftCounted, type RecordDeps, type RecordOutcome, type RecordResult } from "./record";
 import { RECORD_SYSTEM } from "./sources";
 
 /**
@@ -91,15 +91,18 @@ export async function closePlanDraft(
   return closeDraft(ctx, draft, { to: "acted", by, fingerprint: planPrint(after) }, deps);
 }
 
-/** A lifecycle journey Vizzy drafted or styled: recorded beside its save, with the canvas's stamp (`made`). */
+/**
+ * A lifecycle journey Vizzy drafted or styled: recorded beside its save, with the canvas's stamp
+ * (`made`), saying whether the draft was already counted (savedFrom).
+ */
 export function recordJourneyDraft(
   ctx: TenantContext,
   action: "lifecycle_journey.draft" | "journey_style.suggest" | "launch_journey.draft",
   journey: Pick<LifecycleJourney, "id" | "name" | "draft" | "audience">,
   deps: RecordDeps & { label?: string; made?: Made } = {},
-): Promise<RecordOutcome> {
+): Promise<RecordResult> {
   const launchId = journey.audience?.kind === "waitlist" ? journey.audience.campaignId : null;
-  return recordDraft(
+  return recordDraftCounted(
     ctx,
     {
       action,
@@ -112,4 +115,16 @@ export function recordJourneyDraft(
     },
     deps,
   );
+}
+
+/**
+ * What a canvas save of a recorded journey counts (learning loops step 5, decision 20): new words
+ * on a draft already counted (`rewritten`) only when its open record already kept a stamp, as that
+ * record's answer is what the save's made waits for. A journey that was already saved but whose
+ * record kept no stamp (a blank welcome journey made with its launch, a person's own journey, or
+ * one whose draft a person already published) is a new made thing. With the record off (or a
+ * failed write), whether the journey was already saved decides, as no record counts its answer.
+ */
+export function savedFrom(r: RecordResult, existed: boolean): "created" | "rewritten" {
+  return (r.counted ?? existed) ? "rewritten" : "created";
 }

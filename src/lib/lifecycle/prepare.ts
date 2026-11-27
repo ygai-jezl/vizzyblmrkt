@@ -106,12 +106,14 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
   );
   if (!leased) return "busy";
 
-  const finish = async (patch: Partial<Omit<AiDraft, "id" | "tenantId">>): Promise<void> => {
-    await repo.lifecycleDrafts.claim(draftId, (cur) =>
+  /** Write the draft's outcome while it is still pending; false when it moved on meanwhile (nothing written). */
+  const finish = async (patch: Partial<Omit<AiDraft, "id" | "tenantId">>): Promise<boolean> => {
+    const wrote = await repo.lifecycleDrafts.claim(draftId, (cur) =>
       cur.status === "pending"
         ? { ...patch, prepareLeaseUntil: null, draftVersion: cur.draftVersion + 1, updatedAt: iso(clock()) }
         : null,
     );
+    return wrote !== null;
   };
   const supersede = async (): Promise<PrepareOutcome> => {
     await finish({ status: "superseded", fallbackReason: "superseded" });
@@ -295,10 +297,12 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     previewHtml = rendered.html;
   }
 
-  // What made the line (LOOPS_ENABLED, learning loops step 5), kept with it and counted once saved.
+  // What made the line (LOOPS_ENABLED, learning loops step 5), kept with it and counted once saved:
+  // a draft that moved on during the call (another path taken, or sent with the standard copy)
+  // keeps no line, so nothing is counted made.
   const { stamp } = await learnedFor(ctx, "lifecycle_lines", { promptId: "lifecycle.insight_line" });
   const made = keptMade(stamp);
-  await finish({ ...base, status: "awaiting_approval", subjectVariant, validationIssues: [], previewHtml, ...(made ? { made } : {}) });
-  await countMade(ctx, "lifecycle_lines", stamp, { type: "ai_line", db: deps.db });
+  const saved = await finish({ ...base, status: "awaiting_approval", subjectVariant, validationIssues: [], previewHtml, ...(made ? { made } : {}) });
+  if (saved) await countMade(ctx, "lifecycle_lines", stamp, { type: "ai_line", db: deps.db });
   return "prepared";
 }

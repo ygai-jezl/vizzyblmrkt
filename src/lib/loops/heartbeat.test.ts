@@ -90,6 +90,10 @@ describe("a brand's week", () => {
     expect(r.things["next_up/unused"]).toBe(3);
     expect(r.things["next_up/cov/stamped"]).toBe(18);
     expect(r.things["next_up/cov/unstamped"]).toBe(2);
+    // Emails sent with send records off count made and records_off for the same email: none is stamped.
+    const off = brandWeekReport(input({ window: [undefined, undefined, undefined, words("send_time", { made: 10 }, { u: { send_time: { records_off: 10 } } })] }));
+    expect(off.things).toMatchObject({ "send_time/cov/unstamped": 10 });
+    expect(off.things).not.toHaveProperty("send_time/cov/stamped");
   });
 
   it("says when the brand record still holds an old look, and which plan a brand counts under", () => {
@@ -120,6 +124,10 @@ describe("a brand's week", () => {
     const r = brandWeekReport(input({ window: [undefined, undefined, undefined, week] }));
     expect(r.orgCells).toEqual(expect.arrayContaining(["image_style/styles/natural_photo", "edit_mode/refused/plan", "content_write/refused/plan", "_orgs/refused/plan"]));
     expect(r.orgCells.filter((k) => k === "_orgs/refused/plan")).toHaveLength(1);
+    // Images with no learned look yet (arm none) add nothing to a style's holdback line, so they don't count behind it.
+    const none = brandWeekReport(input({ window: [undefined, undefined, undefined, { c: { [NATURAL]: { post_image: { v0: { none: { made: 3, voted: 2, liked: 1 } } } } } }] }));
+    expect(none.things).toMatchObject({ "image_style/scope/natural_photo/none/made": 3 });
+    expect(none.orgCells).not.toContain("image_style/styles/natural_photo");
   });
 
   it("counts posts that went out with no AI draft kept, and names it where a brand is stuck at Stamped", () => {
@@ -354,6 +362,68 @@ describe("a brand's heartbeat", () => {
     expect(buffer.cells()).toEqual([{ id: fleetCellId.orgs(W), n: { visited: 1 } }]);
     expect(db.dump(LOOP_LANE)).toEqual([]);
     expect((await readLaneState(lumen, db)).heartbeatWeek).toBe(W);
+  });
+
+  it("sends nothing from a brand's time opted out once it opts back in: no calls, things, stages or unused from those weeks", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const meters = (calls: Record<string, number>) => ({ model_tokens: { total: 0, calls: 0, lostCalls: 0, byPurpose: {}, callsByPurpose: calls } });
+    let total = 5;
+    const usage = async () => meters({ blog_write: total });
+    const at = (iso: string) => new Date(iso);
+    const t1 = at("2026-12-09T09:00:00.000Z");
+    const t2 = at("2026-12-16T09:00:00.000Z");
+    const t3 = at("2026-12-23T09:00:00.000Z");
+    const [w1, w2, w3] = [t1, t2, t3].map((t) => weekBefore(loopWeekOf(t))) as [string, string, string];
+    const out = { scopes: {}, fleetOptOut: { at: "2026-12-01T00:00:00.000Z" } };
+    // Reported in, then opted out for a week in which it makes 7 picks and 500 calls.
+    seedWeek(lumen, w1, words("next_up", { made: 1 }));
+    await heartbeat(lumen, row("ten_lumen"), state({ foldedThrough: w1 }), new FleetBuffer(), { db, controlDb: db, now: t1, usage });
+    total = 505;
+    seedWeek(lumen, w2, words("next_up", { made: 7 }, { r: { edit_mode: { plan: 1 } } }));
+    const away = new FleetBuffer();
+    await heartbeat(lumen, row("ten_lumen"), state({ lane: await readLaneState(lumen, db), pointers: out, foldedThrough: w2 }), away, { db, controlDb: db, now: t2, usage });
+    expect(away.cells()).toEqual([{ id: fleetCellId.orgs(w2), n: { visited: 1 } }]);
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: w2, optedOutThrough: w2 });
+    // Back in: 2 more calls, and nothing made.
+    total = 507;
+    const back = new FleetBuffer();
+    await heartbeat(lumen, row("ten_lumen"), state({ lane: await readLaneState(lumen, db), foldedThrough: w3 }), back, { db, controlDb: db, now: t3, usage });
+    const cells = Object.fromEntries(back.cells().map((c) => [c.id, c.n]));
+    expect(cells[fleetCellId.calls(w3)]).toBeUndefined();
+    expect(cells[fleetCellId.kind("next_up", w3)]).toBeUndefined();
+    expect(cells[fleetCellId.kind("edit_mode", w3)]).toBeUndefined();
+    expect(cells[fleetCellId.orgs(w3)]).toMatchObject({ reported: 1, visited: 1 });
+    expect(cells[fleetCellId.orgs(w3)]).not.toHaveProperty("refused");
+    // The meter's totals are kept, so the next week counts only calls made since.
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: w3, meterSeen: { blog_write: 507 } });
+    // Two weeks on, the weeks it was out are still out of every window: the 7 picks never read as unused.
+    total = 510;
+    const t4 = at("2026-12-30T09:00:00.000Z");
+    const w4 = weekBefore(loopWeekOf(t4));
+    seedWeek(lumen, w4, words("next_up", { made: 1 }));
+    const later = new FleetBuffer();
+    await heartbeat(lumen, row("ten_lumen"), state({ lane: await readLaneState(lumen, db), foldedThrough: w4 }), later, { db, controlDb: db, now: t4, usage });
+    const next = Object.fromEntries(later.cells().map((c) => [c.id, c.n]));
+    expect(next[fleetCellId.calls(w4)]).toMatchObject({ calls: { blog_write: 3 } });
+    expect(next[fleetCellId.kind("next_up", w4)]).not.toHaveProperty("unused");
+  });
+
+  it("reports a brand back after weeks it never reported (the switch was off) as a first report", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const usage = async () => ({ model_tokens: { total: 0, calls: 0, lostCalls: 0, byPurpose: {}, callsByPurpose: { blog_write: 900 } } });
+    // Last reported 8 weeks ago; made things in the weeks since, while nothing was reported.
+    let old = W;
+    for (let i = 0; i < 8; i++) old = weekBefore(old);
+    for (let w = weekBefore(W), i = 0; i < 4; i++, w = weekBefore(w)) seedWeek(lumen, w, words("next_up", { made: 4 }));
+    seedWeek(lumen, W, words("next_up", { made: 1 }));
+    const lane = { heartbeatWeek: old, meterMonth: "2026-10", meterSeen: { blog_write: 10 } };
+    const buffer = new FleetBuffer();
+    const r = await heartbeat(lumen, row("ten_lumen"), state({ lane }), buffer, { db, controlDb: db, now: NOW, usage });
+    expect(r.weeks).toBe(2);
+    const cells = buffer.cells();
+    // No calls from the weeks it was away, and no unused from the weeks before the first it reports.
+    expect(cells.filter((c) => c.id.startsWith("fh:_calls:"))).toEqual([]);
+    for (const c of cells.filter((x) => x.id.startsWith("fh:next_up:"))) expect(c.n).not.toHaveProperty("unused");
   });
 
   it("records the week on the brand first, so a run cut off before the mark moves undercounts and never counts twice", async () => {

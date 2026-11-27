@@ -7,6 +7,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { brandWeekReport, creditMark, FleetBuffer } from "./heartbeat";
 import { LOOPS_COPY, loopsData, loopsSection, loopsWeeks, planLabel, readLoopsWeeks, weekLabel, type LoopsData, type LoopsSectionView } from "./loopsSection";
+import { LOOP_RULES } from "./registry";
 import { ROW_KINDS } from "./stages";
 
 /** Every batched read of fleet_cells, by the ids it asked for. */
@@ -158,6 +159,24 @@ describe("the weeks and the empty first week", () => {
     expect((await open(fake, W0)).weeks.find((w) => w.on)?.week).toBe(W0);
     // A week that isn't one of the two falls back to the newest with counts.
     expect((await open(fake, "2026-W01")).weeks.find((w) => w.on)?.week).toBe(W);
+  });
+
+  it("shows a week the lane wrote while every brand's fold is behind as behind, not as the empty first week", async () => {
+    const fake = new FakeFirestore();
+    // What the lane writes for the 2 closed weeks while every brand is 3 weeks behind: brands listed and the fold alarm, no reports.
+    fake.seed(FLEET_CELLS, `fh:_orgs:${W}`, { n: { listed: 52, foldBehind: { w3: 52 } } });
+    fake.seed(FLEET_CELLS, `fh:_orgs:${W0}`, { n: { listed: 52, foldBehind: { w2: 52 } } });
+    const v = await open(fake);
+    expect(v.weeks.map((w) => [w.week, w.on, w.off])).toEqual([
+      [W, true, false],
+      [W0, false, false],
+    ]);
+    const d = dataOf(v);
+    expect(d.behind).toBe(true);
+    expect(d.coverage.slice(0, 2)).toEqual([
+      { k: "Brands visited", v: "0 of 52 this week", amber: true },
+      { k: "Oldest week not yet added up", v: "3 weeks behind", amber: true },
+    ]);
   });
 
   it("says the counts didn't load when the read fails", async () => {
@@ -312,6 +331,23 @@ describe("a closed week, every block of screen 6", () => {
     expect(LOOPS_COPY.downsFoot).toBe("Only image thumbs ask why. The notes people add stay with their brand and are never counted.");
   });
 
+  it("caps an organisation's thumbs down at 20 in all for a kind, its reasons sharing them, as its note says", async () => {
+    const fake = new FakeFirestore();
+    const maker: Org = { plan: "free", window: fourWeeks({ c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 6 } } } } } }) };
+    // Lumen alone votes: 30 thumbs down, 15 looking fake and 15 the wrong colours.
+    const voter: Org = {
+      plan: "pro",
+      window: fourWeeks({ c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 6, voted: 30, liked: 0, "disliked.fake": 15, "disliked.colours": 15 } } } } } }),
+    };
+    seedWeek(fake, W, [...Array.from({ length: 11 }, () => maker), voter]);
+    // 20 in all, not 20 for each reason (which would read 15 and 15).
+    expect(dataOf(await open(fake)).downs[0]!.reasons).toEqual([
+      { k: "Wrong colours", v: "10" },
+      { k: "Looks fake", v: "10" },
+    ]);
+    expect(LOOPS_COPY.downsNote).toBe(`This week. At most ${LOOP_RULES.orgOutputsCap} thumbs down per organisation per kind, rounded to 2 figures`);
+  });
+
   it("shows stamp coverage from 10 organisations, and fewer than 10 below", async () => {
     const fake = new FakeFirestore();
     seedWeek(fake, W, copy());
@@ -329,8 +365,8 @@ describe("a closed week, every block of screen 6", () => {
       "Organisations with a Go back card in the last 28 days: none.",
       "Declines by reason: none from kinds with 10 or more organisations; other kinds have fewer than 10 organisations.",
     ]);
-    expect(d.holdback[0]).toMatch(/^Natural photo: about \d+ months at 260 votes a month \(the remake check alone: (?:about \d+ months?|under a month)\)\.$/);
-    expect(d.holdback[1]).toBe("From this week's counts across 12 organisations, at their pace; a style shows only from 10 of them.");
+    expect(d.holdback[0]).toMatch(/^Natural photo: about \d+ months at 260 votes a month across 12 organisations \(the remake check alone: (?:about \d+ months?|under a month)\)\.$/);
+    expect(d.holdback[1]).toBe("From this week's counts, at the pace of the organisations behind each style; a style shows only from 10 of them.");
     expect(d.industries).toEqual([{ k: "Unknown", v: "17", faint: false }]);
     expect(d.differs).toEqual([LOOPS_COPY.differsNone]);
     expect(d.cleanup).toBe("Brands still holding a look in the old place: 2. It stays there for switching back: a brand's Forget or Reset clears its own, and there is no step yet to clear the rest.");
@@ -402,6 +438,17 @@ describe("a closed week, every block of screen 6", () => {
     expect(d.holdback[0]).toMatch(/^Natural photo: /);
     expect(d.holdback.some((l) => l.startsWith("Paper collage"))).toBe(false);
     expect(d.holdback).toContain("Other styles: fewer than 10 organisations each.");
+  });
+
+  it("floors a style's holdback line on the organisations with a learned look in it, not those whose images had none", async () => {
+    const fake = new FakeFirestore();
+    // Nine make Natural photo images with no learned look yet (arm none); one learns a look in it.
+    const noLook: Org = { plan: "free", window: fourWeeks({ c: { "image_style.natural_photo": { post_image: { v0: { none: { made: 3, voted: 2, liked: 1 } } } } } }) };
+    const learning: Org = { plan: "free", window: fourWeeks({ c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 6, voted: 5, liked: 1, remade: 2 }, holdback: { made: 1 } } } } } }) };
+    seedWeek(fake, W, [...Array.from({ length: 9 }, () => noLook), learning]);
+    const d = dataOf(await open(fake));
+    expect(d.holdback.some((l) => l.startsWith("Natural photo"))).toBe(false);
+    expect(d.holdback).toContain("Every style: fewer than 10 organisations each.");
   });
 
   it("names a stall at Stamped that comes from posts with no AI draft kept to compare", () => {

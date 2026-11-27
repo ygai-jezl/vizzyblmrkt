@@ -100,7 +100,7 @@ describe("a lifecycle journey Vizzy drafts", () => {
     const journey = await forTenant(lifecycleAdmin, db).lifecycleJourneys.getById(r.id);
     const styled = structuredClone(journey!);
     (styled.draft.settings as Record<string, unknown>).emailStyle = { headerColor: "#225533", accentColor: "#aa3300" };
-    expect(await recordJourneyDraft(agent, "journey_style.suggest", styled, { db })).toBe("recorded");
+    expect((await recordJourneyDraft(agent, "journey_style.suggest", styled, { db })).outcome).toBe("recorded");
     const open = await openRecordsFor(agent, { kind: "lifecycle_journey", ref: r.id }, db);
     expect(open).toHaveLength(1);
     expect(open[0]!.action).toBe("lifecycle_journey.draft");

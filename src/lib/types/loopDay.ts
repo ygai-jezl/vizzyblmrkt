@@ -232,6 +232,12 @@ export const LaneStateSchema = z.object({
    */
   heartbeatWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /**
+   * The newest closed week the brand was opted out of the counts across brands for (learning loops
+   * step 5, decision 4): once it opts back in, no week up to it enters a report's window, and its
+   * first report counts no calls from before, so nothing from its time out is ever sent.
+   */
+  optedOutThrough: z.string().regex(ISO_WEEK_RE).optional(),
+  /**
    * The usage meter's calls by purpose (`callsByPurpose`, the most any resource counted) the heartbeat
    * last saw, for `meterMonth`: a purpose it no longer sees is kept at 0, so the next week counts
    * only calls since.

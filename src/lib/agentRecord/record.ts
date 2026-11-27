@@ -74,6 +74,20 @@ export interface RecordDraftInput {
 
 export type RecordOutcome = "recorded" | "same" | "off" | "failed";
 
+/** A draft recorded, and whether its save left a draft already counted (learning loops step 5). */
+export interface RecordResult {
+  outcome: RecordOutcome;
+  /**
+   * True when the save left a draft already counted made and not yet answered: the record open
+   * for it before kept a stamp (Vizzy's new words, or a save of another kind, on its own draft),
+   * or nothing changed. False when nothing was open, the open record kept no stamp (a person's
+   * draft, or one saved with LOOPS_ENABLED off) or it had expired, so the save is a new made thing.
+   * Null with the record off or failed before it could tell: no record keeps the answer then, so
+   * the caller's own rule decides.
+   */
+  counted: boolean | null;
+}
+
 export type DraftOutcome =
   | {
       to: "acted";
@@ -190,13 +204,21 @@ async function declineAsSystem(ctx: TenantContext, a: AgentAction, reason: Decli
  * a record open for this draft as superseded (closing runs whatever the switch says). Never throws.
  */
 export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, deps: RecordDeps = {}): Promise<RecordOutcome> {
+  return (await recordDraftCounted(ctx, input, deps)).outcome;
+}
+
+/**
+ * recordDraft, saying too whether the draft was already counted (RecordResult.counted), so a
+ * canvas kind counts made once for each record an answer can close (decision 20). Never throws.
+ */
+export async function recordDraftCounted(ctx: TenantContext, input: RecordDraftInput, deps: RecordDeps = {}): Promise<RecordResult> {
   try {
     const nowMs = deps.nowMs ?? Date.now();
     const at = new Date(nowMs).toISOString();
     const open = await openRecordsFor(ctx, input.draft, deps.db);
     if (!isAgentRecordEnabled()) {
       for (const a of open) await declineAsSystem(ctx, a, "superseded", at, deps.db);
-      return "off";
+      return { outcome: "off", counted: null };
     }
     const proposal = proposalOf(input);
     const [first, ...older] = open;
@@ -213,7 +235,9 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
       : agentDedupeKey(line.action, refPart(input.draft.ref), randomUUID().replace(/-/g, ""));
     // Nothing changed, and the open record is still the one its page will name: a style suggested
     // again unchanged gets a new suggestedAt, so its record moves to the new key.
-    if (newest && sameAs(newest, proposal) && (!input.keyPart || newest.dedupeKey === dedupeKey)) return "same";
+    if (newest && sameAs(newest, proposal) && (!input.keyPart || newest.dedupeKey === dedupeKey)) return { outcome: "same", counted: true };
+    // The open record's stamp was counted made when it was saved, and its answer moves to the new record.
+    const counted = Boolean(stampIn(newest?.made));
     if (newest) await declineAsSystem(ctx, newest, "superseded", at, deps.db);
     const target: AgentTarget = newest ? newest.target : input.launchId ? { type: "idea", id: input.launchId } : { type: "brand", id: ctx.tenantId };
     const made = stampOf(line, input.made, newest);
@@ -240,10 +264,10 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
       },
       { db: deps.db },
     );
-    return saved.outcome === "created" ? "recorded" : "same";
+    return saved.outcome === "created" ? { outcome: "recorded", counted } : { outcome: "same", counted: true };
   } catch (err) {
     failed(`record ${input.action}`, err);
-    return "failed";
+    return { outcome: "failed", counted: null };
   }
 }
 

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOOP_DAYS, loopDayId } from "@/lib/tenant/loops";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import { handBack, SAVE_TOKENS_MAX, stampsFromTokens, TOKEN_SAVES, withStampToken } from "./handBack";
+import { handBack, keptFromTokens, SAVE_TOKENS_MAX, stampsFromTokens, TOKEN_SAVES, withStampToken } from "./handBack";
+import { unusedForWeek } from "./tally";
 import { learnedFor } from "./read";
 import { STAMP_HEADER, stampHeaders, tokensFromRequest } from "./stampHeader";
 import { sumWeek } from "./testing/sumWeek";
@@ -29,6 +30,7 @@ describe("with LOOPS_ENABLED off", () => {
     expect(await handBack(hearth, "brand_voice", stamp, { db: untouchable })).toBeNull();
     expect(withStampToken({ brandVoice: { summary: "Warm" } }, null)).toEqual({ brandVoice: { summary: "Warm" } });
     expect(await stampsFromTokens(hearth, ["brand_voice"], ["st1.a.b"], { db: untouchable })).toEqual([]);
+    expect(await keptFromTokens(hearth, ["brand_voice"], ["st1.a.b"], { db: untouchable })).toEqual([]);
   });
 });
 
@@ -85,6 +87,21 @@ describe("with LOOPS_ENABLED on", () => {
     // One read of the key and one write of the refusals, however many tokens came.
     expect(db.collectionCalls(LOOP_DAYS) - before).toBe(2);
     expect(sumWeek(db, hearth.tenantId, WEEK)).toMatchObject({ u: { brand_kit: { token_signature: 2, token_malformed: 1 } } });
+  });
+
+  it("counts a saved draft kept once against its stamp, so it never reads as unused, and a refused token nothing", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(hearth, "brand_voice", {}, { now: NOW });
+    const token = (await handBack(hearth, "brand_voice", stamp, { db, now: NOW }))!;
+    expect(unusedForWeek([sumWeek(db, hearth.tenantId, WEEK)]).get("brand_voice")).toBe(1);
+    // The same token twice in one save is one saved draft.
+    expect(await keptFromTokens(hearth, ["brand_voice"], [token, token, "junk"], { db, now: NOW })).toEqual([stamp]);
+    const week = sumWeek(db, hearth.tenantId, WEEK);
+    expect(week).toMatchObject({ c: { brand_voice: { brand_voice: { v0: { none: { made: 1, kept: 1 } } } } }, u: { brand_voice: { token_malformed: 1 } } });
+    expect(unusedForWeek([week]).get("brand_voice")).toBe(0);
+    // A token another kind's save brings back is refused, and counts no answer.
+    expect(await keptFromTokens(hearth, ["brand_kit"], [token], { db, now: NOW })).toEqual([]);
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toMatchObject({ c: { brand_voice: { brand_voice: { v0: { none: { made: 1, kept: 1 } } } } } });
   });
 
   it("reads no key for a save whose tokens are none of them tokens", async () => {

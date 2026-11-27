@@ -6,7 +6,7 @@ import { getTenantById } from "@/lib/tenant";
 import { updateTenantConfig } from "@/lib/tenant/control";
 import { PaletteColorSchema, PaletteGroupSchema } from "@/lib/types/tenant";
 import { isBrandColorsEnabled } from "@/lib/content/brandKit";
-import { stampsFromTokens } from "@/lib/loops/handBack";
+import { keptFromTokens } from "@/lib/loops/handBack";
 import { tokensFromRequest } from "@/lib/loops/stampHeader";
 
 export const runtime = "nodejs";
@@ -50,8 +50,8 @@ export async function PUT(req: Request) {
         : (existingKit.palettes ?? []),
   };
   await updateTenantConfig(ctx.tenantId, { brandKit: merged });
-  // The stamps of colours kept from a source, if the person kept any: checked here, a refused
-  // token counted (learning loops step 5, decision 20). Off, nothing is read.
-  await stampsFromTokens(ctx, ["brand_kit"], tokensFromRequest(req));
+  // The stamps of colours kept from a source, if the person kept any: checked here and counted
+  // kept, a refused token counted (learning loops step 5, decision 20). Off, nothing is read.
+  await keptFromTokens(ctx, ["brand_kit"], tokensFromRequest(req));
   return NextResponse.json({ palette: merged.palette, palettes: merged.palettes });
 }

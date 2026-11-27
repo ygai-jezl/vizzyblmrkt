@@ -1374,6 +1374,16 @@ describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
       process.env.IMAGE_STYLE_VERSIONS_ENABLED = "false";
       process.env.LOOPS_ENABLED = "true";
       expect(shownHelpPages().some((p) => p.slug === "what-yougrow-learned")).toBe(true);
+      // Its summary, which the list, its description, llms.txt and Vizzy's help list give, speaks of the counts alone.
+      const summary = "What YouGrow counts across brands, who sees the counts, and how your brand leaves them.";
+      expect(shownHelpPages().find((p) => p.slug === "what-yougrow-learned")?.summary).toBe(summary);
+      expect(helpMetadata("what-yougrow-learned").description).toBe(summary);
+      expect(helpLlmsTxt("https://app.example.com").split("\n").find((l) => l.includes("what-yougrow-learned"))).toContain(summary);
+      expect(dashesIn(summary)).toEqual([]);
+      expect(aiTellsIn(summary)).toEqual([]);
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = "true";
+      expect(helpPage("what-yougrow-learned")?.summary).toMatch(/^See the look each image style learned from your votes/);
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = "false";
       process.env.LOOPS_ENABLED = "false";
       expect(shownHelpPages().some((p) => p.slug === "what-yougrow-learned")).toBe(false);
     } finally {

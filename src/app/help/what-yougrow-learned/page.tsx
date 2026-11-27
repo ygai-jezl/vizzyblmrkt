@@ -4,7 +4,11 @@ import { helpMetadata } from "@/lib/help/metadata";
 import { helpPage, isHelpPageShown } from "@/lib/help/pages";
 
 export const dynamic = "force-dynamic";
-export const metadata = helpMetadata("what-yougrow-learned");
+
+/** Worked out per request, so the description follows the switches as the page does. */
+export function generateMetadata() {
+  return helpMetadata("what-yougrow-learned");
+}
 
 /**
  * Served while the page is listed: image style versions (IMAGE_STYLE_VERSIONS_ENABLED) or the

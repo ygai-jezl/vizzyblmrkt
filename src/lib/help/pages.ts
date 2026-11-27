@@ -253,25 +253,39 @@ function audienceSummary(now: { fields: boolean; ideaWords: boolean }): string {
   return `Everyone from your ${now.ideaWords ? "ideas' waitlists" : "launches"}, your own site and your products in one list, one page per person, ${now.fields ? "your own fields on people and companies, " : ""}and erasing or exporting them everywhere.`;
 }
 
+/**
+ * What YouGrow learned's summary while only the learning loops are on: the page then speaks of the
+ * counts across brands alone, with no image looks to see, undo, pause or forget.
+ */
+export const COUNTS_ONLY_SUMMARY = "What YouGrow counts across brands, who sees the counts, and how your brand leaves them.";
+
 /** The words used now, as the server sees them unless the caller says otherwise. */
 interface Words {
   people: boolean;
   fields: boolean;
   ideaWords: boolean;
+  /** The learned image looks (image style versions), and the learning loops' counts across brands. */
+  imageVersions: boolean;
+  loops: boolean;
 }
 
 const wordsNow = (opts: HelpBodyProps = {}): Words => ({
   people: opts.people ?? isPeopleNameEnabled(),
   fields: opts.fields ?? isFieldsEnabled(),
   ideaWords: opts.ideaWords ?? isIdeaWordsEnabled(),
+  imageVersions: opts.imageVersions ?? isImageStyleVersionsOn(),
+  loops: opts.loops ?? isLoopsEnabled(),
 });
 
 /**
  * A page's entry in the words used now: with People on, the page about the People list is listed
  * as People, and with fields on its summary names them. With ideas in the words, Launch and
- * waitlist is Idea and waitlist. Slugs stay, so links and llms.txt keep working.
+ * waitlist is Idea and waitlist. With only the learning loops on, What YouGrow learned is
+ * summed up as the counts across brands it then holds. Slugs stay, so links and llms.txt keep
+ * working.
  */
 function inWords(p: HelpPage, now: Words): HelpPage {
+  if (p.slug === "what-yougrow-learned" && now.loops && !now.imageVersions) return { ...p, summary: COUNTS_ONLY_SUMMARY };
   if (p.slug === "your-audience") {
     return {
       ...p,

@@ -15,8 +15,8 @@ import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { createWaitlistJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
-import { recordDraft } from "@/lib/agentRecord/record";
-import { recordJourneyDraft } from "@/lib/agentRecord/drafts";
+import { recordDraftCounted } from "@/lib/agentRecord/record";
+import { recordJourneyDraft, savedFrom } from "@/lib/agentRecord/drafts";
 import { launchJourneyPrint } from "@/lib/agentRecord/fingerprints";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
@@ -159,7 +159,7 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
 
     const url = `/admin/launches/${campaignId}/journey`;
     // The agent record: the launch's welcome emails, as Vizzy left them (soft, never fails the save).
-    await recordDraft(ctx, {
+    const recorded = await recordDraftCounted(ctx, {
       action: "launch_journey.draft",
       draft: { kind: "launch_journey", ref: saved.journey.id },
       launchId: campaignId,
@@ -171,8 +171,9 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
     });
     return {
       ok: true,
-      // One journey per launch: Vizzy's new draft of one it already counted is not a new journey.
-      saved: saved.created ? "created" : "rewritten",
+      // One journey per launch: Vizzy's new draft of one whose open record it already counted is
+      // not a new journey; one a person wrote, or whose draft was already answered, is (savedFrom).
+      saved: savedFrom(recorded, !saved.created),
       id: saved.journey.id,
       status: saved.journey.status,
       url,
@@ -209,13 +210,15 @@ async function saveMovedLaunchDraft(
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
   const journey = saved.value.journey;
   // The agent record: the launch's welcome emails, in the store it used (soft, never fails the save).
-  await recordJourneyDraft(ctx, "launch_journey.draft", journey, { label: resolveProductName(campaign) || campaign.waitlistName, made });
+  const recorded = await recordJourneyDraft(ctx, "launch_journey.draft", journey, { label: resolveProductName(campaign) || campaign.waitlistName, made });
   const issues = saved.value.issues.map((i) => `${i.code}${i.nodeId ? `@${i.nodeId}` : ""}`);
   const all = [...warnings, ...issues.map((i) => `journey_issue:${i}`)];
   const url = `/admin/lifecycle/${journey.id}`;
   return {
     ok: true,
-    saved: existing ? "rewritten" : "created",
+    // A launch on this engine has a blank welcome journey from the start, so whether its open
+    // record kept Vizzy's stamp decides, not whether the journey exists (savedFrom).
+    saved: savedFrom(recorded, Boolean(existing)),
     id: journey.id,
     status: journey.status,
     url,

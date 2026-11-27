@@ -15,6 +15,10 @@ import { createNote } from "@/lib/brandNotes/store";
 import type { KnowledgeCollectionLike } from "@/lib/tenant/types";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
 import { readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
+import { countDraftOutcome, countMade, loopWeekOf } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
+import { unusedForWeek } from "@/lib/loops/tally";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const ws = { id: "ws1", name: "Acme programme", audience: null };
@@ -216,6 +220,42 @@ describe("blog hub actions", () => {
     // The figure warning is cleared; a warning the checks don't own is left alone.
     expect(saved.warnings).toEqual(["some_other_warning"]);
     expect(saved.status).toBe("generated");
+  });
+
+  it("counts an article made once: a check of the writer's words revises them, keeps their stamp and counts no made, a rerun included", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    // fillPlanNode's save: the writer's stamp on the words, counted made once as a content plan piece.
+    const { stamp: written } = await learnedFor(ctx, "blog_write", { promptId: "content.blog_draft" });
+    const plan = seed(db, {}, hub({ made: written }));
+    await countMade(ctx, "blog_write", written, { type: "content_plan", db });
+    const generate = vi.fn(async (_prompt: string) =>
+      ["OLD: Acme Visibility is an alternative to Rivalco, which has 900 staff.", "NEW: Acme Visibility is an alternative to Rivalco.", "WHY: staff count not given"].join("\n"),
+    );
+    expect(await checkPlanBlogFacts(ctx, { workspace: ws, plan, nodeId: "hub" }, { db, generate, retrieve, now })).toMatchObject({ ok: true, checked: true });
+    const checked = db.raw(KEY, "p1") as ContentPlan;
+    expect(await checkPlanBlogFacts(ctx, { workspace: ws, plan: checked, nodeId: "hub" }, { db, generate: async () => "OK", retrieve, now })).toMatchObject({ ok: true });
+    const saved = (db.raw(KEY, "p1")!.graph as ContentPlan["graph"]).nodes[0]!;
+    expect(saved.made).toEqual(written);
+    // The first approval answers the writer once (recordApprovals counts against the node's stamp).
+    await countDraftOutcome(ctx, saved.made, { wordsChanged: 0 }, { db });
+    const week = sumWeek(db, ctx.tenantId, loopWeekOf(new Date())) as { c: Record<string, unknown>; t: Record<string, { made: number }> };
+    expect(week.c).toEqual({ blog_write: { blog_write: { v0: { none: { made: 1, kept: 1 } } } } });
+    expect(week.t).toEqual({ content_plan: { made: 1 } });
+    expect(unusedForWeek([week]).get("blog_write")).toBe(0);
+  });
+
+  it("counts a check of a person's own words as the check's made thing", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    const generate = vi.fn(async (_prompt: string) =>
+      ["OLD: Acme Visibility is an alternative to Rivalco, which has 900 staff.", "NEW: Acme Visibility is an alternative to Rivalco.", "WHY: staff count not given"].join("\n"),
+    );
+    expect(await checkPlanBlogFacts(ctx, { workspace: ws, plan, nodeId: "hub" }, { db, generate, retrieve, now })).toMatchObject({ ok: true });
+    const saved = (db.raw(KEY, "p1")!.graph as ContentPlan["graph"]).nodes[0]!;
+    expect(saved.made).toMatchObject({ kind: "fact_check" });
+    expect(sumWeek(db, ctx.tenantId, loopWeekOf(new Date()))).toEqual({ c: { fact_check: { fact_check: { v0: { none: { made: 1 } } } } }, t: { content_plan: { made: 1 } } });
   });
 
   it("never rewrites approved, scheduled or empty copy, and says so when the checker is down", async () => {

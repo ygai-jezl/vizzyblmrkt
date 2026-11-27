@@ -6,7 +6,7 @@ import {
   verifyCanvasContext,
 } from "@/lib/canvas/auth";
 import { canvasKindNames, getCanvasKind } from "@/lib/canvas/registry";
-import { countMade } from "@/lib/loops/count";
+import { countCanvasMade } from "@/lib/canvas/made";
 import { learnedFor } from "@/lib/loops/read";
 
 export const runtime = "nodejs";
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
   }
   // Made counts once per saved record (decision 20): not for a draft already waiting, a person
   // already in People, or Vizzy's new words on a draft it already counted.
-  if (outcome.saved === "created") await countMade(ctx, `canvas.${canvasKind.kind}`, made);
+  await countCanvasMade(ctx, canvasKind.kind, outcome.saved, made);
 
   return NextResponse.json({
     ok: true,

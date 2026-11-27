@@ -8,7 +8,7 @@ vi.mock("@/lib/auth/session", () => session);
 vi.mock("@/lib/tenant", () => ({ getTenantById: vi.fn(async () => ({ brandKit: { summary: "Warm and floury" } })) }));
 const control = vi.hoisted(() => ({ updateTenantConfig: vi.fn(async () => undefined) }));
 vi.mock("@/lib/tenant/control", () => control);
-const hand = vi.hoisted(() => ({ stampsFromTokens: vi.fn(async () => []) }));
+const hand = vi.hoisted(() => ({ keptFromTokens: vi.fn(async () => []) }));
 vi.mock("@/lib/loops/handBack", () => hand);
 
 const { PUT } = await import("./route");
@@ -25,19 +25,19 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("PUT /api/admin/brand-kit/colours", () => {
-  it("saves the palette zones, keeps the rest of the kit, and checks the tokens of kept colours as brand kit stamps", async () => {
+  it("saves the palette zones, keeps the rest of the kit, and counts the tokens of kept colours kept as brand kit stamps", async () => {
     const palette = [{ hex: "#AA5500", name: "Crust" }];
     const res = await put({ palette }, { "x-stamp-tokens": "st1.a.b,st1.c.d" });
     expect(res.status).toBe(200);
     expect(control.updateTenantConfig).toHaveBeenCalledWith("ten_hearth", { brandKit: expect.objectContaining({ summary: "Warm and floury", palette }) });
-    expect(hand.stampsFromTokens).toHaveBeenCalledWith(admin, ["brand_kit"], ["st1.a.b", "st1.c.d"]);
+    expect(hand.keptFromTokens).toHaveBeenCalledWith(admin, ["brand_kit"], ["st1.a.b", "st1.c.d"]);
   });
 
   it("checks no tokens when it saves nothing", async () => {
     expect((await put({ palette: "red" })).status).toBe(400);
     vi.stubEnv("BRAND_COLORS_ENABLED", "false");
     expect((await put({ palette: [] })).status).toBe(503);
-    expect(hand.stampsFromTokens).not.toHaveBeenCalled();
+    expect(hand.keptFromTokens).not.toHaveBeenCalled();
     expect(control.updateTenantConfig).not.toHaveBeenCalled();
   });
 });

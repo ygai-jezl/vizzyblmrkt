@@ -26,9 +26,14 @@ export interface KindTally {
   unstamped: number;
   /** Records lost after their output was used (`stamp_lost`). */
   lost: number;
+  /**
+   * Of `unstamped`, things counted made against their stamp that no record keeps (`records_off`:
+   * an email sent with send records off, or named by its enrolment).
+   */
+  recordsOff: number;
 }
 
-const empty = (): KindTally => ({ made: 0, kept: 0, edited: 0, declined: 0, unstamped: 0, lost: 0 });
+const empty = (): KindTally => ({ made: 0, kept: 0, edited: 0, declined: 0, unstamped: 0, lost: 0, recordsOff: 0 });
 
 /** Add a signal's leaves into a kind's tally: `<arm>.<signal>` maps, one per version. */
 function addArms(into: KindTally, byV: unknown): void {
@@ -64,6 +69,7 @@ export function tallyByKind(d: unknown): Map<string, KindTally> {
       for (const [reason, n] of Object.entries(reasons)) {
         if (reason === "stamp_lost") t.lost += num(n);
         else t.unstamped += num(n);
+        if (reason === "records_off") t.recordsOff += num(n);
       }
     }
   }
@@ -79,12 +85,22 @@ export interface Coverage {
   share: number | null;
 }
 
-/** Coverage per kind (4.4): stamped saves, divided by stamped plus unstamped plus lost. */
+/**
+ * The saves of a kind whose record keeps their stamp: made, less the things also counted
+ * `records_off` or `stamp_lost`, which count made against their stamp and once more beside it, so
+ * one thing never counts as both stamped and not. Never below 0.
+ */
+export function stampedOf(t: Pick<KindTally, "made" | "lost" | "recordsOff">): number {
+  return Math.max(0, t.made - t.recordsOff - t.lost);
+}
+
+/** Coverage per kind (4.4): stamped saves (stampedOf), divided by stamped plus unstamped plus lost. */
 export function coverageByKind(d: unknown): Map<string, Coverage> {
   const out = new Map<string, Coverage>();
   for (const [kind, t] of tallyByKind(d)) {
-    const all = t.made + t.unstamped + t.lost;
-    out.set(kind, { stamped: t.made, unstamped: t.unstamped, lost: t.lost, share: all > 0 ? t.made / all : null });
+    const stamped = stampedOf(t);
+    const all = stamped + t.unstamped + t.lost;
+    out.set(kind, { stamped, unstamped: t.unstamped, lost: t.lost, share: all > 0 ? stamped / all : null });
   }
   return out;
 }

@@ -36,10 +36,11 @@ Decided:
    changes, so an image or a brief never replaces the words' stamp; the graph's replace overlay keeps
    both, so a Save can't forge or clear them. `GeneratedNodePatch.made` became `madeBy`. Every journey
    email is stamped `send_time`, with an AI line as its root; each invite reads its wave's stamp. A
-   stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save,
-   for the kinds whose save checks one (`TOKEN_SAVES`: brand voice, the brand kit, its extract and
-   the colours kept from a source on either page, and brand notes); the other hand backs count made
-   and sign no token, so no token goes out that nothing checks.
+   stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save
+   and counted kept there once per stamp (`keptFromTokens`), for the kinds whose save checks one
+   (`TOKEN_SAVES`: brand voice, the brand kit, its extract and the colours kept from a source on
+   either page, and brand notes); the other hand backs count made and sign no token, so no token
+   goes out that nothing checks.
    The other makers (26 files: the brand map, strategy, competitors, blog, notes, onboarding, trending,
    the judge, enrichment, the architect, the content plan, journeys and Your next action) count made
    at their own save with no stamp on their records yet. New unstamped reasons: `nothing_made`,
@@ -56,10 +57,13 @@ Decided:
    a post never counts twice. Step 2's learn lines count `learned` or `refused.<reason>`, so the
    Memory Bank shows in the stages. The meter keeps `callsByPurpose` in the same merged write.
    Batch senders count through a per run `CountBuffer`, written once per brand at the end of the run.
-   The canvas route counts made only when a kind saved a new draft (`saved: "created"`): a form or
-   suggestion already waiting, a person already in People, a brand map call that filed nothing, and
-   Vizzy's new words on an invite wave, a plan's pieces or a journey it already drafted count
-   nothing more, so made never outruns the answers. A stamped post that goes out with no AI draft
+   The canvas route counts made only when a kind saved a new draft (`saved: "created"`,
+   `countCanvasMade`): a form or suggestion already waiting, a person already in People, a brand
+   map call that filed nothing, and Vizzy's new words on an invite wave that already keeps Vizzy's
+   stamp, on a plan's pieces, or on a journey whose open record already keeps a stamp (a style on
+   it included) count nothing more, so made never outruns the answers. Vizzy's first words on a
+   person's wave or journey, on a launch's blank welcome journey, or on a journey whose draft was
+   already answered count made once (`recordDraftCounted`, `savedFrom`). A stamped post that goes out with no AI draft
    kept counts `no_draft` beside its stamp, never kept or edited, and the stuck line names it. A
    stamp no record keeps counts beside made: `records_off` for an email sent with send records off
    or named by its enrolment (`LIFECYCLE_SEND_TRACKING`), and `stamp_lost` for an image whose
@@ -187,6 +191,21 @@ Where the build follows the code, not the plan (the plan's intent kept):
   another kind on a recorded draft (a style on a journey Vizzy drafted) keeps the draft's own stamp
   (`stampOf`). The weekly strategy check (`strategy_check`, a gap line) counts made once for each
   row it opens or changes.
+- After review round 3: a fact check of words already stamped revises that made thing, so the node
+  keeps their stamp, the check counts no made (a rerun neither) and the first approval answers the
+  writer; only a check of a person's own words is stamped `fact_check` and counted made. An AI line
+  counts made only when its draft was still pending and its line saved. Coverage counts as stamped
+  made less `records_off` and `stamp_lost` (`stampedOf`), as those count made against their stamp
+  and once more beside it. A token save counts kept, never edited, since the token carries the
+  stamp and not the words; the notes page sends the split's token with its first note only, as the
+  split is one made thing. `ls:` keeps `optedOutThrough`: weeks up to it enter no report's window,
+  and the report right after it, or after weeks the brand never reported (the switch was off, or
+  the lane fell more than 4 weeks behind), counts no calls and no week before it reports
+  (`reportsFrom`). An organisation counts behind an image style only with counts in the arms the
+  holdback compares (`HOLDBACK_ARMS`), and each style's line names its own organisations. A week
+  whose `_orgs` row holds only brands listed, visited or a fold alarm shows its coverage and the
+  behind banner. With only `LOOPS_ENABLED` on, What YouGrow learned is summed up as the counts
+  across brands (`COUNTS_ONLY_SUMMARY`).
 
 Enforced where:
 
@@ -200,8 +219,10 @@ Enforced where:
   `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
 - `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts` and `learnLog.test.ts`: each
   count once, coverage and unused; `src/lib/agentRecord/loopsCount.test.ts` and
-  `src/lib/brandStrategy/check.test.ts`: each recorded draft's answer once, and the strategy check's
-  rows.
+  `src/lib/brandStrategy/check.test.ts`: each recorded draft's answer once, made once through the
+  canvas route's count, and the strategy check's rows; `src/lib/content/blog/hubActions.test.ts`
+  and `src/lib/lifecycle/personalise.test.ts`: an article made once however often it is checked,
+  and an AI line made only once saved.
 - `src/lib/loops/stages.test.ts`, `heartbeat.test.ts`, `fleetView.test.ts`, `tick.test.ts`,
   `src/lib/tenant/fleetCells.test.ts`, `loopLane.test.ts`, `indexes.test.ts` and `lane.heap.test.ts`
   (with `--expose-gc`): the stages, the marks and their budgets, the floors, brands visited and the
@@ -217,7 +238,8 @@ Enforced where:
 
 Not yet: email assist, the hero, Edit mode Vizzy, the email layout and block image and Suggest an
 angle sign no token until their saves send one and check it (`TOKEN_SAVES`); they count made at
-hand back. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
+hand back and no answer, so `get_learning` and the heartbeat read the words among them as unused
+until their saves count one. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
 product journeys, a journey's own style and the email and image style suggestions keep theirs only
 on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted. An email named by its enrolment keeps its
 stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not

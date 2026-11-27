@@ -184,8 +184,14 @@ export async function checkPlanBlogFacts(
   const report = evaluateCitable(result.body, { brief, meta: result.meta, pageUrl: plan.strategy.hubUrl, map });
   const owned = new Set<string>(BLOG_WARNINGS);
   const warnings = [...node.warnings.filter((w) => !owned.has(w)), ...blogWarnings(result.meta, report)];
-  // The checked copy is the check's, grown from the draft it started from (`root`).
-  const { stamp } = await learnedFor(ctx, "fact_check", { promptId: "content.blog_fact_check", root: rootOf(node.made) });
+  // The checked copy is the check's, grown from the draft it started from (`root`). Words already
+  // stamped (the writer's draft, or an earlier check) were counted made when they were written:
+  // the check revises that made thing, so the node keeps its stamp and the check counts no made,
+  // a rerun included, and the approval answers the writer once (learning loops step 5, decision
+  // 20). Only a check of words with no stamp (a person's own) is a new made thing, the check's.
+  const { stamp: checkStamp } = await learnedFor(ctx, "fact_check", { promptId: "content.blog_fact_check", root: rootOf(node.made) });
+  const revises = Boolean(node.made && !("unstamped" in node.made));
+  const stamp = revises ? node.made! : checkStamp;
   let updated: ContentNode | null;
   try {
     updated = await updateContentPlanNode(
@@ -200,7 +206,7 @@ export async function checkPlanBlogFacts(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
-  await countMade(ctx, "fact_check", stamp, { type: "content_plan", db: deps.db });
+  if (!revises) await countMade(ctx, "fact_check", stamp, { type: "content_plan", db: deps.db });
   // The checked copy is still the AI's draft: it replaces the AI original the check started from.
   await followCheck(ctx, { planId: plan.id, nodeId: node.id, before: node.body, after: updated.body }, { db: deps.db }).catch(() => false);
   // The article is written: its author's details are kept for their next one, the notes it

@@ -20,7 +20,7 @@ import {
   readJourneyStyle,
   withJourneyHeaderText,
 } from "@/components/admin/lifecycle/journeyStyleForm";
-import { recordJourneyDraft } from "@/lib/agentRecord/drafts";
+import { recordJourneyDraft, savedFrom } from "@/lib/agentRecord/drafts";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -96,7 +96,7 @@ function customStyle(
 function outcome(
   journey: LifecycleJourney,
   style: StoredJourneyStyle | null,
-  opts: { brand: ResolvedEmailStyle | null; headerOptions: boolean; warnings: string[] },
+  opts: { brand: ResolvedEmailStyle | null; headerOptions: boolean; warnings: string[]; saved: "created" | "rewritten" },
 ): CanvasAuthorOutcome {
   const url = `/admin/lifecycle/${journey.id}`;
   // The gradient and header text only draw with header options on, so only then are they claimed.
@@ -117,8 +117,8 @@ function outcome(
     : `I set "${journey.name}" back to your brand's Email style in its draft. ${applies}`;
   return {
     ok: true,
-    // A new style for the journey's draft.
-    saved: "created",
+    // A new style for the journey's draft, or new words on a draft already counted (savedFrom).
+    saved: opts.saved,
     id: journey.id,
     status: journey.status,
     url,
@@ -196,13 +196,16 @@ export async function authorJourneyStyle(
   }
   // The agent record: one draft with the journey, so a journey Vizzy drafted and then styled stays
   // one record (soft, never fails the save). That record keeps the journey's own stamp, so a style
-  // on a journey Vizzy drafted counts the person's answer once, under the journey (stampOf).
-  await recordJourneyDraft(ctx, "journey_style.suggest", saved.value, { db: deps.db, made });
+  // on a journey Vizzy drafted counts the person's answer once, under the journey (stampOf), and
+  // counts no made of its own: the journey's made already waits for that answer. A style on a
+  // journey with no stamped record open (a person's, or one already answered) is a new made thing.
+  const recorded = await recordJourneyDraft(ctx, "journey_style.suggest", saved.value, { db: deps.db, made });
   const engineNote = launchEngineNote(found.launch);
   return outcome(saved.value, readJourneyStyle(saved.value.draft.settings.emailStyle), {
     brand,
     headerOptions,
     warnings: engineNote ? [engineNote] : [],
+    saved: savedFrom(recorded, false),
   });
 }
 

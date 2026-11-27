@@ -19,8 +19,8 @@ const week = {
 describe("a week by kind", () => {
   it("adds up made and what people did across scopes, versions and arms", () => {
     const t = tallyByKind(week);
-    expect(t.get("content_write")).toEqual({ made: 10, kept: 4, edited: 3, declined: 1, unstamped: 3, lost: 1 });
-    expect(t.get("post_image")).toEqual({ made: 7, kept: 0, edited: 0, declined: 0, unstamped: 2, lost: 0 });
+    expect(t.get("content_write")).toEqual({ made: 10, kept: 4, edited: 3, declined: 1, unstamped: 3, lost: 1, recordsOff: 0 });
+    expect(t.get("post_image")).toEqual({ made: 7, kept: 0, edited: 0, declined: 0, unstamped: 2, lost: 0, recordsOff: 0 });
     expect(t.get("blog_write")).toMatchObject({ made: 2 });
     // Types and anything that isn't a counter are left out.
     expect([...t.keys()].sort()).toEqual(["blog_write", "content_write", "post_image"]);
@@ -30,9 +30,12 @@ describe("a week by kind", () => {
 
   it("says how much of each kind is stamped: stamped over stamped, unstamped and lost", () => {
     const c = coverageByKind(week);
-    expect(c.get("content_write")).toEqual({ stamped: 10, unstamped: 3, lost: 1, share: 10 / 14 });
+    // The image whose library row was lost was counted made too: it is one of the 10, not stamped.
+    expect(c.get("content_write")).toEqual({ stamped: 9, unstamped: 3, lost: 1, share: 9 / 13 });
     expect(c.get("post_image")).toEqual({ stamped: 7, unstamped: 2, lost: 0, share: 7 / 9 });
     expect(c.get("blog_write")?.share).toBe(1);
+    // Ten emails sent with send records off: each counted made against its stamp and records_off beside it, and none is kept with a stamp.
+    expect(coverageByKind({ c: { send_time: { send_time: { v0: { none: { made: 10 } } } } }, u: { send_time: { records_off: 10 } } }).get("send_time")).toEqual({ stamped: 0, unstamped: 10, lost: 0, share: 0 });
     // Nothing saved: no share.
     expect(coverageByKind({ c: { edit_mode: { edit_mode: { v0: { none: { kept: 1 } } } } } }).get("edit_mode")?.share).toBeNull();
   });

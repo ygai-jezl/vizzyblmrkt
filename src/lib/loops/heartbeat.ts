@@ -15,8 +15,8 @@ import { isLoopsEnabled } from "./flags";
 import { lastClosedWeek, weekAfter, weekBefore } from "./fold";
 import { industryOf } from "./industry";
 import { IMAGE_STYLE_SCOPES, LOOP_RULES } from "./registry";
-import { IMAGE_POOL, looksInUse, rowKindOf, rowsOfWeek, rowStage, STAGE_WEEKS, stagesThrough, type LookInUse, type RowWeek } from "./stages";
-import { tallyByKind, unusedForWeek } from "./tally";
+import { HOLDBACK_ARMS, IMAGE_POOL, looksInUse, rowKindOf, rowsOfWeek, rowStage, STAGE_WEEKS, stagesThrough, type LookInUse, type RowWeek } from "./stages";
+import { stampedOf, tallyByKind, unusedForWeek } from "./tally";
 
 /**
  * The heartbeat (learning loops step 5, 4.6 of the plan for steps 4 and 5): once a week is closed
@@ -178,7 +178,8 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     const row = rowKindOf(kind);
     if (!row) continue;
     const c = coverage.get(row) ?? { s: 0, u: 0, l: 0 };
-    c.s += Math.max(0, t.made);
+    // A thing counted made and records_off (or stamp_lost) beside it is one thing, not stamped.
+    c.s += stampedOf(t);
     c.u += Math.max(0, t.unstamped);
     c.l += Math.max(0, t.lost);
     coverage.set(row, c);
@@ -241,10 +242,11 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
         for (const [arm, signals] of Object.entries(byArm)) {
           for (const [s, n] of Object.entries(signals)) {
             thing(n, row, "scope", style, arm, s);
-            if (n > 0) used = true;
+            if (n > 0 && HOLDBACK_ARMS.has(arm)) used = true;
           }
         }
-        // The organisations behind each style's numbers, so a style shows only from 10 of them.
+        // The organisations behind each style's holdback line, so a style shows only from 10 of
+        // them: only counts in the arms the line adds up (a learned look, or held back from one).
         if (used) org(row, "styles", style);
       }
       thing(w.noDraft, row, "nodraft");
@@ -490,6 +492,23 @@ export async function callsSince(ctx: TenantContext, lane: Pick<LaneState, "mete
   return { delta, seen: { ...next, ...now }, month };
 }
 
+/**
+ * What a brand's report may take in (decision 4, and USED_NOTE: nothing is counted across brands
+ * while the loops are off or the brand is out). `week`: the first week a report's window holds, the
+ * week after its time opted out (`optedOutThrough`), or the first week it reports when it skipped
+ * weeks it never reported (the switch was off, or the lane fell more than HEARTBEAT.CATCH_UP_WEEKS
+ * behind); null for no limit. `freshCalls`: its calls count as a first report's (none), as its
+ * meter's totals since its last report hold calls from that time. Pure.
+ */
+export function reportsFrom(lane: Pick<LaneState, "heartbeatWeek" | "optedOutThrough">, first: string): { week: string | null; freshCalls: boolean } {
+  const out = lane.optedOutThrough ? weekAfter(lane.optedOutThrough) : null;
+  const skipped = lane.heartbeatWeek && weekAfter(lane.heartbeatWeek) < first ? first : null;
+  const week = [out, skipped].filter((w): w is string => Boolean(w)).sort().pop() ?? null;
+  // Just back: the last weeks it marked done were its time out.
+  const back = Boolean(lane.optedOutThrough && lane.heartbeatWeek && lane.optedOutThrough >= lane.heartbeatWeek);
+  return { week, freshCalls: back || Boolean(skipped) };
+}
+
 export interface HeartbeatResult {
   /** Weeks reported this visit, late ones included. */
   weeks: number;
@@ -515,10 +534,11 @@ export async function heartbeat(
   if (!last) return none;
   const warn = (what: string, err: unknown) => console.warn(`[loops] ${what} failed`, err instanceof Error ? err.message.slice(0, 200) : "error");
 
-  // Opted out: nothing of the brand's is sent, and the weeks are marked done. The visit itself
-  // counts, as brands listed count every brand, so coverage compares like with like.
+  // Opted out: nothing of the brand's is sent, and the weeks are marked done, and marked as its
+  // time out (optedOutThrough), so a report once it opts back in sends nothing from them. The
+  // visit itself counts, as brands listed count every brand, so coverage compares like with like.
   if (state.pointers.fleetOptOut) {
-    const kept = await mergeLaneState(ctx, { heartbeatWeek: last }, deps.db).then(
+    const kept = await mergeLaneState(ctx, { heartbeatWeek: last, optedOutThrough: last }, deps.db).then(
       () => true,
       (err: unknown) => {
         warn("keeping the heartbeat's week", err);
@@ -542,22 +562,28 @@ export async function heartbeat(
   for (let i = 1; i < STAGE_WEEKS; i++) start = weekBefore(start);
   const windowWeeks: string[] = [];
   for (let w = start; w <= last; w = weekAfter(w)) windowWeeks.push(w);
+  const from = reportsFrom(state.lane, weeks[0]!);
+  // Weeks before `from.week` enter no report: they add no stage, unused thing, refusal or card.
+  const readWeeks = from.week ? windowWeeks.filter((w) => w >= from.week!) : windowWeeks;
   const scopes = IMAGE_STYLE_SCOPES.filter((s) => {
     const p = state.pointers.scopes[s];
     return p && p.v >= 1 && p.setBy !== "person";
   });
   let docs: Awaited<ReturnType<typeof readLoopDays>>;
   try {
-    docs = await readLoopDays(ctx, [...windowWeeks.map((w) => loopDayId.folded(ctx.tenantId, w)), ...scopes.map((s) => loopDayId.version(ctx.tenantId, s, state.pointers.scopes[s]!.v))], deps.db);
+    docs = await readLoopDays(ctx, [...readWeeks.map((w) => loopDayId.folded(ctx.tenantId, w)), ...scopes.map((s) => loopDayId.version(ctx.tenantId, s, state.pointers.scopes[s]!.v))], deps.db);
   } catch (err) {
     // Nothing is claimed, so the next visit tries the weeks again.
     warn("reading the folded weeks", err);
     return none;
   }
-  const folded = new Map(windowWeeks.map((w, i) => [w, docs[i]?.d]));
-  const totals = new Map(scopes.map((s, i) => [s as string, docs[windowWeeks.length + i]?.d]));
+  const folded = new Map(readWeeks.map((w, i) => [w, docs[i]?.d]));
+  const totals = new Map(scopes.map((s, i) => [s as string, docs[readWeeks.length + i]?.d]));
   const looks = looksInUse(state.pointers, totals);
-  const calls = await callsSince(ctx, state.lane, deps).catch((err) => {
+  // Back from opting out, or from weeks it never reported: the calls since are its first report's,
+  // none, so the meter's totals from that time are kept and never sent.
+  const meter = from.freshCalls ? { meterSeen: state.lane.meterSeen } : state.lane;
+  const calls = await callsSince(ctx, meter, deps).catch((err) => {
     warn("reading the usage meter", err);
     return null;
   });

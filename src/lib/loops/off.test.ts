@@ -20,7 +20,7 @@ import {
   countUnstamped,
 } from "./count";
 import { countAgentDecision, countStamped } from "./decisions";
-import { handBack, stampsFromTokens, withStampToken } from "./handBack";
+import { handBack, keptFromTokens, stampsFromTokens, withStampToken } from "./handBack";
 import { isImageKind } from "./imageKinds";
 import { learnedFor, notLearningStamp } from "./read";
 import { LOOPS, type LoopKind } from "./registry";
@@ -119,6 +119,7 @@ describe.each([
       // A hand-off signs no token and counts nothing, and a save given tokens checks none.
       expect(await handBack(hearth, kind, stamp, deps), kind).toBeNull();
       expect(await stampsFromTokens(hearth, [kind], ["a.token.from.before"], deps), kind).toEqual([]);
+      expect(await keptFromTokens(hearth, [kind], ["a.token.from.before"], deps), kind).toEqual([]);
     }
     expect(buffer.size).toBe(0);
     await buffer.flush();

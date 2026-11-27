@@ -2,7 +2,7 @@ import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
-import { STANDARD_COLUMNS, STANDARD_HEADERS, STANDARD_WORDS } from "@/lib/crm/paste/columns";
+import { PERSON_ONLY_HEADERS, STANDARD_COLUMNS, STANDARD_HEADERS, STANDARD_WORDS } from "@/lib/crm/paste/columns";
 import { isVizzyPasteEnabled } from "@/lib/crm/paste/flags";
 import { PUBLIC_LIST, type PublicLink } from "@/lib/crm/paste/publicLists";
 import { COMPANY_REMOVE, PASTE_MESSAGES, PASTE_NOTES, PASTE_TIMELINE, PASTE_WORDS, ROW_REASONS } from "@/lib/crm/paste/words";
@@ -111,8 +111,9 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
         {fields ? (
           <li>
             Any other column whose header is the name of one of your own fields fills that field: a People field on a person, a
-            company field on a company. A firm row never fills a field from a person&apos;s name, title, role, city, state or
-            country. Business, Shop and Store fill your own field of that name if you have one, and name the firm otherwise.
+            company field on a company. A firm row never fills a field from a column headed{" "}
+            {PERSON_ONLY_HEADERS.slice(0, -1).join(", ")} or {PERSON_ONLY_HEADERS.at(-1)}, with Investor before it or not, or their
+            plurals. Any other column fills a company field of its name. Business, Shop and Store fill your own field of that name if you have one, and name the firm otherwise.
             A column fills the field of its exact name, or else one a plural s away. When two columns name one field, each
             row keeps the first cell that fits it, trying the column of its exact name first, so your own Stage column and the
             kit&apos;s Stages column both work, in either order.

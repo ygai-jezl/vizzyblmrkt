@@ -43,6 +43,7 @@ import { BOARD_WORDS, PASS_WORDS, REVIEW_WORDS as FOLLOW_UP_WORDS, SETUP_WORDS }
 import { RAISE_REASONS } from "@/lib/raise/reasons";
 import { BOARD_HREF } from "@/lib/raise/pipeline/setup";
 import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
+import { PERSON_ONLY_HEADERS } from "@/lib/crm/paste/columns";
 import { PUBLIC_LIST } from "@/lib/crm/paste/publicLists";
 import { boardStageHint, COMPANY_REMOVE, PASTE_MESSAGES, ROW_REASONS } from "@/lib/crm/paste/words";
 
@@ -1511,6 +1512,8 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
 
   it("names your own fields only while fields are on", () => {
     expect(md("paste-a-list", { fields: true })).toContain("fills that field");
+    // The columns a firm row never keeps, named from the list the code uses.
+    expect(md("paste-a-list", { fields: true })).toContain(`A firm row never fills a field from a column headed ${PERSON_ONLY_HEADERS.slice(0, -1).join(", ")} or ${PERSON_ONLY_HEADERS.at(-1)}, with Investor before it or not, or their plurals.`);
     // How a field named by two columns is filled, as columns.ts and rows.ts do it.
     expect(md("paste-a-list", { fields: true })).toContain("A column fills the field of its exact name, or else one a plural s away.");
     expect(md("paste-a-list", { fields: true })).toContain("each row keeps the first cell that fits it, trying the column of its exact name first");

@@ -2253,7 +2253,7 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
-- `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's task suggestions keep what it proposed beside what the person added or why they dismissed it, but nothing learns from those choices until stamps and the votes learner land.
+- `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.
   - `src/app/api/admin/agent/chat/route.ts`
 - `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.
   - `src/lib/canvas/kinds/journey.ts`

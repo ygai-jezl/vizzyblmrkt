@@ -3,7 +3,7 @@ import { SLIDE_SIZE } from "@/lib/raise/docs/layouts";
 import type { DeckTheme } from "@/lib/raise/docs/theme";
 import { dayWords } from "@/lib/raise/docs/text";
 import type { DeckAudience, DeckStage, LayoutKey, Slide } from "@/lib/raise/docs/types";
-import { STUDIO_WORDS, needCallout } from "@/lib/raise/docs/words";
+import { STUDIO_WORDS, needCallout, needCalloutOnly } from "@/lib/raise/docs/words";
 import { Ask } from "./layouts/Ask";
 import { BigNumber } from "./layouts/BigNumber";
 import { Chart } from "./layouts/Chart";
@@ -43,6 +43,8 @@ export interface SlideViewProps {
   now?: Date;
   /** The studio only: Dismiss on a Needs callout. */
   onDismissNeed?: (needId: string) => void;
+  /** The studio only: Vizzy can change this deck here, so a Needs callout offers it. */
+  askVizzy?: boolean;
 }
 
 /**
@@ -51,7 +53,7 @@ export interface SlideViewProps {
  * studio only, never in Present, the PDF or a thumbnail. No hooks, so it renders anywhere (the
  * print root, tests).
  */
-export function SlideView({ slide, theme, n, total, title, audience, stage, mode, version, now = new Date(), onDismissNeed }: SlideViewProps) {
+export function SlideView({ slide, theme, n, total, title, audience, stage, mode, version, now = new Date(), onDismissNeed, askVizzy = false }: SlideViewProps) {
   const Layout = LAYOUT[slide.layout] ?? Statement;
   const last = n === total;
   return (
@@ -85,7 +87,7 @@ export function SlideView({ slide, theme, n, total, title, audience, stage, mode
               data-need={need.id}
               style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 18px", borderRadius: 10, background: "#FEF3C7", border: "2px solid #F59E0B" }}
             >
-              <span style={{ ...bodyStyle(theme, 20), color: "#78350F" }}>{needCallout(need.text)}</span>
+              <span style={{ ...bodyStyle(theme, 20), color: "#78350F" }}>{(askVizzy ? needCallout : needCalloutOnly)(need.text)}</span>
               {onDismissNeed ? (
                 <button
                   type="button"

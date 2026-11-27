@@ -121,8 +121,11 @@ export type MissingKey = keyof typeof MISSING_WORDS;
 /** An outline slide's need when nothing else is missing there. */
 export const OUTLINE_NEED = "the point of this slide";
 
-/** The Needs callout on a slide in the editor. */
+/** The Needs callout on a slide in the editor, while Vizzy can work on decks here. */
 export const needCallout = (what: string) => `Needs: ${what}. Add it here or tell Vizzy.`;
+
+/** The Needs callout when Vizzy can't work on decks here. */
+export const needCalloutOnly = (what: string) => `Needs: ${what}. Add it here.`;
 
 // ----- Numbers ---------------------------------------------------------------------------------
 
@@ -339,7 +342,6 @@ export const EDITOR_WORDS = {
   removePerson: "Remove this person",
   layout: "Layout",
   section: "Section",
-  readOnly: "Only an admin can change this deck.",
   full: "A slide holds 3 numbers at most.",
   noRoom: "No room for a number here. Shorten the text first.",
   typedMissing: "Say what it is and type the number.",

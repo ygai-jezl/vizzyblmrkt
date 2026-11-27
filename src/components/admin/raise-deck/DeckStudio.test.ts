@@ -44,13 +44,27 @@ describe("the deck studio", () => {
 
   it("opens the slide brand search linked, with its Needs callout and Dismiss", () => {
     const out = html({ initialSlide: 7 });
-    expect(out).toContain("Needs: how much you're raising. Add it here or tell Vizzy.");
+    expect(out).toContain("Needs: how much you're raising. Add it here.");
+    expect(out).not.toContain("tell Vizzy");
     expect(out).toContain(STUDIO_WORDS.dismiss);
     expect(out).toContain(GUIDANCE.ask);
   });
 
+  it("offers Vizzy in a Needs callout only while Vizzy can change the deck here", () => {
+    shell.current = { ask: vi.fn(), setVizzyOpen: vi.fn(), onCanvasSaved: null };
+    try {
+      expect(html({ vizzy: true, initialSlide: 7 })).toContain("Needs: how much you're raising. Add it here or tell Vizzy.");
+      expect(html({ vizzy: false, initialSlide: 7 })).not.toContain("tell Vizzy");
+      expect(html({ vizzy: true, initialSlide: 7, initial: acmeView({ canDraft: false }) })).not.toContain("tell Vizzy");
+    } finally {
+      shell.current = null;
+    }
+  });
+
   it("lets a member read, present and save, but not change", () => {
     const out = html({ initial: acmeView({ canEdit: false, canDraft: false }), initialSlide: 7 });
+    expect(out).toContain(RAISE_MESSAGES.memberOnly);
+    expect(html()).not.toContain(RAISE_MESSAGES.memberOnly);
     expect(out).not.toContain('aria-label="Deck name"');
     expect(out).toContain("<h1");
     expect(out).not.toContain(STUDIO_WORDS.addSlide);

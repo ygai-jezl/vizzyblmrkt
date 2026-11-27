@@ -13,7 +13,7 @@ export function BigNumber({ slide, theme, mode, now }: LayoutProps) {
         <div style={{ display: "flex", flexDirection: "row", gap: 56 }}>
           {blocks.map((b) => (
             <div key={b.id} style={{ display: "flex", flex: 1, minWidth: 0 }}>
-              <BigBlock theme={theme} block={b} now={now} size={blocks.length > 2 ? 76 : 96} />
+              <BigBlock theme={theme} block={b} now={now} mode={mode} size={blocks.length > 2 ? 76 : 96} />
             </div>
           ))}
         </div>

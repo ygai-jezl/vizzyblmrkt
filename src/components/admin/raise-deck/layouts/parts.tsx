@@ -78,13 +78,16 @@ export function blockLabel(b: MetricBlock, now: Date): string {
   return b.source.saidInChat ? `${label}, ${LABEL_WORDS.saidInChat}` : label;
 }
 
-/** A number shown large: its figure, its name and where it came from. */
-export function BigBlock({ theme, block, now, size = 96 }: { theme: DeckTheme; block: MetricBlock; now: Date; size?: number }) {
+/**
+ * A number shown large: its figure, its name and where it came from. "said in chat" is for the
+ * studio: Present and the PDF show only the label ("Typed by you, 26 Nov").
+ */
+export function BigBlock({ theme, block, now, mode, size = 96 }: { theme: DeckTheme; block: MetricBlock; now: Date; mode: SlideMode; size?: number }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
       <span style={{ ...headingStyle(theme, size), color: theme.accentText, lineHeight: 1 }}>{block.display || "…"}</span>
       <span style={bodyStyle(theme, 24)}>{block.periodWords ? `${block.name}, ${block.periodWords}` : block.name}</span>
-      <span style={bodyStyle(theme, 18, true)}>{blockLabel(block, now)}</span>
+      <span style={bodyStyle(theme, 18, true)}>{mode === "edit" ? blockLabel(block, now) : labelWords(block, now)}</span>
     </div>
   );
 }

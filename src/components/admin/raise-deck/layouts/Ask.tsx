@@ -20,7 +20,7 @@ export function Ask({ slide, theme, audience, mode, now }: LayoutProps) {
       <div style={{ display: "flex", flexDirection: "row", gap: 64, alignItems: "flex-start" }}>
         {amount ? (
           <div style={{ display: "flex", flex: "none", maxWidth: 440 }}>
-            <BigBlock theme={theme} block={amount} now={now} size={92} />
+            <BigBlock theme={theme} block={amount} now={now} mode={mode} size={92} />
           </div>
         ) : null}
         <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 18, minWidth: 0 }}>

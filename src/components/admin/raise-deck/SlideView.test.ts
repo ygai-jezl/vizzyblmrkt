@@ -61,10 +61,14 @@ describe("a slide", () => {
     expect(big).toContain("Typed by you, from a trade body report, 26 Nov");
   });
 
-  it("shows a typed number said in chat as said in chat", () => {
+  it("shows a typed number said in chat as said in chat in the studio, and only its label in Present and the PDF", () => {
     const s = of("big_number");
     const said = { ...s, blocks: [{ ...s.blocks[0]!, source: { ...s.blocks[0]!.source, saidInChat: true, quote: "We have 320,000 shops" } }] };
-    expect(words(draw(said))).toContain("said in chat");
+    expect(words(draw(said, "edit"))).toContain("said in chat");
+    for (const mode of ["present", "print", "thumb"] as const) {
+      expect(words(draw(said, mode)), mode).not.toContain("said in chat");
+      expect(words(draw(said, mode)), mode).toContain("Typed by you, from a trade body report, 26 Nov");
+    }
   });
 
   it("carries the version footer on the last slide only", () => {
@@ -75,7 +79,9 @@ describe("a slide", () => {
 
   it("shows Needs in the studio only, never in Present, the PDF or a thumbnail", () => {
     const s = of("ask");
-    expect(words(draw(s, "edit"))).toContain("Needs: how much you're raising. Add it here or tell Vizzy.");
+    expect(words(draw(s, "edit"))).toContain("Needs: how much you're raising. Add it here.");
+    expect(words(draw(s, "edit"))).not.toContain("tell Vizzy");
+    expect(words(draw(s, "edit", { askVizzy: true }))).toContain("Needs: how much you're raising. Add it here or tell Vizzy.");
     for (const mode of ["present", "print", "thumb"] as const) expect(words(draw(s, mode))).not.toContain("Needs:");
     expect(draw(s, "edit", { onDismissNeed: () => undefined })).toContain("Dismiss");
     expect(draw(s, "edit")).not.toContain("Dismiss");

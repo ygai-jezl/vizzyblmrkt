@@ -212,6 +212,8 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
   }
 
   const vizzyHere = vizzy && Boolean(shell);
+  // The foot ask, and the Needs callouts' "or tell Vizzy", only where Vizzy can change this deck.
+  const askHere = canEdit && view.canDraft && vizzyHere;
   const savedVersion = view.versions.find((v) => v.n === view.version);
   // Present and the PDF show the slides as they are here; the footer names a version only when they are that version.
   const shownVersion = dirty ? null : { n: view.version, at: savedVersion?.at ?? view.updatedAt };
@@ -290,6 +292,11 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
         </div>
       </div>
 
+      {!canEdit ? (
+        <p role="note" className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+          {RAISE_MESSAGES.memberOnly}
+        </p>
+      ) : null}
       {incoming ? (
         <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
           <span>{STUDIO_WORDS.vizzySaved(incoming.version)}</span>
@@ -339,6 +346,7 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
               mode="edit"
               version={shownVersion}
               now={now}
+              askVizzy={askHere}
               onDismissNeed={canEdit ? (id) => changeSlide(dismissNeed(slide, id)) : undefined}
             />
           </FitSlide>
@@ -367,7 +375,7 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
             </div>
           ) : null}
 
-          {canEdit && view.canDraft && vizzyHere ? (
+          {askHere ? (
             <form onSubmit={sendAsk} className="space-y-1">
               <label htmlFor="rd-ask" className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
                 {STUDIO_WORDS.ask}

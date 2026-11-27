@@ -20,7 +20,7 @@ export function Chart({ slide, theme, mode, now }: LayoutProps) {
         ) : null}
         {big ? (
           <div style={{ display: "flex", flexDirection: "column", flex: 1, paddingBottom: 40 }}>
-            <BigBlock theme={theme} block={big} now={now} size={80} />
+            <BigBlock theme={theme} block={big} now={now} mode={mode} size={80} />
           </div>
         ) : null}
       </div>

@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-108 types: 88 built and 20 planned.
+109 types: 89 built and 20 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1638,21 +1638,35 @@ What the learning loops keep for a brand, as counts and pointers with no words a
 - Erase: none. Counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Counts and pointers, read by the learning loops.
-- Numbers: gap. Get_image_style returns each image look's made, voted, liked and remade counts (image_asset claims likedShare and remadeShare); the weekly counts themselves wait for get_learning in step 5.
+- Numbers: `keptShare`, `editShare`, `declineShare`, `unusedShare`, through `get_learning`
 
 ### Learning lane bookkeeping (`loop_lane`)
 
-The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, and how many learner calls it made today. Counts across brands come later, with one mark per organisation.
+The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, how many learner calls it made today, and one mark per organisation, so an organisation with several brands counts once in the counts across brands. A mark holds its newest week only: the cells it is already counted in and the outputs counted so far against the cap.
 
 - Status: built
 - Home: the control plane
 - Personal: no
 - Stores:
-  - `loop_lane`, control plane Firestore, in `src/lib/tenant/loopLane.ts`. One `lane` document under the one map `d`; its cursor is the last brand id the lane visited; residency gap: the control plane is in the United States for every region; the lane holds a brand id the brand records there already hold, and counts.
-- Erase: none. The copy's own bookkeeping: a cursor that moves on each run and counts with no one's data.
+  - `loop_lane`, control plane Firestore, in `src/lib/tenant/loopLane.ts`. The `lane` document, whose cursor is the last brand id the lane visited, and one mark per organisation (`o:<organisationId>`, or `o:t:<tenantId>` for a brand with no organisation), each under the one map `d`; a mark is replaced by its organisation's next week, and nothing on screen reads it; residency gap: the control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words.
+- Erase: gap. A mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. The lane's own bookkeeping.
-- Numbers: none. The lane's own bookkeeping: a cursor and counts with no meaning to count.
+- Numbers: none. The lane's own bookkeeping: a cursor and one mark per organisation, with no meaning to count.
+
+### Counts across brands (`fleet_cell`)
+
+What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing of theirs (only that the lane visited them), and numbers of things show only from 10 organisations.
+
+- Status: built
+- Home: the control plane
+- Personal: no
+- Stores:
+  - `fleet_cells`, control plane Firestore, in `src/lib/tenant/fleetCells.ts`. One row per kind of choice and closed week (`fh:<kind>:<week>`), and the copy's own rows `fh:_orgs`, `fh:_types` and `fh:_calls`, every count under the one map `n`; read by id only; residency gap: the control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them.
+- Erase: none. Counts across organisations with no brand, organisation or person in them, so nothing in them is anyone's to erase.
+- Export: none. Counts across organisations, with no brand's or person's own data.
+- Search: none. Counts, read by the people who run the copy.
+- Numbers: gap. Counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path.
 
 ### Brand (`brand`)
 
@@ -2002,8 +2016,10 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - What we've seen note (`brand_note`):
   - Erase: a person's erase does not find notes that name them: notes are free text
   - Export: a person's export does not include notes that name them
-- Learning counts (`loop_day`):
-  - Numbers: get_image_style returns each image look's made, voted, liked and remade counts (image_asset claims likedShare and remadeShare); the weekly counts themselves wait for get_learning in step 5
+- Learning lane bookkeeping (`loop_lane`):
+  - Erase: a mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next
+- Counts across brands (`fleet_cell`):
+  - Numbers: counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path
 - Vizzy chat (`vizzy_chat`):
   - Erase: no path deletes a member's chats with Vizzy
   - Export: no path exports a member's chats with Vizzy
@@ -2088,7 +2104,8 @@ Stores that don't keep to the brand's region.
 - Brand kit: `brand/{tenantId}/{category}/{file}` in `src/lib/tenant/brandAssetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/{file}` in `src/lib/tenant/brandAsset.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `tenants` in `src/lib/tenant/control.ts`. The brand record is in the control plane, in the United States, whatever the brand's region.
-- Learning lane bookkeeping: `loop_lane` in `src/lib/tenant/loopLane.ts`. The control plane is in the United States for every region; the lane holds a brand id the brand records there already hold, and counts.
+- Learning lane bookkeeping: `loop_lane` in `src/lib/tenant/loopLane.ts`. The control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words.
+- Counts across brands: `fleet_cells` in `src/lib/tenant/fleetCells.ts`. The control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them.
 - Vizzy editing memory: `edit memories` in `src/lib/agents/memoryBank.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
 - Vizzy chat: `sessions` in `src/lib/agents/agentRuntime.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
 - Mailchimp audience: `audience members` in `src/lib/mailchimp/sync.ts`. Mailchimp keeps it where Mailchimp runs.
@@ -2303,7 +2320,7 @@ No line says this yet.
   - `src/lib/competitors/articleTick.ts`
 - `post_feedback` (AI purpose, Learning from posts). This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape.
   - `src/lib/distribute/feedback/patterns.ts`
-- `images` (AI purpose, Images). This is the image style learner from before versions, and where versions are on its calls move to loop_learn, the loops' own learner.
+- `images` (AI purpose, Images). This is the image style learner from before versions, and where versions are on its calls move to the loops' own learner.
   - `src/lib/content/create/styleProfile.ts`
 - `loop_learn` (AI purpose, Learning and checking it helps). The learners themselves, judged by the loops they feed.
   - `src/lib/loops/learners/votes.ts`

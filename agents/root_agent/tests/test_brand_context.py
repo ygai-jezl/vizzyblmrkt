@@ -78,3 +78,19 @@ def test_a_persons_page_hands_this_person_to_lifecycle_ops():
     # No person in view (the app sends "" off their page): nothing added.
     for state in ({"page": page}, {"page": page, "personId": ""}):
         assert PERSON_IN_VIEW_BLOCK not in build_dynamic_instruction(_ctx(state))
+
+
+def test_a_decks_page_hands_this_deck_and_this_slide_to_raise_ops():
+    from root_agent_pkg.context.brand_context import DECK_IN_VIEW_BLOCK
+
+    page = "Content › Raise kit › Deck"
+    out = build_dynamic_instruction(_ctx({"page": page, "raiseDocId": "rd_abcdefghij12"}))
+    assert out.endswith(DECK_IN_VIEW_BLOCK)
+    assert "raise_ops_agent" in DECK_IN_VIEW_BLOCK and "not Content Ops" in DECK_IN_VIEW_BLOCK
+    # The studio's foot ask sends "On slide {n}: ...", with no word for deck in it.
+    assert "On slide 4:" in DECK_IN_VIEW_BLOCK
+    # The deck's id is the tools' business, not the prompt's.
+    assert "rd_abcdefghij12" not in out
+    # No deck in view ("" once the operator leaves) or anything that isn't a deck id: nothing added.
+    for state in ({"page": page}, {"page": page, "raiseDocId": ""}, {"page": page, "raiseDocId": "rd_../x"}):
+        assert DECK_IN_VIEW_BLOCK not in build_dynamic_instruction(_ctx(state))

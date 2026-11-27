@@ -36,10 +36,11 @@ export interface EmbedDeps extends FamilyDeps {
 
 /**
  * A proposal at least this close to a subject on the map is shown as "looks like" it. `new` is
- * provisional until scripts/measure-question-dupes.ts --model new is run (ADR-0025): it is used
- * only once SEARCH_SUBJECT_READS_ENABLED is on.
+ * used only once SEARCH_SUBJECT_READS_ENABLED is on, and was measured with scripts/measure-question-dupes.ts --model new on 2026-11-27 (ADR-0025): the same subject reworded
+ * scored 0.928 to 0.972, a different subject 0.750 to 0.885 (old model: 0.907 to 0.973 and 0.747
+ * to 0.884, so 0.9 sits where 0.91 does now).
  */
-export const LOOKS_LIKE: CutOff = { old: 0.9, new: 0.9 };
+export const LOOKS_LIKE: CutOff = { old: 0.9, new: 0.91 };
 const FIRST_QUESTIONS = 10;
 
 /** A family hit as the brand map's readers return it. */
@@ -140,7 +141,7 @@ function byWords(names: Array<{ id: string; status: string; name: string }>, tex
   const words = new Set(meaningWords(text));
   const scored = names.map((n) => {
     const own = meaningWords(n.name);
-    return { ref: n.id, status: n.status, sim: own.length ? own.filter((w) => words.has(w)).length / own.length : 0 };
+    return { ref: n.id, status: n.status, sim: own.length ? own.filter((w) => words.has(w)).length / own.length : 0, byWords: true as const };
   });
   const near = scored.filter((n) => n.sim > 0).sort((a, b) => b.sim - a.sim || a.ref.localeCompare(b.ref)).slice(0, limit);
   if (!fill || near.length >= limit) return near;

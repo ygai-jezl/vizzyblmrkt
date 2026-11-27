@@ -69,9 +69,12 @@ describe("the map's meaning", () => {
       ]),
     });
     expect(byMeaning.map((n) => n.ref)).toEqual(["sub_x00000001", "sub_x00000002"]);
+    // A match by meaning says nothing; one by words says so, for readers that cut words apart (detect.ts).
+    expect(byMeaning.every((n) => n.byWords === undefined)).toBe(true);
     const byWords = await nearestSubjects(ctx, "How do AI Overviews change click-through?", { limit: 2 }, { db, query: async () => null });
     const names = await brandMapRecords(ctx, db).getMany("sub", byWords.map((n) => n.ref));
     expect(names.map((s) => s.name)).toEqual(["AI Overviews and click-through"]);
+    expect(byWords.map((n) => n.byWords)).toEqual([true]);
   });
 
   it("for placing, lets the rest of a small map follow the ones sharing a word, when meaning can't be had", async () => {
@@ -227,6 +230,7 @@ describe("the map's meaning in brand search (ADR-0025)", () => {
     const deps = { db, search: broken, embedSearch: fresh() };
     const words = await nearestSubjects(ctx, "How do I start repotting figs?", { limit: 3 }, deps);
     expect(await brandMapRecords(ctx, db).getMany("sub", words.map((n) => n.ref))).toMatchObject([{ name: "Repotting figs" }]);
+    expect(words.map((n) => n.byWords)).toEqual([true]);
     expect(await nearestSituations(ctx, "Which pot for a fig?", { limit: 3 }, deps)).toEqual([]);
   });
 

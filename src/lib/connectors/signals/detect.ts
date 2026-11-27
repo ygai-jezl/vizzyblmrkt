@@ -73,13 +73,22 @@ export const CAPS = { newPerDay: 5, open: 15 } as const;
 /** The searches mapped to subjects for the subject planning doc. */
 export const TOP_SEARCHES = 100;
 /**
- * A search this close to a subject counts as near it: on brand_map_vectors (`old`), or on brand
- * search once SEARCH_SUBJECT_READS_ENABLED is on (`new`, provisional until scripts/measure-question-dupes.ts
- * --model new is run, ADR-0025).
+ * A search this close in meaning to a subject counts as near it: on brand_map_vectors (`old`), or
+ * on brand search once SEARCH_SUBJECT_READS_ENABLED is on (`new`, measured with
+ * scripts/measure-question-dupes.ts --model new on 2026-11-27, ADR-0025). On the new model a
+ * search about the subject scored 0.870 to 0.916 and one about something else 0.599 to 0.662, so
+ * 0.7 sits low in that gap. On the old model 0.6 sits below its gap (0.635 to 0.870), so it lets
+ * some unrelated searches through.
  */
-export const NEAR_SUBJECT: CutOff = { old: 0.6, new: 0.6 };
-/** NEAR_SUBJECT for the store nearestSubjectsMany reads now. */
-const nearSubject = () => cutOff(NEAR_SUBJECT, isSearchSubjectReadsEnabled());
+export const NEAR_SUBJECT: CutOff = { old: 0.6, new: 0.7 };
+/**
+ * A search sharing this share of a subject name's words counts as near it, when the match is by
+ * words (a small map, or when meaning can't be had). Word share is neither store's score, so it
+ * keeps the cut-off it had before ADR-0025, whichever store the readers use.
+ */
+export const NEAR_SUBJECT_WORDS = 0.6;
+/** The cut-off for one match: by words, or by meaning on the store nearestSubjectsMany reads now. */
+const nearSubject = (hit: { byWords?: boolean }) => (hit.byWords ? NEAR_SUBJECT_WORDS : cutOff(NEAR_SUBJECT, isSearchSubjectReadsEnabled()));
 /** A rising search this close in meaning to a question on the map is already answered by it. */
 export const NEAR_QUESTION = 0.85;
 /** Rows one rule writes in a run, strongest first. */
@@ -312,8 +321,8 @@ export interface MapView {
   questionsOf: (subjectId: string) => Promise<string[]>;
   /** The question's words, by id. */
   questionText: (ids: string[]) => Promise<Map<string, string>>;
-  /** The nearest decided subject of each text, or null. */
-  nearest: (texts: string[]) => Promise<Array<{ ref: string; sim: number } | null>>;
+  /** The nearest decided subject of each text, or null; `byWords` when matched by shared words. */
+  nearest: (texts: string[]) => Promise<Array<{ ref: string; sim: number; byWords?: boolean } | null>>;
   /**
    * At any size: propose a question under a subject (from `search_console`, with the connection
    * that found it), answering its id, or null when the map already has those words or had them
@@ -334,13 +343,13 @@ export interface DetectDeps {
 }
 
 /** Shared meaningful words as a share of the subject name's: the word fallback of nearest. */
-function byWords(subjects: Array<{ id: string; name: string }>, text: string): { ref: string; sim: number } | null {
+function byWords(subjects: Array<{ id: string; name: string }>, text: string): { ref: string; sim: number; byWords: true } | null {
   const words = new Set(meaningWords(text));
-  let best: { ref: string; sim: number } | null = null;
+  let best: { ref: string; sim: number; byWords: true } | null = null;
   for (const s of subjects) {
     const own = meaningWords(s.name);
     const sim = own.length ? own.filter((w) => words.has(w)).length / own.length : 0;
-    if (sim > 0 && (!best || sim > best.sim)) best = { ref: s.id, sim };
+    if (sim > 0 && (!best || sim > best.sim)) best = { ref: s.id, sim, byWords: true };
   }
   return best;
 }
@@ -361,7 +370,7 @@ export async function readMapView(ctx: TenantContext, deps: Pick<DetectDeps, "db
       questionsOf: async (id) => (await subjectQuestions(ctx, id, { db: deps.db }).catch(() => [])).slice(0, QUESTIONS_PER_SUBJECT).map((q) => q.text),
       questionText: async (ids) => new Map((await store.getMany("q", ids).catch(() => [])).map((r) => [r.ref, String(r.text ?? "")] as const)),
       nearest: async (texts) =>
-        (await nearestSubjectsMany(ctx, texts, { limit: 1, statuses: ["decided"] }, { db: deps.db }).catch(() => texts.map(() => []))).map((n) => (n[0] ? { ref: n[0].ref, sim: n[0].sim } : null)),
+        (await nearestSubjectsMany(ctx, texts, { limit: 1, statuses: ["decided"] }, { db: deps.db }).catch(() => texts.map(() => []))).map((n) => (n[0] ? { ref: n[0].ref, sim: n[0].sim, byWords: n[0].byWords } : null)),
       propose: async (p) => {
         const made = await proposedQuestion(ctx, store, { subjectId: p.subjectId, text: p.text, from: "search_console", reason: p.reason, evidence: p.evidence, now: p.now, fromConnectionId: p.connectionId });
         return made ? String(made.ref) : null;
@@ -602,7 +611,7 @@ async function detectNow(ctx: TenantContext, conn: DataConnection, others: reado
   if (rising) {
     result.checked.push("rising_search");
     const onMap = await map.hasWords(risingTop.map((h) => h.key)).catch(() => new Set<string>());
-    const left = risingTop.map((h, i) => ({ h, subject: risingNear[i] && risingNear[i]!.sim >= nearSubject() ? risingNear[i]!.ref : null })).filter((x) => !onMap.has(x.h.key));
+    const left = risingTop.map((h, i) => ({ h, subject: risingNear[i] && risingNear[i]!.sim >= nearSubject(risingNear[i]!) ? risingNear[i]!.ref : null })).filter((x) => !onMap.has(x.h.key));
     const answered = await nearQuestions(ctx, left.map((x) => ({ text: x.h.label, subjectId: x.subject })), map, deps);
     for (const h of rising.slice(ROWS_PER_RULE)) holding.add(idOf("rising_search", { topic: h.key }));
     for (const [i, { h, subject }] of left.entries()) {
@@ -757,14 +766,14 @@ async function writeSubjectLines(
   conn: DataConnection,
   doc: MetricSnapshot,
   top: SnapshotRow[],
-  near: Array<{ ref: string; sim: number } | null>,
+  near: Array<{ ref: string; sim: number; byWords?: boolean } | null>,
   deps: { db?: FirestoreLike; now: Date },
 ): Promise<void> {
   const by = new Map<string, Record<string, number>>();
   const cut = new Map<string, number>();
   top.forEach((row, i) => {
     const n = near[i];
-    if (!n || n.sim < nearSubject()) return;
+    if (!n || n.sim < nearSubject(n)) return;
     const m = by.get(n.ref) ?? { nearbySearches: 0, searchImpressions: 0, searchClicks: 0 };
     m.nearbySearches! += 1;
     m.searchImpressions! += row.m.searchImpressions ?? 0;

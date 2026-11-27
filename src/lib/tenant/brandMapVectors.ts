@@ -147,6 +147,8 @@ export interface BrandMapNeighbour {
   status: string;
   /** Cosine similarity (1 − distance), 0 to 1. */
   sim: number;
+  /** Set when the match is by shared words (a share of the name's words), not by meaning. */
+  byWords?: true;
 }
 
 /**

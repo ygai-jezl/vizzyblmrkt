@@ -64,6 +64,8 @@ def test_root_routes_raising_money_to_raise_ops():
     assert "raise_ops_agent" in ROOT_SYSTEM_INSTRUCTION
     assert "make a lender pack for a stock loan" in ROOT_SYSTEM_INSTRUCTION
     assert "It never sends or shares a deck." in ROOT_SYSTEM_INSTRUCTION
+    # Decks aren't in the agent record, so a drafts question about one goes to Raise Ops.
+    assert "Decks and lender packs aren't in it either: for what happened to one, delegate to the Raise Ops specialist" in ROOT_SYSTEM_INSTRUCTION
 
 
 def test_appends_what_the_brand_told_vizzy_when_the_root_has_it_cached():

@@ -113,9 +113,9 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
             Any other column whose header is the name of one of your own fields fills that field: a People field on a person, a
             company field on a company. A firm row never fills a field from a person&apos;s name, title, role, city, state or
             country. Business, Shop and Store fill your own field of that name if you have one, and name the firm otherwise.
-            A column fills the field of its exact name, and only a column that names none of your fields exactly fills one a
-            plural s away. When two columns name one field, each row keeps the first cell that fits it, trying the column of
-            its exact name first, so your own Stage column and the kit&apos;s Stages column both work, in either order.
+            A column fills the field of its exact name, or else one a plural s away. When two columns name one field, each
+            row keeps the first cell that fits it, trying the column of its exact name first, so your own Stage column and the
+            kit&apos;s Stages column both work, in either order.
           </li>
         ) : null}
       </UL>

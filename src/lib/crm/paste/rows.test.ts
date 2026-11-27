@@ -254,6 +254,13 @@ describe("a list pasted onto an investor board", () => {
     expect(ada.kind === "person" && ada.values[TEXT.key]).toBe("Research");
   });
 
+  it("keeps the kit's Stages on a firm with a People field Stages and a company field Stage", () => {
+    const OWN = field("fld_000000ownstg", "Stages", "multi_select", "person", { options: [{ id: "opt_seed00001", label: "Seed" }] });
+    const r = read([KIT_HEADER, FIRM_CELLS].map((x) => x.join("\t")).join("\n"), { person: [OWN], company: [STAGE] });
+    const firm = r.rows.find((x) => x.kind === "company");
+    expect(firm && firm.kind === "company" && firm.values[STAGE.key]).toEqual(["opt_00000000"]);
+  });
+
   it("passes over a cell too long to read when another column fits, with no note", () => {
     const r = read(`Email\tStage\tStage\nada@example.com\t${"x".repeat(2_001)}\tResearch`, { person: [board()] });
     const ada = r.rows[0]!;

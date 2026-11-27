@@ -1512,7 +1512,7 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
   it("names your own fields only while fields are on", () => {
     expect(md("paste-a-list", { fields: true })).toContain("fills that field");
     // How a field named by two columns is filled, as columns.ts and rows.ts do it.
-    expect(md("paste-a-list", { fields: true })).toContain("A column fills the field of its exact name, and only a column that names none of your fields exactly fills one a plural s away.");
+    expect(md("paste-a-list", { fields: true })).toContain("A column fills the field of its exact name, or else one a plural s away.");
     expect(md("paste-a-list", { fields: true })).toContain("each row keeps the first cell that fits it, trying the column of its exact name first");
     expect(md("paste-a-list", { fields: true })).toContain("On a person, Stages also fills a People field named Stage when you have no field called Stages");
     expect(md("paste-a-list", { fields: false })).not.toContain("fills that field");
@@ -1523,7 +1523,7 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
     expect(board(true)).toContain("**Paste a list**, beside How the board works ([Paste a list](https://app.example.com/help/paste-a-list.md))");
     expect(board(true)).toContain(`"${boardStageHint("Stage")}"`);
     expect(board(true)).toContain(`On an Investors board with no one on it yet, Paste a list opens ${PUBLIC_LIST.title} too`);
-    expect(board(true)).toContain("a column named after your Stage field (Stage, unless you renamed it)");
+    expect(board(true)).toContain("a column named like your board's Stage field, which the empty board names for you");
     expect(board(true)).toContain("such as Research (Plan on a Funding board). It can go anywhere in the list");
     expect(board(true)).toContain("Someone already in People is left as they are");
     // The page's Next link still names Paste a list, the page after it.

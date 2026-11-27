@@ -111,22 +111,27 @@ describe("mapColumns", () => {
     }
   });
 
-  it("never fills a field a trailing s away from a column that names a field exactly on the other list", () => {
+  it("matches on each list apart: an exact name on People never stops a plural s match on companies", () => {
+    const OWN = field("fld_000000ownstg", "Stages", "multi_select", "person", { options: opts("Seed") });
+    // The kit's Stages fills a People field Stages exactly, and a company field Stage a plural s away.
+    expect(mapColumns(["Website", "Stages"], { person: [OWN], company: [STAGE] }).columns[1]).toEqual({ kind: "field", person: OWN, company: STAGE });
+    // A Stage column of the board's stages and the kit's Stages both name a company field Stages: the kit's, of its exact name, is tried first (rows.ts).
     const BOARD = field("fld_0000000bstag", "Stage", "status", "person", { options: opts("Research") });
     const FIRM_STAGES = field("fld_00000cstages", "Stages", "text", "company");
     const map = mapColumns(["Email", "Stage", "Website", "Stages"], { person: [BOARD], company: [FIRM_STAGES] });
-    expect(map.columns[1]).toEqual({ kind: "field", person: BOARD, company: null });
-    expect(map.columns[3]).toEqual({ kind: "field", person: null, company: FIRM_STAGES });
+    expect(map.columns[1]).toEqual({ kind: "field", person: BOARD, company: FIRM_STAGES });
+    expect(map.columns[3]).toEqual({ kind: "field", person: BOARD, company: FIRM_STAGES });
   });
 
-  it("gives two fields of the same name a column each", () => {
+  it("gives two fields of the same name a column each, exact or a plural s away", () => {
     const N1 = field("fld_00000notes01", "Notes", "text", "person");
     const N2 = field("fld_00000notes02", "Notes", "text", "person");
-    const map = mapColumns(["Email", "Notes", "Notes"], { person: [N1, N2], company: [] });
-    expect(map.columns.slice(1)).toEqual([
-      { kind: "field", person: N1, company: null },
-      { kind: "field", person: N2, company: null },
-    ]);
+    for (const header of [["Email", "Notes", "Notes"], ["Email", "Notes", "Note"], ["Email", "Note", "Note"]]) {
+      expect(mapColumns(header, { person: [N1, N2], company: [] }).columns.slice(1)).toEqual([
+        { kind: "field", person: N1, company: null },
+        { kind: "field", person: N2, company: null },
+      ]);
+    }
   });
 
   it("reads every column of a field's name as that field: each row keeps the first cell that fits (rows.ts)", () => {

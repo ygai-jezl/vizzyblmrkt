@@ -29,6 +29,7 @@ import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
 import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, skippedSlotQuestions } from "@/lib/contentStrategy/nextUp";
 import { PAGE_KIND_LABEL, ROADMAP_SHARE, type ContentPlan, type PickSlot } from "@/lib/types/contentStrategy";
+import { withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
@@ -472,7 +473,7 @@ export async function pickNextUp(
       ),
     });
     const timeoutMs = Math.min(PICK_MS, opts.deadlineMs - Date.now() - 2_000);
-    const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+    const raw = await (deps.generate ?? generateTextWithDeadline)(withWritingLanguage(prompt, writingLanguageOf(tenant)), {
       timeoutMs,
       json: true,
       temperature: 0.3,

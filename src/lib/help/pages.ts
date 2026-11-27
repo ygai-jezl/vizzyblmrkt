@@ -7,6 +7,7 @@ import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/con
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
+import { isContentLanguageEnabled } from "@/lib/i18n/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -29,7 +30,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language";
 }
 
 /**
@@ -150,6 +151,7 @@ export const HELP_PAGES: HelpPage[] = [
   ),
   page("email-sending", "Email sending", "ready", "Verify the domain you send from, then add your From address, privacy policy link and postal address."),
   page("your-brand", "Your brand", "ready", "Add your logo, colours and fonts, and write your brand voice so everything Vizzy writes sounds like you."),
+  page("languages", "Languages", "ready", "Choose the language YouGrow writes everything in for your brand, and the languages your waitlists are offered in.", "content_language"),
   page("email-style", "Email style", "ready", "Give every email your logo, colours and fonts."),
   page("launch-and-waitlist", "Launch and waitlist", "launch", "Create a launch, turn on the welcome email, then share your waitlist page."),
   page(
@@ -213,6 +215,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
+  if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
   return true;
 }
 

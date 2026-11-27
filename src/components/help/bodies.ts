@@ -21,6 +21,7 @@ import OnboardingJourneysHelp from "./pages/onboarding-journeys";
 import ReviewAndApprovalsHelp from "./pages/review-and-approvals";
 import PeopleHelp from "./pages/people";
 import SearchHelp from "./pages/search";
+import LanguagesHelp from "./pages/languages";
 import YourAudienceHelp from "./pages/your-audience";
 import HistoryAndRestoreHelp from "./pages/history-and-restore";
 import TroubleshootingHelp from "./pages/troubleshooting";
@@ -34,6 +35,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,
+  "languages": LanguagesHelp,
   "launch-and-waitlist": LaunchAndWaitlistHelp,
   "newsletter-from-your-site": NewsletterFromYourSiteHelp,
   "programmes-and-knowledge": ProgrammesAndKnowledgeHelp,

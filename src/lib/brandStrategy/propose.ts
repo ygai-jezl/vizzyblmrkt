@@ -41,6 +41,7 @@ import { liveCompetitors, suggestionsOf } from "./competitors";
 import { isStrategyCompetitorsEnabled } from "./flags";
 import { measureKeyOf, newClaimId, readBrandStrategyDoc, saveProposal, type ProposedStrategy, type StrategyResult } from "./store";
 import type { BrandStrategyDoc } from "@/lib/types/brandStrategy";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Propose with Vizzy (BRAND_STRATEGY_ENABLED): ONE Gemini call drafts the strategy from what the
@@ -550,7 +551,7 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
   const now = (deps.now ?? (() => new Date()))();
   const tenant = deps.loadTenant ? await deps.loadTenant(ctx.tenantId).catch(() => null) : undefined;
   const usage = deps.usage ?? aiUsage(ctx, "brand_strategy", { db: deps.db, ...(tenant !== undefined ? { tenant } : {}) });
-  const raw = await (deps.generate ?? generateTextWithDeadline)(strategyPrompt(input, now.toISOString().slice(0, 10)), {
+  const raw = await (deps.generate ?? generateTextWithDeadline)(await inBrandLanguage(strategyPrompt(input, now.toISOString().slice(0, 10)), usage), {
     timeoutMs: PROPOSE_MS,
     json: true,
     temperature: 0.3,

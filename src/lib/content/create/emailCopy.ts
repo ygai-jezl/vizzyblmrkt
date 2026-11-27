@@ -2,6 +2,7 @@ import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/
 import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { spamScan, collapseBangs } from "@/lib/content/create/emailCritics";
 import { WRITING_RULES } from "@/lib/content/writingRules";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Write ONE email with the brand's voice — the copywriter shared by Create's
@@ -59,7 +60,8 @@ export async function draftEmailCopy(input: {
     userProfile: audienceSection(input.audience),
     task: input.task,
   });
-  const drafted = coerceDraftedEmail(await (input.generate ?? ((p: string) => generateText(p, { usage: input.usage })))(prompt));
+  const written = await inBrandLanguage(prompt, input.usage);
+  const drafted = coerceDraftedEmail(await (input.generate ?? ((p: string) => generateText(p, { usage: input.usage })))(written));
   if (!drafted.body) return null;
   // Critics run on the MODEL PROSE, before any caller bakes tokens in — so a baked
   // value containing "!!" (legal in a URL) is never mangled.

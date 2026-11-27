@@ -14,6 +14,7 @@ import {
 import { sanitizeEmailHtml, looksHtml, paragraphize, escapeHtml } from "@/lib/email/emailRender";
 import type { BrandKit, BrandTypography } from "@/lib/types/tenant";
 import { assembleBrandContext } from "./brandContext";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Natural-language → email LAYOUT (one Gemini call, Zod-validated) — the same pattern
@@ -97,7 +98,7 @@ export async function generateEmailLayout(input: GenerateLayoutInput): Promise<E
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt, { usage: input.usage });
+  const raw = await generateText(await inBrandLanguage(prompt, input.usage), { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j) return null;
   const parsed = EmailLayoutSchema.safeParse(j);

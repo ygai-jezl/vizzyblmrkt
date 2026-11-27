@@ -108,5 +108,19 @@
   "widget.leaderboard.title": "Líderes de recomendaciones",
   "widget.leaderboard.someone": "Alguien",
   "widget.leaderboard.referrals.one": "{count} recomendación",
-  "widget.leaderboard.referrals.other": "{count} recomendaciones"
+  "widget.leaderboard.referrals.other": "{count} recomendaciones",
+  "article.lastUpdated": "Última actualización",
+  "article.published": "Publicado",
+  "article.updated": "Actualizado",
+  "article.by": "Por {name}",
+  "article.keyFacts": "Datos clave",
+  "article.tldr": "En resumen",
+  "article.answer": "Respuesta",
+  "article.tip": "Consejo",
+  "article.faq": "Preguntas frecuentes",
+  "article.nextStep": "Próximo paso",
+  "article.keyTakeaways": "Puntos clave",
+  "article.bottomLine": "En conclusión",
+  "article.sources": "Fuentes",
+  "article.aboutAuthor": "Sobre el autor"
 }

@@ -3,6 +3,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import type { ResourceCount } from "@/lib/types/usageMeter";
 import type { AiUsage } from "@/lib/agents/gemini";
+import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
 import { isUsageMeterEnabled } from "./flags";
 import { isLimitedResource, monthlyLimitOf } from "./limits";
 import type { ResourceId, ResourcePurpose } from "./resources";
@@ -158,10 +159,16 @@ export function usageMeter<R extends ResourceId>(
  */
 export function aiUsage(ctx: Pick<TenantContext, "tenantId" | "region">, purpose: ResourcePurpose, opts: MeterDeps & { tenant?: Tenant | null } = {}): AiUsage {
   const meter = (r: ResourceId) => usageMeter(ctx, r, purpose, opts);
+  // The brand's language, read once for this usage (the record the caller passed, else one read).
+  let language: Promise<string> | null = null;
   return {
     check: (kind, units) => meter(kind === "searches" ? "web_searches" : "images").check(units),
     recordModel: (tokens, model, o) => meter("model_tokens").record(tokens, { ...o, model }),
     recordSearches: (n, o) => meter("web_searches").record(n, o),
     recordImages: (n) => meter("images").record(n),
+    brandLanguage: () =>
+      (language ??= (opts.tenant !== undefined ? Promise.resolve(opts.tenant) : getTenantById(ctx.tenantId).catch(() => null)).then(
+        (tenant) => normalizeLocale(tenant?.defaultLocale) ?? DEFAULT_LOCALE,
+      )),
   };
 }

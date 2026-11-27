@@ -10,6 +10,7 @@ import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { generateTextStream } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +84,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       const emit = (e: unknown) => controller.enqueue(sse(e));
       let full = "";
       try {
-        for await (const chunk of generateTextStream(prompt, { usage: aiUsage(ctx, "ebook") })) {
+        const usage = aiUsage(ctx, "ebook");
+        for await (const chunk of generateTextStream(await inBrandLanguage(prompt, usage), { usage })) {
           full += chunk;
           emit({ type: "text", text: chunk });
         }

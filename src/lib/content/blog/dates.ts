@@ -1,5 +1,6 @@
 import { localDateKey, offsetMs } from "@/lib/lifecycle/sendWindow";
 import type { BlogArticleDates, BlogArticleMeta } from "@/lib/types/contentPlan";
+import { articleLabel, dateLineLanguage } from "./labels";
 import { afterDateOf, lastUpdatedOf } from "./markdown";
 
 /**
@@ -43,9 +44,15 @@ export function zonedIso(at: string, tz: string): string {
 }
 
 /** "28 Apr 2026", for a date line. */
-export function readableDay(day: string): string {
+export function readableDay(day: string, language = "en"): string {
   const [y, m, d] = day.split("-").map(Number);
-  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const locale = language === "en" ? "en-GB" : language;
+  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** A dateline day as words in `language` (its stored English words for English). */
+export function dayText(d: { iso: string; text: string }, language = "en"): string {
+  return language === "en" ? d.text : readableDay(d.iso.slice(0, 10), language);
 }
 
 /** The UTC day a stored date falls on, for comparing two dates. */
@@ -111,8 +118,9 @@ export function articleDateline(meta: Pick<BlogArticleMeta, "dates" | "live"> | 
 }
 
 /** "Published 28 Apr 2026 · Updated 24 Nov 2026", then whatever followed the date (a byline). */
-export function datelineText(dl: Dateline, after = ""): string {
-  return `Published ${dl.published.text}${dl.updated ? ` · Updated ${dl.updated.text}` : ""}${after}`;
+export function datelineText(dl: Dateline, after = "", language = "en"): string {
+  const updated = dl.updated ? ` · ${articleLabel(language, "updated")} ${dayText(dl.updated, language)}` : "";
+  return `${articleLabel(language, "published")} ${dayText(dl.published, language)}${updated}${after}`;
 }
 
 /** The article's Markdown with its "Last updated" line rewritten as the date line. The stored body keeps its own. */
@@ -120,7 +128,7 @@ export function withDateLine(markdown: string, dl: Dateline): string {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const i = lines.findIndex((l) => lastUpdatedOf(l) !== null);
   if (i === -1) return markdown;
-  lines[i] = `*${datelineText(dl, afterDateOf(lines[i]!))}*`;
+  lines[i] = `*${datelineText(dl, afterDateOf(lines[i]!), dateLineLanguage(lines[i]!))}*`;
   return lines.join("\n");
 }
 

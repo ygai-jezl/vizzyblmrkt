@@ -221,7 +221,7 @@ export const LOOPS = {
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
   images: none("This is the image style learner itself, and it is judged by the images its learned look shapes."),
   vizzy_chat: gap(
-    "Vizzy's task suggestions keep what it proposed beside what the person added or why they dismissed it, but nothing learns from those choices until stamps and the votes learner land.",
+    "Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.",
     LATER,
   ),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),

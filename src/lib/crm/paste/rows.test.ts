@@ -219,6 +219,56 @@ describe("a list pasted onto an investor board", () => {
     expect(ada && ada.kind === "person" && ada.values["fld_0000000bstag"]).toBe("opt_contact001");
   });
 
+  it("fills both of a brand's Stages and Stage fields, whichever comes first in its field list", () => {
+    const OWN = field("fld_000000ownstg", "Stages", "multi_select", "person", { options: [{ id: "opt_seed00001", label: "Seed" }, { id: "opt_seriesa01", label: "Series A" }] });
+    for (const person of [[OWN, board()], [board(), OWN]]) {
+      const r = read([[...KIT_HEADER, "Email", "Stage"], [...KIT_CELLS, "ada@example.com", "Research"]].map((x) => x.join("\t")).join("\n"), { person, company: [] });
+      const ada = r.rows.find((x) => x.kind === "person");
+      expect(ada && ada.kind === "person" && ada.values).toEqual({ fld_0000000bstag: "opt_research01", fld_000000ownstg: ["opt_seed00001", "opt_seriesa01"] });
+    }
+  });
+
+  it("keeps the kit's Stages in a firm's text field even with a Stage column first", () => {
+    const FIRM_STAGES = field("fld_00000cstages", "Stages", "text", "company");
+    const r = read(
+      [["Stage", ...KIT_HEADER, "Email"], ["Research", ...FIRM_CELLS, ""]].map((x) => x.join("\t")).join("\n"),
+      { person: [board()], company: [FIRM_STAGES] },
+    );
+    const firm = r.rows.find((x) => x.kind === "company");
+    expect(firm && firm.kind === "company" && firm.values).toEqual({ fld_00000cstages: "Seed" });
+  });
+
+  it("keeps the first cell that fits, trying the columns of the field's exact name first", () => {
+    const two = (a: string, b: string) => {
+      const r = read(`Email\tStage\tStage\nada@example.com\t${a}\t${b}`, { person: [board()] });
+      const ada = r.rows[0]!;
+      return ada.kind === "person" ? ada.values["fld_0000000bstag"] : undefined;
+    };
+    expect(two("Research", "Contacted")).toBe("opt_research01");
+    expect(two("Contacted", "Research")).toBe("opt_contact001");
+    expect(two("", "Contacted")).toBe("opt_contact001");
+    // A text field named Stage: your own Stage column wins over the kit's Stages before it.
+    const TEXT = field("fld_00000tstage", "Stage", "text", "person");
+    const r = read("Email\tStages\tStage\nada@example.com\tSeed\tResearch", { person: [TEXT] });
+    const ada = r.rows[0]!;
+    expect(ada.kind === "person" && ada.values[TEXT.key]).toBe("Research");
+  });
+
+  it("passes over a cell too long to read when another column fits, with no note", () => {
+    const r = read(`Email\tStage\tStage\nada@example.com\t${"x".repeat(2_001)}\tResearch`, { person: [board()] });
+    const ada = r.rows[0]!;
+    expect(ada.kind === "person" && ada.values["fld_0000000bstag"]).toBe("opt_research01");
+    expect(r.notes).not.toContain("values_left_out");
+  });
+
+  it("keeps a value kept in part from the first column, with the note", () => {
+    const MULTI = field("fld_00000msector", "Sectors", "multi_select", "person", { options: [{ id: "opt_climate01", label: "Climate" }, { id: "opt_food00001", label: "Food" }] });
+    const r = read("Email\tSectors\tSectors\nada@example.com\tClimate, Space\tClimate, Food", { person: [MULTI] });
+    const ada = r.rows[0]!;
+    expect(ada.kind === "person" && ada.values[MULTI.key]).toEqual(["opt_climate01"]);
+    expect(r.notes).toContain("values_left_out");
+  });
+
   it("notes a value left out only when no column of that field fits", () => {
     const none = paste([...KIT_HEADER, "Email", "Stage"], [[...KIT_CELLS, "ada@example.com", "Someday"]], board());
     const ada = none.rows.find((x) => x.kind === "person");

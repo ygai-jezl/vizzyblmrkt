@@ -98,6 +98,37 @@ describe("mapColumns", () => {
     expect(map.columns.slice(1)).toEqual([{ kind: "left" }, { kind: "left" }, { kind: "left" }]);
   });
 
+  it("gives each of two fields a trailing s apart its own column, in either order", () => {
+    // A brand with its own People field Stages that then set up for raising: setup adds Stage after it.
+    const OWN = field("fld_000000ownstg", "Stages", "multi_select", "person", { options: opts("Seed", "Series A") });
+    const BOARD = field("fld_0000000bstag", "Stage", "status", "person", { options: opts("Research", "Contacted", "Passed") });
+    for (const person of [[OWN, BOARD], [BOARD, OWN]]) {
+      for (const header of [[...KIT_HEADER, "Email", "Stage"], ["Email", "Stage", ...KIT_HEADER]]) {
+        const map = mapColumns(header, { person, company: [] });
+        expect(map.columns[header.indexOf("Stage")]).toEqual({ kind: "field", person: BOARD, company: null });
+        expect(map.columns[header.indexOf("Stages")]).toEqual({ kind: "field", person: OWN, company: null });
+      }
+    }
+  });
+
+  it("never fills a field a trailing s away from a column that names a field exactly on the other list", () => {
+    const BOARD = field("fld_0000000bstag", "Stage", "status", "person", { options: opts("Research") });
+    const FIRM_STAGES = field("fld_00000cstages", "Stages", "text", "company");
+    const map = mapColumns(["Email", "Stage", "Website", "Stages"], { person: [BOARD], company: [FIRM_STAGES] });
+    expect(map.columns[1]).toEqual({ kind: "field", person: BOARD, company: null });
+    expect(map.columns[3]).toEqual({ kind: "field", person: null, company: FIRM_STAGES });
+  });
+
+  it("gives two fields of the same name a column each", () => {
+    const N1 = field("fld_00000notes01", "Notes", "text", "person");
+    const N2 = field("fld_00000notes02", "Notes", "text", "person");
+    const map = mapColumns(["Email", "Notes", "Notes"], { person: [N1, N2], company: [] });
+    expect(map.columns.slice(1)).toEqual([
+      { kind: "field", person: N1, company: null },
+      { kind: "field", person: N2, company: null },
+    ]);
+  });
+
   it("reads every column of a field's name as that field: each row keeps the first cell that fits (rows.ts)", () => {
     const map = mapColumns(["Website", "Stage", "Stages"], { person: [], company: [STAGE] });
     expect(map.columns.slice(1)).toEqual([

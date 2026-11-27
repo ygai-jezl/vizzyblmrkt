@@ -4,7 +4,7 @@ import { isPublicEmailProvider, normalizeHost, registrableDomain } from "@/lib/d
 import { NAME_MAX, parseNewPerson } from "@/lib/audience/newPerson";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import type { FieldValue, RecordField } from "@/lib/types/recordField";
-import { convertValue, isPersonOnlyHeader, type ColumnMap, type StandardColumn } from "./columns";
+import { convertValue, isPersonOnlyHeader, plainKey, type ColumnMap, type StandardColumn } from "./columns";
 import type { Sheet } from "./parse";
 import type { PasteNote, RowReason } from "./words";
 
@@ -226,7 +226,7 @@ export function readRows(sheet: Sheet, map: ColumnMap): RowsRead {
         continue;
       }
       people.add(key);
-      rows.push({ row, kind: "person", email: normalized, phone: p.phone, firstName: p.firstName, lastName: p.lastName, key, values: valuesOf(cells, map, "person", notes) });
+      rows.push({ row, kind: "person", email: normalized, phone: p.phone, firstName: p.firstName, lastName: p.lastName, key, values: valuesOf(cells, map, sheet.header, "person", notes) });
       continue;
     }
 
@@ -251,7 +251,7 @@ export function readRows(sheet: Sheet, map: ColumnMap): RowsRead {
     else if (firmName) name = firmName;
     // Anything about a person on a firm row is left out, and the note says so.
     if (map.columns.some((c, i) => cells[i] !== "" && aboutAPerson(c, sheet.header[i] ?? ""))) notes.add("firms_left_out");
-    rows.push({ row, kind: "company", domain, name, values: valuesOf(cells, map, "company", notes) });
+    rows.push({ row, kind: "company", domain, name, values: valuesOf(cells, map, sheet.header, "company", notes) });
   }
   return { rows, left, notes: [...notes] };
 }
@@ -266,15 +266,21 @@ function aboutAPerson(c: ColumnMap["columns"][number], header: string): boolean 
 
 /**
  * One row's field values for one object, each converted and checked. Where several columns name a
- * field, the first cell that fits it is kept and the rest are passed over. A field none of them
- * could fill, though one had something in it, is noted and left out, as is a value kept in part.
+ * field, the first cell that fits it is kept, trying the columns of its exact name first, and the
+ * rest are passed over. A field none of them could fill, though one had something in it, is noted
+ * and left out, as is a value kept in part.
  */
-function valuesOf(cells: ReadonlyArray<string | null>, map: ColumnMap, object: "person" | "company", notes: Set<PasteNote>): Record<string, FieldValue> {
+function valuesOf(cells: ReadonlyArray<string | null>, map: ColumnMap, header: readonly string[], object: "person" | "company", notes: Set<PasteNote>): Record<string, FieldValue> {
   const out: Record<string, FieldValue> = {};
   const unfit = new Set<string>();
-  map.columns.forEach((c, i) => {
-    if (c.kind !== "field") return;
-    const field: RecordField | null = object === "person" ? c.person : c.company;
+  const fieldAt = (i: number): RecordField | null => {
+    const c = map.columns[i];
+    return c?.kind === "field" ? (object === "person" ? c.person : c.company) : null;
+  };
+  const exact = (i: number) => plainKey(header[i] ?? "") === plainKey(fieldAt(i)?.label ?? "");
+  const order = map.columns.map((_, i) => i).sort((a, b) => Number(exact(b)) - Number(exact(a)));
+  order.forEach((i) => {
+    const field = fieldAt(i);
     if (!field || field.key in out) return;
     const cell = cells[i];
     if (cell === null) {

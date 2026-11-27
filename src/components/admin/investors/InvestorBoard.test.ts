@@ -267,6 +267,12 @@ describe("Paste a list on the board (S2b)", () => {
     expect(pressed(board())).toBe(false);
   });
 
+  it("is drawn on the board the same way: open on an empty Investors board, never on Funding", () => {
+    expect(draw(empty(), () => {})).toContain('data-public-list="open"');
+    expect(draw({ ...empty(), kind: "funding" }, () => {})).not.toContain("data-public-list");
+    expect(draw(board(), () => {})).not.toContain("data-public-list");
+  });
+
   it("passes on whether to open Start from a public list when pressed", () => {
     const onPaste = vi.fn();
     const press = (open: boolean) => (PasteButton({ openPublicList: open, onPaste }).props as { onClick: () => void }).onClick();

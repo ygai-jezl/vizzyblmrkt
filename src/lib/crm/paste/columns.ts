@@ -20,9 +20,11 @@ import { PASTE_LIMITS } from "./parse";
  *   usual headers. Any other header equal to a live field's label fills that field: a People field
  *   on person rows, a company field on firm rows. Business, Shop and Store name the firm only when
  *   the brand has no field of that name (FIELD_FIRST_HEADERS).
- * - Every column of a field's name is read as that field, and each row keeps the first of their
- *   cells that fits it (rows.ts), so the kit's "Stages" ("Seed, Series A") and a "Stage" column
- *   of the board's own stages both work, in either order and whichever of the two the field is called.
+ * - A column fills the field of its exact name ("Stage" fills Stage, "Stages" fills Stages), on
+ *   People and on companies. Only a column that names no field exactly, on either, fills one whose
+ *   name differs from it by a trailing s. A field named by several columns takes, on each row, the
+ *   first cell that fits it, trying the columns of its exact name first (rows.ts), so the kit's
+ *   "Stages" and a "Stage" column of the board's own stages both work, in either order.
  * - Profile links (LinkedIn, X and the like) are never kept, on any row.
  * - Firm rows never fill a field from a column about a person (names, title, role, city, state,
  *   country, location, or any of those with "investor" before it), whatever the field list says,
@@ -108,14 +110,18 @@ export const PERSON_ONLY_HEADERS = [
   "Location",
 ] as const;
 
-/** A header as compared: letters and digits only, lower case, accents off, a trailing s dropped. */
-export function headerKey(header: string): string {
+/** A header as written: letters and digits only, lower case, accents off ("Stages" stays "stages"). */
+export function plainKey(header: string): string {
   return header
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .replace(/s$/, "");
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** A header as compared: letters and digits only, lower case, accents off, a trailing s dropped. */
+export function headerKey(header: string): string {
+  return plainKey(header).replace(/s$/, "");
 }
 
 const STANDARD_BY_KEY = new Map<string, StandardColumn>(STANDARD_COLUMNS.flatMap((c) => STANDARD_HEADERS[c].map((h) => [headerKey(h), c] as const)));
@@ -171,6 +177,15 @@ const shown = (header: string) => header.slice(0, PASTE_LIMITS.headerChars);
 export function mapColumns(header: readonly string[], fields: { person: readonly RecordField[]; company: readonly RecordField[] }): ColumnMap {
   const person = fields.person.filter((f) => f.object === "person" && fillable(f));
   const company = fields.company.filter((f) => f.object === "company" && fillable(f));
+  // Fields of a column's exact name, each taken by one column while there are columns enough.
+  const usedExact = new Set<string>();
+  const exactOf = (list: readonly RecordField[], h: string): RecordField | null => {
+    const all = list.filter((f) => plainKey(f.label) === plainKey(h));
+    const f = all.find((x) => !usedExact.has(x.key)) ?? all[0] ?? null;
+    if (f) usedExact.add(f.key);
+    return f;
+  };
+  const nearOf = (list: readonly RecordField[], h: string): RecordField | null => list.find((f) => headerKey(f.label) === headerKey(h)) ?? null;
   const columns: ColumnRead[] = [];
   const read: ColumnMap["read"] = [];
   const left: string[] = [];
@@ -179,10 +194,11 @@ export function mapColumns(header: readonly string[], fields: { person: readonly
   for (const h of header) {
     const key = headerKey(h);
     let col: ColumnRead = { kind: "left" };
-    // The brand's fields of this header's name. Another column may name them too: each row keeps the first cell that fits.
+    // The brand's fields of this header's name: its exact name on either list, or else one a trailing s away.
     const fieldsNamed = () => {
-      const p = person.find((f) => headerKey(f.label) === key) ?? null;
-      const c = isPersonOnlyHeader(h) ? null : (company.find((f) => headerKey(f.label) === key) ?? null);
+      const firmOk = !isPersonOnlyHeader(h);
+      const exact = { p: exactOf(person, h), c: firmOk ? exactOf(company, h) : null };
+      const { p, c } = exact.p || exact.c ? exact : { p: nearOf(person, h), c: firmOk ? nearOf(company, h) : null };
       return p || c ? { p, c } : null;
     };
     const named = key && !isProfileHeader(h) && (!STANDARD_BY_KEY.has(key) || FIELD_FIRST_KEYS.has(key)) ? fieldsNamed() : null;

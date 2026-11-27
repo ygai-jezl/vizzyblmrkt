@@ -216,6 +216,7 @@ export function PasteButton({ openPublicList, onPaste }: { openPublicList: boole
     <button
       type="button"
       onClick={() => onPaste(openPublicList)}
+      data-public-list={openPublicList ? "open" : undefined}
       className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
     >
       <ClipboardPaste size={14} aria-hidden /> {PASTE_WORDS.button}

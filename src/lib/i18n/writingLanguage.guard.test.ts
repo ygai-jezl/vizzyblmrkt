@@ -101,6 +101,7 @@ const LEFT_AS_THEY_ARE: Record<string, string> = {
   "onboarding.learn": "the welcome's own questions, in the words people answer with",
   "onboarding.voice": "the welcome's own voice call",
   "conversation.golden_data": "the waitlist voice chat, already in the visitor's launch language (languageDirective)",
+  "i18n.translate_email": "translates into the language it is given, which is not the brand's default",
 };
 
 describe("which prompts are written in the brand's language", () => {

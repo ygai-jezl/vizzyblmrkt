@@ -216,6 +216,7 @@ export const LOOPS = {
   email_copy: own("broadcast", "Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none."),
   journeys: gap("A journey draft is saved over by your team's edits, so what they changed is never kept or learned.", LATER),
   lifecycle_lines: gap("Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.", LATER),
+  translation: gap("A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.", LATER),
   competitor_analysis: none("It labels and summarises a competitor's own pages as they are, so there is no taste of yours in it to learn."),
   competitor_articles: none("It records what each competitor article says and asks, a fact about their page rather than a choice made for you."),
   next_up: own("learned", "Next up learns from the picks your team skips, kept with their reason on the Learned list."),

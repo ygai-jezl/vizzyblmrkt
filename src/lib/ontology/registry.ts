@@ -715,7 +715,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description: "An email journey on the lifecycle engine, for a product's users or a launch's waitlist: the draft, its published versions and its daily send counters.",
     place: "customers",
     status: "built",
-    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner"],
+    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner", "translation"],
     home: "brand",
     personal: "none",
     stores: [

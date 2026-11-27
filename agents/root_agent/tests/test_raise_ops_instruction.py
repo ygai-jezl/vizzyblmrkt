@@ -92,7 +92,8 @@ def test_decks_stay_in_english_and_history_comes_from_versions():
     assert "when `olderVersions` is more than 0, say so" in text
     assert "YouGrow doesn't know whether it was presented, saved as a PDF or sent." in text
     assert "A deck that isn't listed may have been deleted, which keeps no record." in text
-    assert "Write a deck's title, `brief`, `name`, `source_note`, `note` and every `ask` in English." in text
+    assert "Pass the operator's own words in `brief`, `ask` and `quote` as they said them" in text
+    assert "a deck's `title`, a number's `name` and `source_note`, and a change `note`, in English." in text
     # The brand's language still sets the replies, ahead of the base instruction.
     out = build_raise_ops_instruction(_ctx({"locale": "fr"}))
     assert out.endswith(RAISE_OPS_INSTRUCTION)

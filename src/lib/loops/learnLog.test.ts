@@ -224,6 +224,8 @@ describe("writeLearnLog counts the Memory Bank's outcomes (learning loops step 5
     // The loops' own learners count their outcomes themselves, and a memory list line is no learn.
     await writeLearnLog(learnLogEntry("loop_learn", "ten_A", facts, { outcome: "learned", via: "votes" }, 1, "image_style.brand"), { db: untouchable });
     await writeLearnLog(memoryListLogEntry(ctx, new Error("memory_bank_403")), { db: untouchable });
+    // The post patterns judge's deferral is a line only (step 5, 4.9).
+    await writeLearnLog(learnLogEntry("post_feedback", "ten_A", facts, { outcome: "skipped", reason: "error", code: "judge_unsafe" }, undefined, "linkedin"), { db: untouchable });
     expect(sumWeek(db, "ten_A", loopWeekOf(NOW))).toEqual({ r: { edit_mode: { learned: 1, plan: 1 }, content_write: { off_by_person: 1 } } });
   });
 

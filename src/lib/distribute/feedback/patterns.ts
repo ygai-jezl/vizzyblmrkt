@@ -1,6 +1,7 @@
 import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
 import { countLearnedSignal } from "@/lib/loops/count";
+import { brandLearnFacts, learnLogEntry, onceTenant, writeLearnLog, type LearnLogEntry } from "@/lib/loops/learnLog";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { getTenantById } from "@/lib/tenant/registry";
 import {
@@ -13,7 +14,7 @@ import { scrubExemplarText } from "./recordExemplar";
 import { logOutcome, clusterStatsFromMembers, promotableCluster, R_PROMOTE } from "./reward";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { PostPerformance } from "@/lib/types/postPerformance";
-import type { LearnedChannelPatterns, LearnedPatternRule } from "@/lib/types/tenant";
+import type { LearnedChannelPatterns, LearnedPatternRule, Tenant } from "@/lib/types/tenant";
 
 /**
  * P3 — the learned-pattern DIRECTIVE + transparent judge + versioning. Groups a channel's scored
@@ -142,7 +143,7 @@ function renderAvoidBlock(clusters: ClusterAgg[]): string {
     .join("\n");
 }
 
-/** Deterministic rationale when the judge model is unavailable (still transparent + evidence-based). */
+/** The evidence's own rationale, for a judge verdict that gives none (still transparent and evidence based). */
 export function deterministicRationale(promoted: ClusterAgg[]): string {
   const posts = promoted.reduce((a, c) => a + c.members.length, 0);
   const lift = Math.round(mean(promoted.flatMap((c) => c.members.map((m) => m.rBaseline))) * 100);
@@ -191,13 +192,14 @@ interface JudgeResult {
   rationale: string;
 }
 
+/** The judge's verdict, or null when it gave none: no answer, or an answer with no JSON in it. */
 async function judge(
   channel: string,
   oldDirective: string | null,
   proposed: Proposed,
   promoted: ClusterAgg[],
   usage: AiUsage,
-): Promise<JudgeResult> {
+): Promise<JudgeResult | null> {
   const evidence = promoted
     .slice(0, MAX_EVIDENCE)
     .map((c, i) => `#${i + 1} support ${c.members.length} posts, avg lift ${Math.round(mean(c.members.map((m) => m.rBaseline)) * 100)}%`)
@@ -212,11 +214,10 @@ async function judge(
     { usage },
   );
   const json = raw ? (parseFirstJson(raw) as { safe?: unknown; score?: unknown; rationale?: unknown } | null) : null;
-  if (!json) {
-    // Judge unavailable → the evidence already passed the repeatability gate, so adopt with a
-    // deterministic (still evidence-grounded) rationale rather than stalling the loop.
-    return { safe: true, score: null, rationale: deterministicRationale(promoted) };
-  }
+  // No verdict, whether the model gave nothing or prose with no JSON: the caller defers (learning
+  // loops step 5, 4.9). Passing the repeatability gate says the posts did well, not that the words
+  // the model drew from them are safe to steer by.
+  if (!json) return null;
   const rationale =
     typeof json.rationale === "string" && json.rationale.trim()
       ? json.rationale.trim().slice(0, 2000)
@@ -224,7 +225,7 @@ async function judge(
   return {
     // STRICT verdict parse: only an explicit true/"true" is safe. A missing/garbage/stringified
     // `safe` (LLMs stringify booleans) counts as UNSAFE (fail-closed), so a malformed judge output
-    // can't silently defeat the regression guard. (The judge-UNAVAILABLE path above still adopts.)
+    // can't silently defeat the regression guard.
     safe: json.safe === true || json.safe === "true",
     score: typeof json.score === "number" ? json.score : null,
     rationale,
@@ -233,15 +234,50 @@ async function judge(
 
 // ── Orchestrators ───────────────────────────────────────────────────────────────────────
 
+/** Why a pass adopted nothing after its judge (learning loops step 5, 4.9): the code its line carries. */
+export type JudgeDeferral = "judge_unavailable" | "judge_unsafe";
+
+export interface PostPatternsDeps {
+  /** Where a deferral's loop_learn line goes; writeLearnLog by default. */
+  log?: (entry: LearnLogEntry) => unknown;
+}
+
 /**
- * Re-synthesize a channel's learned-pattern directive from its promoted clusters, judge it, and —
- * if adopted — append an immutable version + set it live. No-op when the loop is off, the channel
- * is FROZEN (an operator reverted), or there are no promoted clusters yet. Fail-soft throughout.
+ * Write the loop_learn line for a pass the judge deferred: kind post_feedback, skipped for reason
+ * error with the deferral's code, the channel as its scope. The brand's facts come from the brand
+ * this pass already read, so the line adds no read. Never throws.
+ */
+async function logDeferral(
+  ctx: TenantContext,
+  channel: string,
+  tenant: Tenant | null,
+  code: JudgeDeferral,
+  deps: PostPatternsDeps,
+): Promise<void> {
+  try {
+    const facts = await brandLearnFacts(ctx, onceTenant(async () => tenant));
+    const entry = learnLogEntry("post_feedback", ctx.tenantId, facts, { outcome: "skipped", reason: "error", code }, undefined, channel);
+    await (deps.log ?? writeLearnLog)(entry);
+  } catch {
+    // A log line is never worth failing the pass over.
+  }
+}
+
+/**
+ * Re-synthesize a channel's learned-pattern directive from its promoted clusters, judge it, and,
+ * if the judge calls it safe, append an immutable version and set it live. No-op when the loop is
+ * off, the channel is FROZEN (an operator reverted), or there are no promoted clusters yet.
+ *
+ * The judge defers (learning loops step 5, 4.9, no switch): a pass with no verdict, or a verdict of
+ * unsafe, adopts nothing, a brand's first directive included, and writes a loop_learn line coded
+ * judge_unavailable or judge_unsafe. The directive in use, if any, stays. The next post that lands
+ * in a promoted cluster runs the pass again (reconcile.ts). Fail-soft throughout.
  */
 export async function refreshLearnedPostPatterns(
   ctx: TenantContext,
   channel: string,
   db?: FirestoreLike,
+  deps: PostPatternsDeps = {},
 ): Promise<void> {
   if (!isPostPatternsLearnEnabled()) return;
   try {
@@ -259,9 +295,12 @@ export async function refreshLearnedPostPatterns(
     if (!proposed) return;
 
     const judged = await judge(channel, frag?.directive ?? null, proposed, promoted, usage);
-    // Don't replace an existing directive with a judged-unsafe proposal (regression guard);
-    // the first-ever directive is always adopted (nothing to regress from).
-    if (!judged.safe && frag?.directive) return;
+    // Adopt only what the judge called safe. A first directive gets no pass: with nothing to regress
+    // from, an unsafe one would still steer every post on the channel.
+    if (!judged || !judged.safe) {
+      await logDeferral(ctx, channel, tenant, judged ? "judge_unsafe" : "judge_unavailable", deps);
+      return;
+    }
 
     // Re-read right before writing: a concurrent revert (frozen) or another drain's promotion may
     // have landed during the two LLM calls above. Re-checking `frozen` avoids clobbering an

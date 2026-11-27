@@ -25,10 +25,12 @@ export const MEMORY_BANK_KINDS = ["edit_mode", "content_write"] as const;
 export type MemoryBankKind = (typeof MEMORY_BANK_KINDS)[number];
 
 /**
- * Kinds a line can name: the Memory Bank kinds, and from learning loops step 4 the loops' own
- * learners (loop_learn), whose lines also name the scope they learned for.
+ * Kinds a line can name: the Memory Bank kinds, from learning loops step 4 the loops' own learners
+ * (loop_learn), whose lines also name the scope they learned for, and from step 5 the post patterns
+ * learner (post_feedback), whose judge writes a line each time it defers, naming the channel as
+ * its scope (src/lib/distribute/feedback/patterns.ts).
  */
-export const LEARN_KINDS = [...MEMORY_BANK_KINDS, "loop_learn"] as const;
+export const LEARN_KINDS = [...MEMORY_BANK_KINDS, "loop_learn", "post_feedback"] as const;
 export type LearnKind = (typeof LEARN_KINDS)[number];
 
 /**

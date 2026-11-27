@@ -171,7 +171,7 @@ describe("connector manifests", () => {
       ["search-console", "Google LLC", "/marks/connectors/search-console/icon.png"],
       ["google-analytics", "Google LLC", "/marks/connectors/google-analytics/icon.svg"],
       ["cloudflare", "Cloudflare, Inc.", "/marks/connectors/cloudflare/icon.png"],
-      ["vizzybl", "Vizzybl", "/marks/connectors/vizzybl/icon.svg"],
+      ["vizzybl", "Vizzybl", "/marks/connectors/vizzybl/icon.png"],
     ]);
     expect(parseManifest(cloudflareManifest).initials).toBe("CF");
     // Only Google Analytics asks for its wide logo beside its data, linked to it, at least 154 by 50.

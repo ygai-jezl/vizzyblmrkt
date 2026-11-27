@@ -17,6 +17,7 @@ import type {
   EbookDoc,
   SequenceType,
 } from "@/lib/types/contentPlan";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * The Architect — stage 1 of the Create pillar. One Gemini call turns the intake +
@@ -199,9 +200,10 @@ async function callArchitect(input: ArchitectInput): Promise<ArchitectResult> {
     userProfile: audienceSection(input.audience),
     task,
   });
+  const written = await inBrandLanguage(prompt, input.usage);
   const raw = input.deadlineMs
-    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now()), usage: input.usage })
-    : await generateText(prompt, { usage: input.usage });
+    ? await generateTextWithDeadline(written, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now()), usage: input.usage })
+    : await generateText(written, { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j || typeof j !== "object") return { nodes: [], angles: [] };
   const obj = j as Record<string, unknown>;
@@ -498,7 +500,7 @@ async function callSequenceArchitect(
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt, { usage: input.usage });
+  const raw = await generateText(await inBrandLanguage(prompt, input.usage), { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   const map = new Map<number, string>();
   if (j && typeof j === "object") {

@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
+import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { brandLanguages } from "@/lib/i18n/languageReaders";
 import { ArchiveLaunchSection } from "@/components/admin/ArchiveLaunchSection";
 import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
 import { EngineSection } from "@/components/admin/EngineSection";
@@ -58,6 +60,7 @@ export default async function LaunchSettingsPage({
         campaignId={campaign.id}
         initial={toCampaignSettings(campaign)}
         senderConfig={senderConfig}
+        brandLanguages={isLanguageReadersEnabled() ? brandLanguages(await getTenantById(ctx.tenantId)) : undefined}
       />
       {ctx.role === "admin" ? (
         <>

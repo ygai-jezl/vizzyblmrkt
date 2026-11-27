@@ -14,6 +14,8 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { isSettingsEraseEnabled } from "@/lib/settings/flags";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 
 export const runtime = "nodejs";
@@ -49,6 +51,14 @@ export const dynamic = "force-dynamic";
  *
  * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0023) moves on beside
  * them too, a page at a time from each running job's cursor; with the switch off a job waits.
+ *
+ * The agent record's catch-up (AGENT_RECORD_ENABLED, ADR-0026) rides it as well: each brand once a
+ * day, in the 2 minute slot its id falls in, closing what Vizzy, research and the autopilot drafted
+ * that moved on another way.
+ *
+ * Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED) run about hourly, at a
+ * tick of their own (every 30th, at offset 13), within their own budget: open ones put in step with
+ * their people at any hour, new ones raised 6 to 9 in each brand's morning.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -74,6 +84,10 @@ const STRATEGY_CHECK_BUDGET_MS = 10_000;
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
 /** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */
 const FIELD_ERASE_BUDGET_MS = 20_000;
+/** The agent record's catch-up (AGENT_RECORD_ENABLED): the brands in this tick's slot, a few reads each. */
+const AGENT_RECORD_BUDGET_MS = 15_000;
+/** Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED): every 30th tick, at offset 13. */
+const RAISE_FOLLOWUPS_BUDGET_MS = 15_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -91,8 +105,10 @@ export async function POST(req: Request) {
   const refresh = isBlogRefreshEnabled();
   const authCleanup = isPasswordSigninEnabled();
   const fieldErase = isSettingsEraseEnabled();
+  const agentRecord = isAgentRecordEnabled();
+  const raiseFollowups = isRaiseFollowupsEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || fieldErase))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || fieldErase || agentRecord || raiseFollowups))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -190,6 +206,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const agentRecordRun = agentRecord
+        ? timedTickJob("agent-record", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AGENT_RECORD_BUDGET_MS);
+            const { runAgentRecordCatchUp } = await import("@/lib/agentRecord/catchUp");
+            return runAgentRecordCatchUp({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[agent-record] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const connectorsRun = connectors
         ? timedTickJob("connectors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS);
@@ -197,6 +223,16 @@ export async function POST(req: Request) {
             return runConnectorsLane({ deadlineMs });
           }).catch((err: unknown) => {
             console.warn(`[connectors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const raiseFollowupsRun = raiseFollowups
+        ? timedTickJob("raise-followups", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + RAISE_FOLLOWUPS_BUDGET_MS);
+            const { runRaiseFollowups } = await import("@/lib/raise/pipeline/followupsTick");
+            return runRaiseFollowups({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[raise] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
             return null;
           })
         : Promise.resolve(null);
@@ -245,6 +281,8 @@ export async function POST(req: Request) {
       const refreshResult = await refreshRun;
       const authCleanupResult = await authCleanupRun;
       const fieldEraseResult = await fieldEraseRun;
+      const agentRecordResult = await agentRecordRun;
+      const raiseFollowupsResult = await raiseFollowupsRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -261,6 +299,8 @@ export async function POST(req: Request) {
         ...(refreshResult?.brands ? { refresh: refreshResult } : {}),
         ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
+        ...(agentRecordResult?.brands ? { agentRecord: agentRecordResult } : {}),
+        ...(raiseFollowupsResult?.brands ? { raiseFollowups: raiseFollowupsResult } : {}),
       });
     } finally {
       logTickMemory();

@@ -32,6 +32,10 @@ const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands:
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
 const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
 vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
+const agentRecord = vi.hoisted(() => ({ runAgentRecordCatchUp: vi.fn(async () => ({ brands: 1, read: 4, closed: 2 })) }));
+vi.mock("@/lib/agentRecord/catchUp", () => (loaded.add("agent-record"), agentRecord));
+const raiseFollowups = vi.hoisted(() => ({ runRaiseFollowups: vi.fn(async () => ({ brands: 1, proposed: 2, acted: 0, cleared: 1, expired: 0 })) }));
+vi.mock("@/lib/raise/pipeline/followupsTick", () => (loaded.add("raise-followups"), raiseFollowups));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
 const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
@@ -296,6 +300,8 @@ describe("each job's code loads only when its switch is on", () => {
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
     ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
+    ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
+    ["raise-followups", "@/lib/raise/pipeline/followupsTick", raiseFollowups],
   ];
 
   /**
@@ -350,6 +356,40 @@ describe("each job's code loads only when its switch is on", () => {
     expect([...loaded]).toContain("field-erase");
     const [{ deadlineMs }] = fieldErase.runFieldErase.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 1000);
+  });
+
+  it("loads only the agent record's catch-up with only AGENT_RECORD_ENABLED on, within its own budget", async () => {
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", agentRecord: { brands: 1, read: 4, closed: 2 } });
+    expect([...loaded]).toEqual(["agent-record"]);
+    const [{ deadlineMs }] = agentRecord.runAgentRecordCatchUp.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
+  });
+
+  it("loads the board's follow-ups lane only with RAISE_FOLLOWUPS_ENABLED and what it needs on, within its budget, never on an admin's own call", async () => {
+    for (const n of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "RAISE_PIPELINE_ENABLED"]) vi.stubEnv(n, "true");
+    let post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).not.toContain("raise-followups");
+    vi.stubEnv("RAISE_FOLLOWUPS_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, raiseFollowups: { brands: 1, proposed: 2 } });
+    expect([...loaded]).toContain("raise-followups");
+    expect(jobLines().some((l) => /^\[tick\] raise-followups \d+ms$/.test(l))).toBe(true);
+    const [{ deadlineMs }] = raiseFollowups.runRaiseFollowups.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
+    // A signed-in admin's call runs their own journeys only.
+    raiseFollowups.runRaiseFollowups.mockClear();
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_a", region: "us", source: "idtoken", userId: "u_admin", role: "admin" });
+    post = await freshRoute();
+    const own = await post(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
+    expect(await own.json()).toMatchObject({ ok: true, mode: "tenant" });
+    expect(raiseFollowups.runRaiseFollowups).not.toHaveBeenCalled();
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {

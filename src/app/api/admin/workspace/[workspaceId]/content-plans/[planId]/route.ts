@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
+import { forgetPlanExamples, forgetRemovedExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { closeDraftRows, draftDoneWith } from "@/lib/autopilot/answers";
 import { z } from "zod";
@@ -19,6 +20,7 @@ import { removePlanPageSoftly, syncPlanPageSoftly } from "@/lib/content/blog/pag
 import { syncSeenHolds } from "@/lib/content/blog/seen";
 import { indexPlanAfterSave, removePlanAfterDelete } from "@/lib/search/writeThrough";
 import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
+import { closePlanDraft } from "@/lib/agentRecord/drafts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -101,8 +103,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
   await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
   // Each piece approved in this save keeps its AI original beside the approved copy (CONTENT_AI_ORIGINALS_ENABLED).
   await recordApprovals(ctx, { before: plan, after: updated });
+  // Each workflow email and hub piece approved in this save becomes an example its writer follows (CONTENT_APPROVED_EXAMPLES_ENABLED).
+  await keepApprovedExamples(ctx, { workspaceId, before: plan, after: updated });
+  // A piece this save took off the canvas takes its example with it, even one kept before the switch went off.
+  await forgetRemovedExamples(ctx, { workspaceId, before: plan, after: updated });
   // Approved or archived: an autopilot draft's question rows in Review close.
   if (updated?.autopilot && !draftDoneWith(plan) && draftDoneWith(updated)) await closeDraftRows(ctx, updated);
+  // A plan an agent drafted: kept when this save approves a piece, dismissed when it archives the plan (agent record).
+  if (updated) await closePlanDraft(ctx, workspaceId, plan, updated);
   indexPlanAfterSave(ctx, updated);
   return NextResponse.json({ plan: updated });
 }
@@ -120,7 +128,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
+  // Its pieces kept as examples go with it, even ones kept before the switch went off.
+  await forgetPlanExamples(ctx, { workspaceId, plan });
   await closeDraftRows(ctx, plan);
+  // A plan an agent drafted, deleted: dismissed by that person (agent record).
+  await closePlanDraft(ctx, workspaceId, plan, null);
   await removePlanPageSoftly(ctx, planId);
   await syncSeenHolds(ctx, { article: { ref: `${workspaceId}/${planId}`, title: plan.name }, before: plan.blog, after: null });
   removePlanAfterDelete(ctx, plan);

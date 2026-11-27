@@ -24,6 +24,8 @@ const aboutSubjects = (c: BrandMapChange) => ABOUT_SUBJECTS.has(c.type) || (c.ty
 export type FiledWithProposals = Filed & {
   /** What became a proposal on the records, said in a few words each. */
   proposed: string[];
+  /** Those proposals by record, as `sub:<id>` or `q:<id>` (the agent record reads them back). */
+  refs: string[];
 };
 
 export async function fileSuggestions(
@@ -34,7 +36,7 @@ export async function fileSuggestions(
   const subjectItems = isBrandMapScaleEnabled() ? input.items.filter((i) => aboutSubjects(i.change)) : [];
   if (!subjectItems.length) {
     const filed = await fileBrandMapSuggestions(ctx, input, deps);
-    return filed.ok ? { ok: true, value: { ...filed.value, proposed: [] } } : filed;
+    return filed.ok ? { ok: true, value: { ...filed.value, proposed: [], refs: [] } } : filed;
   }
   const moved = await ensureMoved(ctx, deps);
   if (!moved.ok) return moved;
@@ -44,6 +46,7 @@ export async function fileSuggestions(
   const store = brandMapRecords(ctx, deps.db);
   const from: RecordFrom = input.from;
   const proposed: string[] = [];
+  const refs: string[] = [];
   const skipped = { inMap: 0, waiting: 0, dismissed: 0 };
   const touched = new Set<string>();
   for (const item of subjectItems) {
@@ -60,6 +63,7 @@ export async function fileSuggestions(
       const made = await proposedSubject(ctx, store, { ...base, name: c.name });
       if (made) touched.add(made.id);
       if (made) proposed.push(`Add a subject: “${made.name}”`);
+      if (made) refs.push(`sub:${made.id}`);
       else skipped.inMap += 1;
     } else if (c.type === "add_question") {
       const subject = await proposedSubject(ctx, store, { ...base, name: c.subject, existingOk: true });
@@ -68,6 +72,7 @@ export async function fileSuggestions(
         : null;
       if (subject) touched.add(subject.id);
       if (made) proposed.push(`Add a question to “${String(subject!.name)}”: “${made.text}”`);
+      if (made) refs.push(`q:${made.id}`);
       else skipped.inMap += 1;
     } else if (c.type === "set_home") {
       const [found] = await store.find("sub", { where: [["nameKey", "==", subjectKey(c.name)]], limit: 1 });
@@ -84,7 +89,7 @@ export async function fileSuggestions(
   await embedSubjects(ctx, [...touched], deps).catch(() => 0);
   const rest = input.items.filter((i) => !aboutSubjects(i.change));
   if (!rest.length && input.research === undefined && !input.replaceOwn) {
-    return { ok: true, value: { filed: [], skipped, proposed } };
+    return { ok: true, value: { filed: [], skipped, proposed, refs } };
   }
   const filed = await fileBrandMapSuggestions(ctx, { ...input, items: rest }, deps);
   if (!filed.ok) return filed;
@@ -98,6 +103,7 @@ export async function fileSuggestions(
         dismissed: filed.value.skipped.dismissed + skipped.dismissed,
       },
       proposed,
+      refs,
     },
   };
 }

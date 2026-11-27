@@ -14,7 +14,7 @@ import { PROFILE_DAYS, competitorProfiles, type CompetitorProfile, type Profiles
 import { listCompetitors } from "@/lib/competitors/store";
 import { cleanTitle } from "@/lib/competitors/titles";
 import { formatLabel, stageLabel } from "@/lib/competitors/view";
-import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { aiTellsIn, dashesIn, labelsIn } from "@/lib/content/writingRules";
 import { siteOf, sitesOf, tenantDomains } from "@/lib/knowledge/site";
 import { answeredLabels } from "@/lib/onboarding/choices";
 import { listBusinessFacts } from "@/lib/onboarding/store";
@@ -41,6 +41,7 @@ import { liveCompetitors, suggestionsOf } from "./competitors";
 import { isStrategyCompetitorsEnabled } from "./flags";
 import { measureKeyOf, newClaimId, readBrandStrategyDoc, saveProposal, type ProposedStrategy, type StrategyResult } from "./store";
 import type { BrandStrategyDoc } from "@/lib/types/brandStrategy";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Propose with Vizzy (BRAND_STRATEGY_ENABLED): ONE Gemini call drafts the strategy from what the
@@ -64,7 +65,8 @@ import type { BrandStrategyDoc } from "@/lib/types/brandStrategy";
  * the watched competitors wrote in the last 90 days: each competitor line says what they write,
  * their stage and format mix and the asks they push; each situation line counts their articles
  * on it; and their newest articles are A evidence, so a claim about them can stand on the article
- * that makes it. All of it within PROFILE_CHARS. Off, the prompt is word for word v1's.
+ * that makes it. All of it within PROFILE_CHARS. Off, those words are left out. A draft says which
+ * it was in its sources (competitor_articles), and its prompt version in `made`.
  */
 
 export const PROPOSE_PROMPT = "brand.strategy_propose";
@@ -77,8 +79,6 @@ const MAX_CLAIMS = 8;
 const MAX_THEIRS = 2;
 const MAX_IS_NOT = 3;
 const PROPOSE_MS = 45_000;
-/** The prompt's version while nothing from competitors' articles is added: its words are v1's. */
-export const PROPOSE_V1 = 1;
 /** What competitors write adds at most this many characters to the prompt (about 2,000 tokens). */
 export const PROFILE_CHARS = 8_000;
 /** Their articles handed over as A evidence, at most, and how much of each. */
@@ -87,7 +87,7 @@ const ARTICLE_TEXT = 240;
 /** The most of the cap the competitor lines may take, then the situation lines (with what the first left): the rest is for their articles. */
 const SHARE = { competitors: 0.3, situations: 0.3 } as const;
 
-/** The prompt's words that only show while joined to Competitors (v2); "" leaves v1's words. */
+/** The prompt's words that only show while joined to Competitors; "" leaves them out. */
 export const JOINED_WORDS = {
   situations_more: ", and how many articles its competitors wrote on it in the last 90 days",
   evidence_more: " A: an article a competitor published, with what it argues.",
@@ -122,7 +122,7 @@ export interface StrategyInput {
   sources: StrategySource[];
   /**
    * Joined to Competitors and their articles read: what they wrote on each situation (by id), one
-   * short note each. Absent: the prompt is v1's, word for word.
+   * short note each. Absent: the prompt leaves the joined words out.
    */
   competitorNotes?: Record<string, string>;
 }
@@ -330,7 +330,7 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
   const decided = situations.filter((s) => s.status === "decided").sort((a, b) => b.counts.questions - a.counts.questions || a.order - b.order).slice(0, MAX_SITUATIONS);
   // Joined and their articles read: what they wrote, within PROFILE_CHARS (the prompt's own added words count too).
   // Only when at least one watched competitor has an article read in the window: with none, nothing
-  // is added and the prompt stays v1's.
+  // is added and the joined words stay out.
   const profiles = recent
     ? competitorProfiles({
         articles: recent,
@@ -426,16 +426,25 @@ export function strategyPrompt(input: StrategyInput, today: string): string {
     evidence: fence("evidence", evidence.join("\n") || "(none)"),
     focus_min: L.focusMin,
     focus_max: L.focusMax,
-    // v2's words, only while joined to Competitors with their articles read; "" is v1 word for word.
+    // The joined words, only while joined to Competitors with their articles read.
     ...(notes ? JOINED_WORDS : { situations_more: "", evidence_more: "", focus_more: "", claims_more: "" }),
   });
 }
 
-/** A line of copy that keeps to house style and holds no address, or "" when it can't. */
-function lineOf(raw: unknown, max: number): string {
+/**
+ * A line of copy that keeps to house style and holds no address, nor any of the prompt's own
+ * labels (an S situation, or P, K, R, C or A evidence, such as "across S1, S4 and S6"): or ""
+ * when it can't.
+ */
+function lineOf(raw: unknown, max: number, labels: ReadonlySet<string>): string {
   const s = clean(typeof raw === "string" ? raw : "");
-  if (!s || s.length > max || hasAddress(s) || dashesIn(s).length || aiTellsIn(s).length) return "";
+  if (!s || s.length > max || hasAddress(s) || dashesIn(s).length || aiTellsIn(s).length || labelsIn(s, labels).length) return "";
   return s;
+}
+
+/** The labels a Propose call hands the model: S1 to Sn for its situations, and every evidence id. */
+function labelsOf(input: Pick<StrategyInput, "situations" | "evidence">): Set<string> {
+  return new Set([...input.situations.map((_, i) => `S${i + 1}`), ...input.evidence.map((e) => e.id)]);
 }
 
 const idsOf = (raw: unknown): string[] => (Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string").map((x) => x.trim().toUpperCase()) : []);
@@ -450,6 +459,8 @@ export interface Checked {
 export function checkStrategy(raw: unknown, input: StrategyInput, at: string): Checked {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const dropped = { focus: 0, claims: 0, isNot: 0 };
+  const labels = labelsOf(input);
+  const line = (x: unknown, max: number) => lineOf(x, max, labels);
 
   // Focus: S numbers of decided situations, 3 to 5.
   const focus: string[] = [];
@@ -474,7 +485,7 @@ export function checkStrategy(raw: unknown, input: StrategyInput, at: string): C
   const seen = new Set<string>();
   let theirs = 0;
   for (const c of Array.isArray(r.claims) ? (r.claims as Array<Record<string, unknown>>) : []) {
-    const text = lineOf(c?.text, L.claimText);
+    const text = line(c?.text, L.claimText);
     const side = c?.side === "them" ? "them" : "you";
     const refs = idsOf(c?.proof);
     const valid = refs.map((x) => byId.get(x)).filter((e): e is EvidenceItem => Boolean(e));
@@ -516,20 +527,20 @@ export function checkStrategy(raw: unknown, input: StrategyInput, at: string): C
   const have = new Set(input.identity.isNot.map(fold));
   const isNotProposals: IsNotProposal[] = [];
   for (const x of Array.isArray(r.isNot) ? (r.isNot as Array<Record<string, unknown>>) : []) {
-    const text = lineOf(x?.text, L.isNotText);
+    const text = line(x?.text, L.isNotText);
     if (!text || have.has(fold(text)) || isNotProposals.length >= MAX_IS_NOT) {
       dropped.isNot += 1;
       continue;
     }
     have.add(fold(text));
     const ref = typeof x?.competitor === "string" ? byId.get(x.competitor.trim().toUpperCase()) : undefined;
-    isNotProposals.push({ text, why: lineOf(x?.why, L.why), competitor: ref?.kind === "competitor" ? (ref.name ?? ref.title) : null, state: "proposed" });
+    isNotProposals.push({ text, why: line(x?.why, L.why), competitor: ref?.kind === "competitor" ? (ref.name ?? ref.title) : null, state: "proposed" });
   }
 
   // The quarter's goal: started from what the brand's people said, when they said anything.
   const g = (r.goal && typeof r.goal === "object" ? r.goal : {}) as Record<string, unknown>;
-  const goalText = lineOf(g.text, L.goalText);
-  const measure = lineOf(g.measure, L.measureText);
+  const goalText = line(g.text, L.goalText);
+  const measure = line(g.measure, L.measureText);
   const goal: StrategyGoal | null = goalText
     ? { text: goalText, measure, measureKey: measureKeyOf(measure), from: input.profile.length || input.goals.length ? "onboarding" : "vizzy", setAt: at }
     : null;
@@ -550,7 +561,7 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
   const now = (deps.now ?? (() => new Date()))();
   const tenant = deps.loadTenant ? await deps.loadTenant(ctx.tenantId).catch(() => null) : undefined;
   const usage = deps.usage ?? aiUsage(ctx, "brand_strategy", { db: deps.db, ...(tenant !== undefined ? { tenant } : {}) });
-  const raw = await (deps.generate ?? generateTextWithDeadline)(strategyPrompt(input, now.toISOString().slice(0, 10)), {
+  const raw = await (deps.generate ?? generateTextWithDeadline)(await inBrandLanguage(strategyPrompt(input, now.toISOString().slice(0, 10)), usage), {
     timeoutMs: PROPOSE_MS,
     json: true,
     temperature: 0.3,
@@ -567,8 +578,8 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
       // Joined to Competitors, the tab lists the watched ones live: nothing is copied into the draft.
       watched: isStrategyCompetitorsEnabled() ? [] : input.watched,
       sources: input.sources,
-      // v2's words are in the prompt only with competitor notes; without them it is v1's, word for word.
-      made: { promptId: PROPOSE_PROMPT, version: input.competitorNotes ? getPrompt(PROPOSE_PROMPT).version : PROPOSE_V1, model: TEXT_MODEL },
+      // Whether the joined words were in it is in `sources` (competitor_articles).
+      made: { promptId: PROPOSE_PROMPT, version: getPrompt(PROPOSE_PROMPT).version, model: TEXT_MODEL },
     },
     { db: deps.db, now: deps.now },
   );

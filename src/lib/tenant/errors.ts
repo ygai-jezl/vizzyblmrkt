@@ -18,3 +18,17 @@ export class TenantIsolationError extends TenantError {}
 
 /** Malformed tenant context (e.g. missing tenantId / tenant_id claim). */
 export class TenantValidationError extends TenantError {}
+
+/**
+ * Firestore refused a query because the composite index it needs is missing, or is still
+ * building just after a deploy: FAILED_PRECONDITION (gRPC code 9) with "The query requires an
+ * index" (the building case adds "That index is currently building"). A reader with an older,
+ * slower way to answer can fall back on this and nothing else; any other error is a real failure.
+ */
+export function isIndexNotReady(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: unknown; message?: unknown; details?: unknown };
+  const text = [e.message, e.details].filter((t): t is string => typeof t === "string").join(" ");
+  const precondition = e.code === 9 || e.code === "failed-precondition" || e.code === "FAILED_PRECONDITION" || text.includes("FAILED_PRECONDITION");
+  return precondition && /requires an index|index is currently building/i.test(text);
+}

@@ -13,6 +13,7 @@ import {
   stateForPrompt,
   type NextActionInputs,
 } from "./inputs";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Writing the card (ADR-0022): one call to the default text model through gemini.ts, so it is
@@ -91,7 +92,7 @@ export async function writeCard(
 ): Promise<CardCheck> {
   const generate = deps.generate ?? generateJsonWithSchema;
   const offer = inputs.allowed.filter((id) => !check.quiet.has(id));
-  const raw = await generate(composePrompt(inputs, opts.another ? (opts.replacedTitles ?? []) : [], offer), {
+  const raw = await generate(await inBrandLanguage(composePrompt(inputs, opts.another ? (opts.replacedTitles ?? []) : [], offer), usage), {
     schema: responseSchema(offer),
     timeoutMs: COMPOSE_TIMEOUT_MS,
     temperature: opts.another ? 0.8 : 0.3,

@@ -1,4 +1,5 @@
 import { AGENT_ACTION_STATES } from "@/lib/types/agentAction";
+import { WORK_STATUSES } from "@/lib/work/types";
 import { STORED_EVENT_KINDS } from "./events";
 import type { OntologyType, PathDecision, PathRef, StoreRef } from "./types";
 
@@ -22,6 +23,8 @@ const CONTROL = "src/lib/tenant/control.ts";
 const TENANT_LOOKUP = "src/lib/tenant/registry.ts";
 const ORGS = "src/lib/tenant/organisations.ts";
 const ORG_CONNECTIONS = "src/lib/tenant/organisationConnections.ts";
+const WORK = "src/lib/tenant/work.ts";
+const WORK_REFS = "src/lib/tenant/workRefs.ts";
 const WORKSPACE_CONTENT = "src/lib/tenant/workspaceContent.ts";
 const KNOWLEDGE = "src/lib/tenant/knowledge.ts";
 const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
@@ -712,7 +715,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description: "An email journey on the lifecycle engine, for a product's users or a launch's waitlist: the draft, its published versions and its daily send counters.",
     place: "customers",
     status: "built",
-    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape"],
+    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner"],
     home: "brand",
     personal: "none",
     stores: [regional("lifecycle_journeys"), regional("lifecycle_versions", "published versions never change"), regional("lifecycle_counters")],
@@ -1023,20 +1026,29 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "post_learning",
     name: "What posts taught",
-    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.",
+    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.",
     place: "content",
     status: "built",
-    madeBy: ["post_feedback"],
+    madeBy: ["post_feedback", "content_email", "content_hub"],
     home: "brand",
     personal: "none",
     stores: [
-      side("performance_exemplars", "src/lib/tenant/exemplars.ts"),
+      side("performance_exemplars", "src/lib/tenant/exemplars.ts", { note: "the best posts, and the approved emails and hub pieces kept as examples" }),
       side("post_perf_vectors", "src/lib/tenant/postVectors.ts"),
       side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", { note: "append only, the source of a revert" }),
     ],
-    links: [{ to: "post_result", via: "the posts it learned from", many: true }],
+    links: [
+      { to: "post_result", via: "the posts it learned from", many: true },
+      { to: "content_plan", via: "the approved pieces it keeps as examples", many: true },
+    ],
     events: [],
-    erase: { none: "the brand's own content statistics" },
+    erase: {
+      paths: [
+        brandPath("forgetPlanExamples", "src/lib/content/create/approvedExamples.ts", "an approved example goes with its content plan; the post statistics are the brand's own and stay"),
+        brandPath("forgetRemovedExamples", "src/lib/content/create/approvedExamples.ts", "a piece taken off the canvas takes its approved example with it"),
+        brandPath("forgetWorkspaceExamples", "src/lib/content/create/approvedExamples.ts", "a deleted programme takes the approved examples of its plans with it"),
+      ],
+    },
     export: { none: NOT_PERSONAL },
     search: { none: "vectors and versions for the writer, not text to find" },
     numbers: { none: "its numbers are post results" },
@@ -1410,7 +1422,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "ai_original",
     name: "AI original",
-    description: "The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.",
+    description: "The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it and any approved pieces it followed as examples, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.",
     place: "content",
     status: "built",
     madeBy: ["blog_write", "content_write", "content_hub", "content_email", "blog_refresh"],
@@ -1664,6 +1676,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "member", via: "ownerIds and createdBy, as user ids; its users are the members of its brands, counted once", many: true },
       { to: "organisation_change", via: "organisation_changes.organisationId", many: true },
       { to: "organisation_connection", via: "organisation_connections.organisationId, in the region each was connected from", many: true },
+      { to: "work_task", via: "work_tasks.organisationId, in the region of the brand each names or was added from", many: true },
+      { to: "work_log", via: "work_log.organisationId, beside the tasks and brands its rows are about", many: true },
     ],
     events: [],
     erase: {
@@ -1705,6 +1719,85 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { gap: "team member ids in `actor`, `from` and `to` stay as ids, with no export by team member" },
     search: { none: "a control plane change log with no brand content or people" },
     numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "work_task",
+    name: "Work task",
+    description:
+      "One task on an organisation's Work list (ADR-0020): anything the business has to do, at any stage of the Path. It holds a title, a description and notes, a status (To do, In progress, Waiting, Done or Dropped), a stage, Must have, the brand it names or none for the whole business, free links, typed links (a pull request, a switch, an idea, a loop line or a plan), the tasks blocking it, one check, how the team will know it worked (with the kind the rule or Vizzy proposed beside the one chosen), where it came from (a person, an import, a Vizzy suggestion and its evidence) and its last 20 changes. Numbered per organisation by a counter in the control plane. Kept in the regional database of the brand it names, or for a whole business task of the brand it was added from, and never moved; the list reads every provisioned region by organisationId. Written only through `src/lib/tenant/work.ts`, each change with its log row in the same transaction.",
+    place: "company",
+    status: "built",
+    madeBy: ["vizzy_chat", "work_check_due", "work_measure_kind"],
+    home: "organisation",
+    personal: "team",
+    stores: [
+      side("work_tasks", WORK, {
+        note: "one record per task, read by id, by (organisationId, open, closedAt) for the list and by equality on organisationId with brandId, ref or hasCheck, in every provisioned region; titles and notes are the team's own words, which Vizzy reads as data and never as instructions",
+        residencyGap:
+          "a whole business task is kept in the region of the brand it was added from, and its owners read it from a session in any of the organisation's brands, so its words reach a server in another region",
+      }),
+      control("work_refs", WORK_REFS, "one counter per organisation, the next task number and an import's hold while it writes, read by id; no person data"),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "brand", via: "brandId (none for a whole business task), and addedFrom", many: false },
+      { to: "idea", via: "ideaId when it became an idea, and its idea typed links", many: true },
+      { to: "agent_action", via: "origin.agentActionId, on a task added from a Vizzy suggestion", many: false },
+      { to: "work_log", via: "work_log.taskId: its change, check and decision rows", many: true },
+      { to: "member", via: "origin.by, a measure's and a check's setBy, and who on each recent change, as user ids", many: true },
+      { to: "work_task", via: "blockedBy, and an after_task check", many: true },
+      { to: "product", via: "a Used measure's product event, by its connectionId", many: false },
+    ],
+    events: ["work.task_added", "work.task_changed"],
+    states: [...WORK_STATUSES],
+    erase: {
+      paths: [
+        brandPath("eraseOrganisationWork", WORK, "an empty organisation id taken up again starts with no Work: its tasks and log rows go in every region, and its task counter"),
+        brandPath("deleteWorkTask", WORK, "an admin or owner deletes one task; its log rows stay with the organisation's history"),
+      ],
+      gaps: [
+        "no path deletes an organisation, so its tasks are kept for its life",
+        "member ids in origin, setBy and recent stay as ids after the member leaves, and show as Former team member, as settings history does",
+      ],
+    },
+    export: { gap: "team member ids in origin, setBy and recent stay as ids, with no export by team member; the team reads its tasks on Work" },
+    search: { none: "found on Work and by Vizzy's get_work" },
+    numbers: { gap: "the count a measure's check keeps has no meaning of its own yet, so an agent reads it only as the check's sentence" },
+  },
+  {
+    id: "work_log",
+    name: "Work log",
+    description:
+      "The organisation's daily log on Work (ADR-0020): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.",
+    place: "company",
+    status: "built",
+    madeBy: ["vizzy_chat"],
+    home: "organisation",
+    personal: "team",
+    stores: [
+      side("work_log", WORK, {
+        note: "append only, read by (organisationId, at) for a day and by equality on organisationId with taskId and kind for one task, in every provisioned region; no ttlAt, and not in the time to live setup",
+        residencyGap: "rows about a whole business task are kept beside it, in the region of the brand it was added from, and its owners read them from a session in any of the organisation's brands",
+      }),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "brand", via: "brandId, the brand the row is about (none for the whole business)", many: false },
+      { to: "work_task", via: "taskId", many: false },
+      { to: "member", via: "source.who and a decision's chosen.by, as user ids", many: true },
+      { to: "agent_action", via: "the draft a person saved it from (draft_work_log, draft_work_decision): the draft's target is the row's id", many: false },
+    ],
+    events: ["work.task_added", "work.task_changed", "work.logged", "work.checked", "work.decided"],
+    erase: {
+      paths: [brandPath("eraseOrganisationWork", WORK, "rows are kept until the organisation's Work is erased, with no time to live: an empty organisation id taken up again starts with no log")],
+      gaps: [
+        "no path deletes an organisation, so its log is kept for its life",
+        "member ids in source and in a decision's chosen.by stay as ids after the member leaves, as settings history does",
+      ],
+    },
+    export: { gap: "team member ids in source and chosen.by stay as ids, with no export by team member; the team reads its log on Work" },
+    search: { none: "found on Work's Log and by Vizzy's get_work" },
+    numbers: { none: "a log holds what people wrote and what changed; the counts the loops take from it have no meanings yet" },
   },
   {
     id: "social_connection",
@@ -2016,7 +2109,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
-    numbers: { none: "a value belongs to one record and is not a brand metric" },
+    // A value belongs to one record; the investor and funding board (RAISE_PIPELINE_ENABLED) counts the
+    // board's ready-made fields across People, by stage and pass reason, for Vizzy.
+    numbers: {
+      meanings: ["pipelinePeople", "stagePeople", "passedPeople", "reasonPasses", "noReasonPasses", "quietPeople", "nextStepPastPeople", "overduePeople", "openFollowUps", "quietAfterDays"],
+      tool: "get_raise_pipeline",
+    },
   },
   {
     id: "consent_purpose",
@@ -2595,10 +2693,29 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
-    madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],
+    madeBy: [
+      "canvas.person_fields",
+      "canvas.new_person",
+      "rising_search",
+      "losing_page",
+      "within_reach",
+      "canvas.journey",
+      "canvas.lifecycle",
+      "canvas.invite_wave",
+      "canvas.content_plan",
+      "canvas.email_style",
+      "canvas.image_style",
+      "canvas.journey_style",
+      "canvas.brand_map",
+      "vizzy_chat",
+      "brand_map_research",
+      "product_map",
+      "autopilot",
+      "investor_quiet",
+    ],
     home: "brand",
     personal: "people",
     stores: [
@@ -2611,7 +2728,16 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
       { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action", many: false },
+      { to: "work_task", via: "the target, when it is a Work task suggestion: the id the task takes once a person adds it", many: false },
+      { to: "work_log", via: "the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it", many: false },
       { to: "next_action_card", via: "the card's step records name it", many: false },
+      { to: "launch_journey", via: "draft, a launch's welcome emails on the original engine (agent record)", many: false },
+      { to: "lifecycle_journey", via: "draft, a journey Vizzy drafted or styled (agent record)", many: false },
+      { to: "invite_wave", via: "draft, an invite wave Vizzy drafted (agent record)", many: false },
+      { to: "content_plan", via: "draft, a plan Vizzy or the autopilot drafted (agent record)", many: false },
+      { to: "brand_map", via: "draft, one research run or chat call with hashes of the keys it filed (agent record)", many: false },
+      { to: "brand_note", via: "draft, a note Vizzy suggested in a chat (agent record)", many: false },
+      { to: "repo_map", via: "draft, learning a product's map from its repo, by product (agent record)", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

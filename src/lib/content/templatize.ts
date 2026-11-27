@@ -19,6 +19,7 @@ import { WRITING_RULES } from "@/lib/content/writingRules";
 import { reconcilePlaceholders, orphanPlaceholders, bodyTokens } from "@/lib/content/placeholders";
 import { safeFetch, readTextCapped } from "@/lib/security/ssrf";
 import type { TemplatePlaceholder } from "@/lib/types/template";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Modular templatize engine (Agent 3 / Gemini, inline). Two-stage + validate:
@@ -255,9 +256,10 @@ async function templatizeStage(
         : "",
     task,
   });
+  const written = await inBrandLanguage(prompt, input.usage);
   const raw = input.screenshot
-    ? await generateTextWithImage(prompt, input.screenshot.base64, input.screenshot.mimeType, { usage: input.usage })
-    : await generateText(prompt, { usage: input.usage });
+    ? await generateTextWithImage(written, input.screenshot.base64, input.screenshot.mimeType, { usage: input.usage })
+    : await generateText(written, { usage: input.usage });
   return coerceSkeleton(raw ? parseFirstJson(raw) : null);
 }
 
@@ -275,7 +277,7 @@ function validate(body: string, framework: string): string[] {
 
 async function repair(body: string, problems: string[], usage: AiUsage): Promise<Skeleton | null> {
   const task = renderPrompt("content.templatize_repair", { problems: problems.join("; "), body });
-  const prompt = composePrompt({ communication: WRITING_RULES, task });
+  const prompt = await inBrandLanguage(composePrompt({ communication: WRITING_RULES, task }), usage);
   const raw = await generateText(prompt, { usage });
   return coerceSkeleton(raw ? parseFirstJson(raw) : null);
 }

@@ -37,6 +37,7 @@ import { suggestKind } from "@/lib/brandNotes/prompts";
 import { isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "@/lib/brandNotes/flags";
 import { noteRest, type NoteRestState } from "@/lib/brandNotes/rest";
 import { answeredQuestions } from "./citable";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * What the brand has seen, for one blog article (BRAND_NOTES_ENABLED with the editorial writer).
@@ -73,10 +74,12 @@ const RESTING_NOTES = 5;
  * none of them wrongly. So the cutoff stays low and the check stays strict.
  *
  * Each cut-off here is a pair (ADR-0025): `old` for brand_map_vectors (text-embedding-005), `new` for
- * brand search (gemini-embedding-001) once SEARCH_NOTE_READS_ENABLED is on. The `new` values are
- * provisional until scripts/measure-question-dupes.ts --model new is run.
+ * brand search (gemini-embedding-001) once SEARCH_NOTE_READS_ENABLED is on. The `new` value was
+ * measured with scripts/measure-question-dupes.ts --model new on 2026-11-27 (ADR-0025): notes that answer the question scored 0.728 to 0.798, ones that
+ * don't 0.600 to 0.668, open questions 0.745 to 0.893 against 0.531 to 0.803. The new model scores
+ * these pairs higher than the old one, so 0.55 is still a low floor and the check still decides.
  */
-export const CANDIDATE_MIN_SIM: CutOff = { old: 0.5, new: 0.5 };
+export const CANDIDATE_MIN_SIM: CutOff = { old: 0.5, new: 0.55 };
 /** The cut-offs for the store the note readers use now. */
 const notesOnIndex = () => isSearchNoteReadsEnabled();
 
@@ -258,7 +261,7 @@ export async function matchSeen(
     asks = notes.length ? [] : [...questions.map((q) => q.question), ...r.unsaved].slice(0, 3);
   } else if (!notes.length) {
     const raw = await generate(
-      renderPrompt("content.blog_note_asks", { brand_name: brand, question, spark, audience }),
+      await inBrandLanguage(renderPrompt("content.blog_note_asks", { brand_name: brand, question, spark, audience }), usage),
       { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage },
     ).catch(() => null);
     asks = raw ? parseAsks(raw) : [];
@@ -318,10 +321,17 @@ const ASKED_ALREADY = 6;
  *   - question to note: a note that answers it scored 0.726 to 0.873, one on the same subject
  *     that doesn't 0.643 to 0.773. No cutoff separates them, so 0.85 drops only the closest and
  *     never a question a note leaves open.
- * Both are pairs (ADR-0025), as CANDIDATE_MIN_SIM is: the numbers above are `old`.
+ * Both are pairs (ADR-0025), as CANDIDATE_MIN_SIM is: the numbers above are `old`. The `new` values
+ * were measured with scripts/measure-question-dupes.ts --model new on 2026-11-27 (ADR-0025):
+ *   - question to question: repeats 0.862 to 0.982, different asks 0.733 to 0.919. At 0.93 six of
+ *     eight repeats are dropped and no different question is.
+ *   - question to note: a note that answers it 0.768 to 0.857, one that doesn't 0.701 to 0.757.
+ *     A wrong drop loses a question nobody sees, so 0.83 keeps the old margin above the highest
+ *     note that doesn't answer (0.077): it drops one of four, and never a question a note leaves
+ *     open. Measure answered notes ("Asked: ..." with the answer) before going lower.
  */
 export const DUP_QUESTION_SIM: CutOff = { old: 0.93, new: 0.93 };
-export const DUP_NOTE_SIM: CutOff = { old: 0.85, new: 0.85 };
+export const DUP_NOTE_SIM: CutOff = { old: 0.85, new: 0.83 };
 
 /**
  * An article's questions for its team, kept as open questions (BRAND_NOTES_QUESTIONS_ENABLED).
@@ -371,14 +381,18 @@ async function articleQuestions(
   ).filter((o) => !a.rest || (o.note.askedFor?.length ?? 0) < a.rest.maxUses);
   if (a.rest) return freshQuestions(ctx, { ...a, answered, room, open }, deps);
   const vars = { brand_name: a.brand, question: a.question, spark: a.spark, audience: a.audience };
+  const asksUsage = usageOf(ctx, deps);
   const raw = await (deps.generate ?? generateTextWithDeadline)(
-    open.length
+    await inBrandLanguage(
+      open.length
       ? renderPrompt("content.blog_note_asks_reuse", {
           ...vars,
           open: open.map((o, i) => `[${i + 1}] ${oneLine(o.note.question ?? "").replace(/<\/?\s*open\s*>/gi, " ")}`).join("\n"),
         })
       : renderPrompt("content.blog_note_asks", vars),
-    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: usageOf(ctx, deps) },
+      asksUsage,
+    ),
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: asksUsage },
   ).catch(() => null);
   if (!raw) return { questions: answered, unsaved: [] };
 
@@ -419,8 +433,9 @@ async function freshQuestions(
     ...a.answered.map((q) => `- Asked already: ${strip(q.question, "have")}`),
     ...asked.map((o) => `- Asked already: ${strip(o.note.question ?? "", "have")}`),
   ].slice(0, HAVE_LINES);
+  const freshUsage = usageOf(ctx, deps);
   const raw = await (deps.generate ?? generateTextWithDeadline)(
-    renderPrompt("content.blog_note_asks_fresh", {
+    await inBrandLanguage(renderPrompt("content.blog_note_asks_fresh", {
       brand_name: a.brand,
       question: a.question,
       spark: a.spark,
@@ -428,8 +443,8 @@ async function freshQuestions(
       count,
       have: have.join("\n") || "(nothing yet)",
       open: a.open.map((o, i) => `[${i + 1}] ${strip(o.note.question ?? "", "open")}`).join("\n") || "(none)",
-    }),
-    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: usageOf(ctx, deps) },
+    }), freshUsage),
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: freshUsage },
   ).catch(() => null);
   if (!raw) return { questions: a.answered, unsaved: [] };
 

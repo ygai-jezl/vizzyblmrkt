@@ -27,7 +27,9 @@ import {
 import { answeredQuestions, citableGaps, evaluateCitable, seenNotes, type CitableReport } from "./citable";
 import { unsupportedFigures } from "./figures";
 import { blogWriterThinkingBudget, isBlogEditorialEnabled } from "./flags";
+import { articleLabel, articleLabelDirective, OTHER_DATE_LINE, withOtherLanguages } from "./labels";
 import { slugify } from "./markdown";
+import { isNotEnglish, withWritingLanguage, writingLanguage } from "@/lib/i18n/writingLanguage";
 import { mapMaterial, writerMapBlock, type ArticleMap } from "./articleMap";
 import { focusedBrief, writerLinks } from "./focus";
 import { asciiTablesToMarkdown } from "./asciiTables";
@@ -121,13 +123,13 @@ export function parseDraft(raw: string): ParsedDraft {
 
 /** Put today's date in the "Last updated" line, straight under the title — replacing
  *  whatever date the writer put there, or adding the line if it left it out. */
-export function stampLastUpdated(markdown: string, date: string): string {
+export function stampLastUpdated(markdown: string, date: string, language = "en"): string {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const stamp = `*Last updated: ${date}*`;
+  const stamp = `*${articleLabel(language, "lastUpdated")}: ${date}*`;
   const h1 = lines.findIndex((l) => /^#\s+\S/.test(l));
   const firstSection = lines.findIndex((l) => /^##\s+\S/.test(l));
   const existing = lines.findIndex(
-    (l, i) => i > h1 && (firstSection === -1 || i < firstSection) && /^\W*last\s+updated\b/i.test(l),
+    (l, i) => i > h1 && (firstSection === -1 || i < firstSection) && (/^\W*last\s+updated\b/i.test(l) || OTHER_DATE_LINE.test(l)),
   );
   if (existing !== -1) {
     lines[existing] = stamp;
@@ -145,28 +147,29 @@ function authorOf(brief: BlogBrief): { name: string; role: string } {
 }
 
 /** The byline the brief gives ("By Ana Ruiz, Head of Growth"), or "" when the brand is the author. */
-export function bylineOf(brief: BlogBrief): string {
+export function bylineOf(brief: BlogBrief, language = "en"): string {
   const { name, role } = authorOf(brief);
-  return name ? `By ${name}${role ? `, ${role}` : ""}` : "";
+  return name ? `${articleLabel(language, "by", { name })}${role ? `, ${role}` : ""}` : "";
 }
 
 /** The editorial article's date line: today's date, then the byline when there is one. Replaces
  *  whatever "Last updated" line the writer wrote, or adds it straight under the title. */
-export function stampDateLine(markdown: string, date: string, byline: string): string {
-  const stamped = stampLastUpdated(markdown, date);
+export function stampDateLine(markdown: string, date: string, byline: string, language = "en"): string {
+  const stamped = stampLastUpdated(markdown, date, language);
   if (!byline) return stamped;
-  return stamped.replace(`*Last updated: ${date}*`, `*Last updated: ${date} · ${byline}*`);
+  const label = articleLabel(language, "lastUpdated");
+  return stamped.replace(`*${label}: ${date}*`, `*${label}: ${date} · ${byline}*`);
 }
 
-const AUTHOR_BOX = /^##\s+about\s+the\s+author\b/i;
+const AUTHOR_BOX = withOtherLanguages(/^##\s+about\s+the\s+author\b/i, ["aboutAuthor"], { prefix: "##\\s+" });
 
 /** The author box that ends an editorial article, built by code so the bio is never reworded.
  *  "" without a named author and a bio. */
-export function authorBox(brief: BlogBrief): string {
+export function authorBox(brief: BlogBrief, language = "en"): string {
   const { name, role } = authorOf(brief);
   const bio = (brief.authorBio ?? "").replace(/\s+/g, " ").replace(/^[\s#>*+\-\d.]+/, "").trim();
   if (!name || !bio) return "";
-  return `## About the author\n\n**${name}**${role ? `, ${role}` : ""}\n\n${bio}`;
+  return `## ${articleLabel(language, "aboutAuthor")}\n\n**${name}**${role ? `, ${role}` : ""}\n\n${bio}`;
 }
 
 /** An article without its "About the author" section, and that section ("" when there is none). */
@@ -364,7 +367,7 @@ interface Checked {
 }
 
 /** Everything code decides about a draft: the date, the links, the figures, the check. */
-function checkDraft(raw: string, input: BlogDraftInput, reference: string, today: string, editorial = false): Checked | null {
+function checkDraft(raw: string, input: BlogDraftInput, reference: string, today: string, editorial = false, language = "en"): Checked | null {
   const parsed = parseDraft(raw);
   if (parsed.body.length < 200) return null;
   // A draft that forgot its title still has the question it was asked to answer.
@@ -378,11 +381,11 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
   ]);
   // An editorial article's tables are Markdown: one drawn out of characters is turned into a table or a list.
   const dated = editorial
-    ? asciiTablesToMarkdown(stampDateLine(withoutAuthorBox(parsed.body), today, bylineOf(input.brief))).body
-    : stampLastUpdated(parsed.body, today);
+    ? asciiTablesToMarkdown(stampDateLine(withoutAuthorBox(parsed.body), today, bylineOf(input.brief, language), language)).body
+    : stampLastUpdated(parsed.body, today, language);
   const linked = enforceLinks(dated, allowed);
   // The author box goes on after the links are checked (it holds none) and after the fit, so it is never cut.
-  const box = editorial ? authorBox(input.brief) : "";
+  const box = editorial ? authorBox(input.brief, language) : "";
   const fitted = fitBody(linked.body, box ? box.length + 2 : 0);
   if (box) fitted.body = `${fitted.body}\n\n${box}`;
   const year = Number(today.slice(0, 4));
@@ -396,6 +399,7 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
       .map((f) => f.slice(0, 60)),
     removedLinks: linked.removed,
     ...(editorial ? { style: "editorial" } : {}),
+    ...(isNotEnglish(language) ? { language } : {}),
   });
   const report = evaluateCitable(fitted.body, { brief: input.brief, meta, pageUrl: input.plan.strategy.hubUrl, map: input.map ?? null });
   return { body: fitted.body, meta, report, cut: fitted.cut };
@@ -429,12 +433,18 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
   // The shape is decided once per article: both passes, the check and the meta agree.
   const editorial = isBlogEditorialEnabled();
   const task = buildTask(input, today, editorial);
+  // In the brand's language (CONTENT_LANGUAGE_ENABLED), with its words for the boxes and sections.
+  const language = await writingLanguage(input.usage);
   const compose = (t: string) =>
-    composePrompt({
-      identity: brandVoiceSection(input.brandVoice),
-      userProfile: audienceSection(input.audience),
-      task: t,
-    });
+    withWritingLanguage(
+      composePrompt({
+        identity: brandVoiceSection(input.brandVoice),
+        userProfile: audienceSection(input.audience),
+        task: t,
+      }),
+      language,
+      articleLabelDirective(language),
+    );
 
   // Everything the writer was given — the only places a figure may come from.
   const reference = blogReference({
@@ -449,7 +459,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
 
   const thinking = { thinkingBudget: blogWriterThinkingBudget(), usage: input.usage };
   const raw = await generate(compose(task), thinking);
-  let best = raw ? checkDraft(raw, input, reference, today, editorial) : null;
+  let best = raw ? checkDraft(raw, input, reference, today, editorial, language) : null;
   if (!best) return null;
   let repaired = false;
 
@@ -469,7 +479,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
       draft: best.body.replace(/<\/?\s*draft\s*>/gi, " "),
     });
     const second = await generate(compose(repair), thinking).catch(() => null);
-    const revised = second ? checkDraft(second, input, reference, today, editorial) : null;
+    const revised = second ? checkDraft(second, input, reference, today, editorial, language) : null;
     if (revised && badness(revised) < badness(best)) {
       // The header lines are easy to drop on a revision — keep the first pass's if so.
       revised.meta = {

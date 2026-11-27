@@ -108,7 +108,7 @@ export interface PackDeps {
 export const PART_MAX = 5;
 const SEARCH_LIMIT = 12;
 /** As planningApi: an article this close in meaning answers the question. A pair, one for each store (ADR-0025). */
-export const COVERED_SIM: CutOff = { old: 0.65, new: 0.65 };
+export const COVERED_SIM: CutOff = { old: 0.65, new: 0.66 };
 
 /** What the brand made that counts as "already said". */
 const OWN_KINDS = new Set<SearchKind>(["article", "newsletter", "ebook", "post", "journey_email", "broadcast", "note", "idea_board", "knowledge"]);

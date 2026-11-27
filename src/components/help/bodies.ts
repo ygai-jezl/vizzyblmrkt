@@ -3,6 +3,7 @@ import type { HelpBodyProps } from "@/lib/help/pages";
 import GetSetUpHelp from "./pages/get-set-up";
 import PlanAndUsageHelp from "./pages/plan-and-usage";
 import SignInAndPasswordsHelp from "./pages/sign-in-and-passwords";
+import WorkHelp from "./pages/work";
 import EmailSendingHelp from "./pages/email-sending";
 import YourBrandHelp from "./pages/your-brand";
 import EmailStyleHelp from "./pages/email-style";
@@ -21,7 +22,9 @@ import OnboardingJourneysHelp from "./pages/onboarding-journeys";
 import ReviewAndApprovalsHelp from "./pages/review-and-approvals";
 import PeopleHelp from "./pages/people";
 import SearchHelp from "./pages/search";
+import LanguagesHelp from "./pages/languages";
 import YourAudienceHelp from "./pages/your-audience";
+import InvestorsAndFundingHelp from "./pages/investors-and-funding";
 import HistoryAndRestoreHelp from "./pages/history-and-restore";
 import TroubleshootingHelp from "./pages/troubleshooting";
 
@@ -31,9 +34,11 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "plan-and-usage": PlanAndUsageHelp,
   "organisation-brands": OrganisationBrandsHelp,
   "sign-in-and-passwords": SignInAndPasswordsHelp,
+  "work": WorkHelp,
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,
+  "languages": LanguagesHelp,
   "launch-and-waitlist": LaunchAndWaitlistHelp,
   "newsletter-from-your-site": NewsletterFromYourSiteHelp,
   "programmes-and-knowledge": ProgrammesAndKnowledgeHelp,
@@ -49,6 +54,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "people": PeopleHelp,
   "search": SearchHelp,
   "your-audience": YourAudienceHelp,
+  "investors-and-funding": InvestorsAndFundingHelp,
   "history-and-restore": HistoryAndRestoreHelp,
   "troubleshooting": TroubleshootingHelp,
 };

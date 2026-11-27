@@ -15,6 +15,8 @@
  * locales it covers, so the voice chat can be gated to them (Phase 4).
  */
 
+import { isLanguageReadersEnabled } from "./flags";
+
 export interface LocaleInfo {
   /** Base language subtag we steer the model on (e.g. "fr"). */
   code: string;
@@ -129,6 +131,28 @@ export function languageDirective(code: string | null | undefined): string {
 }
 
 /**
+ * The sentence that has a WRITER (articles, posts, emails, briefs, plans, questions) write its
+ * copy in `code` (CONTENT_LANGUAGE_ENABLED; see src/lib/i18n/writingLanguage.ts). Returns "" for
+ * English or an unknown code, so English prompts stay byte for byte the same. Unlike
+ * `languageDirective` (a reply in a language), it also keeps the machine parts of a writer's
+ * output as they are: JSON keys and enum values, line markers, merge tokens, URLs, markup and
+ * names.
+ */
+export function writingDirective(code: string | null | undefined): string {
+  const norm = normalizeLocale(code);
+  if (!norm || norm === DEFAULT_LOCALE) return "";
+  const name = BY_CODE[norm]!.name;
+  return (
+    `WRITE IN ${name}. Every word a reader will see (titles, headings, sentences, questions, answers, ` +
+    `subject lines, button labels, captions and alt text) must be in ${name}, even where the brief, the ` +
+    `sources or the examples above are in another language. A short quote from a source may stay in its ` +
+    `own language. Keep these exactly as given: JSON keys and enum values, line markers such as ` +
+    `META_TITLE:, {{double_brace}} merge tokens, URLs, HTML tags, Markdown syntax, and the names of ` +
+    `brands, products and people. Every rule above about words and punctuation still applies.`
+  );
+}
+
+/**
  * Resolve the content locale for a launch's AGENT-GENERATED output: the launch's
  * pinned default, else the tenant default, else English. (This is the launch
  * default; per-visitor resolution is `resolveVisitorLocale` below.)
@@ -159,6 +183,9 @@ type TenantLocaleConfig =
  * The languages a launch is offered in: the admin-defined `supportedLocales`
  * (campaign over tenant), always including the resolved default, normalised and
  * deduped. Falls back to just the default. Used to clamp per-visitor resolution.
+ *
+ * With LANGUAGE_READERS_ENABLED the brand's list is the one list: a launch offers it, plus any
+ * languages the launch had of its own from before, so none a visitor saw disappears.
  */
 export function supportedLocalesFor(campaign?: LocaleConfig, tenant?: TenantLocaleConfig): string[] {
   const def = resolveCampaignLocale(campaign, tenant);
@@ -168,7 +195,7 @@ export function supportedLocalesFor(campaign?: LocaleConfig, tenant?: TenantLoca
   const fromTenant = (tenant?.supportedLocales ?? [])
     .map(normalizeLocale)
     .filter((c): c is string => !!c);
-  const declared = fromCampaign.length ? fromCampaign : fromTenant;
+  const declared = isLanguageReadersEnabled() ? [...fromTenant, ...fromCampaign] : fromCampaign.length ? fromCampaign : fromTenant;
   return Array.from(new Set([def, ...declared]));
 }
 

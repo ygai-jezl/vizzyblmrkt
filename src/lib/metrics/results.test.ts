@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS, meaningsOf, numberKeys, type Meaning } from "./meanings";
 
@@ -6,12 +6,13 @@ import { MEANINGS, meaningsOf, numberKeys, type Meaning } from "./meanings";
 const src = vi.hoisted(() => ({
   loadEmailInsights: vi.fn(),
   computeHybridEmailAnalytics: vi.fn(),
+  computeHybridSequenceBreakdown: vi.fn(),
   journeyAnalytics: vi.fn(),
   summariseEmailSends: vi.fn(),
   listPostPerformance: vi.fn(),
 }));
 vi.mock("@/lib/insights/email", () => ({ loadEmailInsights: src.loadEmailInsights }));
-vi.mock("@/lib/analytics/email", () => ({ computeHybridEmailAnalytics: src.computeHybridEmailAnalytics }));
+vi.mock("@/lib/analytics/email", () => ({ computeHybridEmailAnalytics: src.computeHybridEmailAnalytics, computeHybridSequenceBreakdown: src.computeHybridSequenceBreakdown }));
 vi.mock("@/lib/lifecycle/adminApi", () => ({ journeyAnalytics: src.journeyAnalytics }));
 vi.mock("@/lib/email/sends", () => ({ summariseEmailSends: src.summariseEmailSends }));
 vi.mock("@/lib/tenant/postPerformance", () => ({ listPostPerformance: src.listPostPerformance }));
@@ -84,6 +85,69 @@ describe("email results", () => {
   });
 });
 
+describe("email tests on a launch (WAITLIST_AB_WINNER_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const arm = (variantId: string, label: string, sent: number) => ({
+    variantId,
+    label,
+    sent,
+    delivered: sent,
+    opened: sent / 2,
+    clicked: 1,
+    unsubscribed: 0,
+    openRate: 0.5,
+    clickRate: 1 / sent,
+  });
+  beforeEach(() =>
+    src.computeHybridSequenceBreakdown.mockResolvedValue({
+      truncated: false,
+      nodes: [
+        {
+          ...arm("x", "", 112),
+          nodeId: "email1",
+          label: "Welcome",
+          abTest: true,
+          status: "promoted",
+          winnerVariantId: "var_b",
+          arms: [arm("control", "Control", 60), arm("var_b", "Variant A", 52)],
+          pickedAt: "2026-11-02T09:00:00.000Z",
+          earlierPicksAt: ["2026-10-01T09:00:00.000Z"],
+        },
+        { ...arm("x", "", 40), nodeId: "email2", label: "Nudge", abTest: false, arms: [], pickedAt: null, earlierPicksAt: [] },
+        // A test stopped after its winner was picked: the pick stays readable.
+        { ...arm("x", "", 30), nodeId: "email3", label: "Last call", abTest: false, arms: [], pickedAt: null, earlierPicksAt: ["2026-10-20T09:00:00.000Z"] },
+      ],
+    }),
+  );
+
+  it("says which version of each test won and when, every number explained", async () => {
+    vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
+    const r = await emailResults(ctx, { scope: "launch", id: "c1" });
+    expect(src.computeHybridSequenceBreakdown).toHaveBeenCalledWith(ctx, "journey_c1");
+    expect((r.body as { emailTests: unknown }).emailTests).toEqual([
+      {
+        email: "Welcome",
+        winnerPicked: true,
+        winner: "Variant A",
+        winnerPickedAt: "2026-11-02T09:00:00.000Z",
+        earlierPicksAt: ["2026-10-01T09:00:00.000Z"],
+        versions: [
+          { version: "Control", sends: 60, delivered: 60, uniqueOpens: 30, uniqueClicks: 1, unsubscribes: 0, openRate: 0.5, clickRate: 1 / 60 },
+          { version: "Variant A", sends: 52, delivered: 52, uniqueOpens: 26, uniqueClicks: 1, unsubscribes: 0, openRate: 0.5, clickRate: 1 / 52 },
+        ],
+      },
+      { email: "Last call", winnerPicked: false, winner: null, winnerPickedAt: null, earlierPicksAt: ["2026-10-20T09:00:00.000Z"], versions: [] },
+    ]);
+    everyNumberHasAMeaning(r.body);
+  });
+
+  it("leaves them out while the switch is off", async () => {
+    const r = await emailResults(ctx, { scope: "launch", id: "c1" });
+    expect(r.body).not.toHaveProperty("emailTests");
+    expect(src.computeHybridSequenceBreakdown).not.toHaveBeenCalled();
+  });
+});
+
 describe("post results", () => {
   it("gives each post's settled numbers and a total per channel, every number explained", async () => {
     const r = await postResults(ctx, { days: 30 });
@@ -104,7 +168,7 @@ describe("post results", () => {
 describe("the meanings", () => {
   it("set better and family together, on every meaning the learning loops name", () => {
     for (const [k, m] of Object.entries(MEANINGS) as Array<[string, Meaning]>) expect(m.better === undefined, k).toBe(m.family === undefined);
-    for (const k of ["editShare", "keptShare", "declineShare", "likedShare", "unusedShare", "remadeShare", "openRate", "clickRate", "engagementRate", "searchClicks"] as const) {
+    for (const k of ["editShare", "keptShare", "declineShare", "likedShare", "unusedShare", "remadeShare", "openRate", "clickRate", "engagementRate", "searchClicks", "conversions"] as const) {
       expect((MEANINGS[k] as Meaning).better, k).toBeDefined();
     }
   });

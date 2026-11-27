@@ -24,6 +24,7 @@ import {
   fromEmailEvent,
   fromPersonMove,
   fromProductEvent,
+  fromWorkLog,
   fromStoredEvent,
   isEventKind,
   PRODUCT_EVENT_KIND,
@@ -33,6 +34,7 @@ import {
 import type { ContactPersonId } from "./person";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import { deterministicEventId } from "@/lib/crm/identifiers";
+import { WORK_LOG_KINDS, WorkLogRowSchema, type WorkLogRow } from "@/lib/work/types";
 
 const PERSON = deterministicContactId("ten_demo", "ada@example.com") as ContactPersonId;
 
@@ -347,5 +349,80 @@ describe("fromStoredEvent", () => {
 
   it("has no person for a company's row, and keeps its kind, time and actor", () => {
     expect(fromStoredEvent(row())).toMatchObject({ kind: "record.created", at: "2026-11-20T10:00:00.000Z", person: null, actor: { type: "member", id: "uid_1" }, subject: { type: "company", id: "co_1" } });
+  });
+});
+
+describe("fromWorkLog", () => {
+  const base = {
+    id: "wl_0123456789abcdef01234567",
+    organisationId: "org_ten_lumen",
+    brandId: "ten_lumen",
+    region: "us" as const,
+    day: "2026-11-20",
+    at: "2026-11-20T09:00:00.000Z",
+    source: { who: { kind: "person" as const, id: "uid_nina" }, tool: "work_page", session: null },
+  };
+  const TASK = "wt_aaaaaaaaaaaaaaaaaaab";
+  const rows: WorkLogRow[] = [
+    { ...base, kind: "entry", taskId: null, workstream: "Onboarding emails", state: "doing", note: "Drafted two.", links: [] },
+    { ...base, kind: "change", taskId: TASK, field: "added", before: null, after: { ref: 73, title: "Add a G2 listing", origin: "suggestion" } },
+    { ...base, kind: "change", taskId: TASK, field: "status", before: "todo", after: "done", source: { ...base.source, tool: "import" } },
+    {
+      ...base,
+      kind: "check",
+      taskId: TASK,
+      check: { action: "read", kind: "date", at: base.at, next: null, measureKind: "used", which: "first", counted: { n: 212, from: base.at, to: base.at, at: base.at }, read: "better" },
+    },
+    {
+      ...base,
+      kind: "decision",
+      taskId: TASK,
+      source: { who: { kind: "vizzy", id: null }, tool: "draft_work_decision", session: null },
+      decision: {
+        question: "Approve the plan",
+        options: [
+          { id: "a", label: "Approve" },
+          { id: "b", label: "Change it" },
+          { id: "c", label: "Not now" },
+        ],
+        recommended: null,
+        chosen: { option: "a", by: "uid_nina" },
+        agreed: null,
+        why: null,
+        replaces: null,
+        plan: { url: "https://docs.example.com/plan", version: "v2" },
+      },
+    },
+  ];
+
+  it("maps every kind of row, each one a valid row, to a work kind the envelope has and never stores", () => {
+    for (const r of rows) expect(WorkLogRowSchema.safeParse(r).success, r.kind).toBe(true);
+    expect(new Set(rows.map((r) => r.kind))).toEqual(new Set(WORK_LOG_KINDS));
+    const kinds = rows.map((r) => fromWorkLog(r).kind);
+    expect(kinds).toEqual(["work.logged", "work.task_added", "work.task_changed", "work.checked", "work.decided"]);
+    for (const k of kinds) {
+      expect(EVENT_KINDS).toContain(k);
+      expect(isStoredEventKind(k)).toBe(false);
+    }
+  });
+
+  it("names no person, keeps the task, brand and organisation in refs, and says who did it", () => {
+    const e = fromWorkLog(rows[2]!);
+    expect(e).toMatchObject({ id: base.id, at: base.at, person: null, identity: null, ideaCredited: null, source: { system: "app" }, actor: { type: "member", id: "uid_nina" } });
+    expect(e.refs).toEqual({ organisationId: "org_ten_lumen", brandId: "ten_lumen", taskId: TASK });
+    expect(e).not.toHaveProperty("subject");
+    expect(fromWorkLog(rows[4]!)).toMatchObject({ source: { system: "agent" }, actor: { type: "agent", id: "vizzy" } });
+    expect(fromWorkLog({ ...rows[0]!, brandId: null }).refs).toEqual({ organisationId: "org_ten_lumen" });
+  });
+
+  it("shapes a change like record.field_changed, and an added task by its origin's kind", () => {
+    expect(fromWorkLog(rows[2]!).properties).toEqual({ field: "status", before: "todo", after: "done", source: "import" });
+    expect(fromWorkLog(rows[1]!).properties).toMatchObject({ origin: "suggestion", ref: 73 });
+  });
+
+  it("carries the measure's kind and the read on a check, and says when a decision approves a plan", () => {
+    expect(fromWorkLog(rows[3]!).properties).toMatchObject({ action: "read", measureKind: "used", which: "first", read: "better", counted: 212 });
+    expect(fromWorkLog(rows[4]!).properties).toMatchObject({ planApproval: true, agreed: null, chosen: "a", recommendedBy: null });
+    expect(fromWorkLog(rows[0]!).properties).toEqual({ workstream: "Onboarding emails", state: "doing", tool: "work_page" });
   });
 });

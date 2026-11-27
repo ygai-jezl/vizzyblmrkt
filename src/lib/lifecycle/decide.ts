@@ -44,8 +44,9 @@ export function decideSendVersion(a: {
       if (!draft.aiLine || !draft.insightId) return fallback("validation_failed");
       if (!a.context?.insights.some((i) => i.id === draft.insightId)) return fallback("insight_stale");
       const allowed = [...draft.allowedTerms, ...draft.attestedTerms];
-      if (!validateAiLine(draft.aiLine, allowed).ok) return fallback("validation_failed");
-      const subject = draft.subjectVariant && validateAiSubject(draft.subjectVariant, allowed).ok ? draft.subjectVariant : null;
+      const language = { language: draft.language };
+      if (!validateAiLine(draft.aiLine, allowed, language).ok) return fallback("validation_failed");
+      const subject = draft.subjectVariant && validateAiSubject(draft.subjectVariant, allowed, language).ok ? draft.subjectVariant : null;
       return { version: "ai", aiLine: draft.aiLine, subject, insightId: draft.insightId };
     }
     case "use_fallback":

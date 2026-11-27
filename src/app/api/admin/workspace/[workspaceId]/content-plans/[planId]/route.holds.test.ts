@@ -7,6 +7,8 @@ const tenant = vi.hoisted(() => ({ forTenant: vi.fn(() => ({ workspaces: { getBy
 vi.mock("@/lib/tenant", () => tenant);
 const content = vi.hoisted(() => ({ getContentPlan: vi.fn(), updateContentPlan: vi.fn(), deleteContentPlan: vi.fn() }));
 vi.mock("@/lib/tenant/workspaceContent", () => content);
+const record = vi.hoisted(() => ({ closePlanDraft: vi.fn(async () => 0) }));
+vi.mock("@/lib/agentRecord/drafts", () => record);
 vi.mock("@/lib/content/blog/pageActions", () => ({ syncPlanPageSoftly: vi.fn(), removePlanPageSoftly: vi.fn() }));
 const seen = vi.hoisted(() => ({ syncSeenHolds: vi.fn() }));
 vi.mock("@/lib/content/blog/seen", () => seen);

@@ -33,8 +33,8 @@ export const vizzyblManifest: ConnectorManifestInput = {
   name: "Vizzybl",
   // One word, so its tile can't take two first letters.
   initials: "VZ",
-  // A plain letter V on Vizzybl's indigo, drawn for YouGrow (public/marks/NOTICE.md).
-  icon: { light: "/marks/connectors/vizzybl/icon.svg", owner: "Vizzybl" },
+  // Vizzybl's own eye mark, the icon its site names, scaled to 128 pixels (public/marks/NOTICE.md).
+  icon: { light: "/marks/connectors/vizzybl/icon.png", owner: "Vizzybl" },
   home: "https://vizzybl.ai/",
   summary: "How your brand shows up in AI answers: your share of voice each day, your monitored prompts and the pages AI answers cite.",
   category: "search",

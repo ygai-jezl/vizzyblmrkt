@@ -108,5 +108,19 @@
   "widget.leaderboard.title": "トップ招待者",
   "widget.leaderboard.someone": "匿名ユーザー",
   "widget.leaderboard.referrals.one": "{count}人の招待",
-  "widget.leaderboard.referrals.other": "{count}人の招待"
+  "widget.leaderboard.referrals.other": "{count}人の招待",
+  "article.lastUpdated": "最終更新日",
+  "article.published": "公開日",
+  "article.updated": "更新日",
+  "article.by": "著者：{name}",
+  "article.keyFacts": "重要な事実",
+  "article.tldr": "要点",
+  "article.answer": "回答",
+  "article.tip": "ヒント",
+  "article.faq": "よくある質問",
+  "article.nextStep": "次のステップ",
+  "article.keyTakeaways": "主なポイント",
+  "article.bottomLine": "まとめ",
+  "article.sources": "出典",
+  "article.aboutAuthor": "著者について"
 }

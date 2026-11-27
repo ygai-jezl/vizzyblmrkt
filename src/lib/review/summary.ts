@@ -1,4 +1,4 @@
-import { forTenant, organisationContextFor } from "@/lib/tenant";
+import { forTenant, getTenantById, organisationContextFor } from "@/lib/tenant";
 import { readDueArticles } from "@/lib/content/blog/freshnessPages";
 import { refreshHref } from "@/lib/content/blog/freshnessHref";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
@@ -24,7 +24,13 @@ import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
 import { isBlogFreshnessEnabled, isBlogRefreshEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
-import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
+import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_EMAIL_STYLE_ROUTE, BRAND_KIT_IMAGE_STYLE_ROUTE, BRAND_KIT_MAP_ROUTE, BRAND_KIT_NOTES_ROUTE } from "@/lib/content/brandKit";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isEmailStyleEnabled } from "@/lib/email/flags";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandNotesEnabled } from "@/lib/brandNotes/flags";
+import type { BrandNote } from "@/lib/types/brandNote";
+import type { Tenant } from "@/lib/types/tenant";
 import { isCompetitorsEnabled } from "@/lib/competitors/flags";
 import { listCompetitors, unseenChanges } from "@/lib/competitors/store";
 import { PROBLEM_TEXT } from "@/lib/competitors/view";
@@ -47,10 +53,15 @@ import { productName } from "@/lib/connectors/messages";
 import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { LoopKind } from "@/lib/loops/registry";
+import { isWorkEnabled } from "@/lib/work/flags";
+import { workReviewItems } from "@/lib/work/review";
+import type { WorkReviewPayload } from "@/lib/work/reviewCards";
 import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
 import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { reasonLine } from "@/lib/brandStrategy/checkRules";
 import type { StrategyCheck } from "@/lib/types/brandStrategy";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -77,6 +88,10 @@ export type ReviewKind =
   | "data_signal"
   | "content_refresh"
   | "person_suggestion"
+  | "work_check"
+  | "work_ready"
+  | "work_suggestion"
+  | "raise_followup"
   | "business_fact";
 
 export interface ReviewItem {
@@ -93,8 +108,12 @@ export interface ReviewItem {
   signal?: { id: string };
   /** The detail as lines, each shown in full (a suggestion's numbers). */
   details?: string[];
+  /** A Work row's buttons (WORK_ENABLED): a check's read or Done and Tomorrow, Start, or a suggestion's Add to Work, Edit then add and Dismiss. */
+  work?: WorkReviewPayload;
   /** The weekly strategy check's row: Dismiss beside the link (admins only). */
   dismissCheck?: true;
+  /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
+  followUp?: { id: string; rev: number; quiet: boolean };
 }
 
 /**
@@ -123,7 +142,9 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
   agent_draft: {
     title: "Drafts from Vizzy",
     description: "Vizzy only saves drafts. Check them, then publish or turn them on when you're happy.",
-    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero"],
+    // With the agent record on (AGENT_RECORD_ENABLED), admins also see Vizzy's email and image style
+    // suggestions and the notes it suggested in chats.
+    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero", "canvas.email_style", "canvas.image_style", "vizzy_chat"],
   },
   brand_map: {
     title: "Brand map suggestions",
@@ -183,6 +204,27 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
     from: ["canvas.person_fields", "canvas.new_person"],
   },
+  work_check: {
+    title: "Checks due today",
+    description:
+      "Tasks in Work to look at again today: on a date you set, when another task is done, or when a task's measure says to look. A measure's check asks if it worked.",
+    from: ["work_check_due"],
+  },
+  work_ready: {
+    title: "Ready to start",
+    description: "To do tasks with nothing in their way. Start the one you want next, and Work keeps which you picked.",
+    from: ["work_ready"],
+  },
+  work_suggestion: {
+    title: "Tasks Vizzy suggests",
+    description: "From your log, your numbers and the stage you're in. Nothing goes on the list until someone adds it, as written or edited.",
+    from: ["vizzy_chat"],
+  },
+  raise_followup: {
+    title: REVIEW_WORDS.title,
+    description: REVIEW_WORDS.description,
+    from: ["investor_quiet"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -191,7 +233,27 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = [
+  "ai_line",
+  "work_check",
+  "work_ready",
+  "failed_post",
+  "connection",
+  "data_source",
+  "next_article",
+  "data_signal",
+  "content_refresh",
+  "work_suggestion",
+  "agent_draft",
+  "person_suggestion",
+  "raise_followup",
+  "business_fact",
+  "repo_results",
+  "brand_map",
+  "competitor_news",
+  "strategy_check",
+  "content_hub",
+];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -298,6 +360,79 @@ export function agentContentPlanItem(
     href: `/admin/workspace/${workspace.id}/create/${plan.id}`,
     action: "Open",
   };
+}
+
+/** The words for a style Vizzy suggested: which page, by the kind of style. */
+const STYLE_WORDS = {
+  email: { title: "Email style Vizzy suggested", page: "Brand › Email style", href: BRAND_KIT_EMAIL_STYLE_ROUTE },
+  image: { title: "Image style Vizzy suggested", page: "Brand › Image style", href: BRAND_KIT_IMAGE_STYLE_ROUTE },
+} as const;
+
+/**
+ * A style Vizzy suggested that no admin has saved or dismissed (agent record, admins only), read
+ * from the brand's record, where it lives: one row, opening the page that saves it.
+ */
+export function agentStyleItem(kind: "email" | "image", suggestion: { suggestedAt: string } | null | undefined): ReviewItem | null {
+  if (!suggestion?.suggestedAt) return null;
+  const words = STYLE_WORDS[kind];
+  const day = /^\d{4}-\d{2}-\d{2}/.test(suggestion.suggestedAt) ? ` on ${dayOf(suggestion.suggestedAt)}` : "";
+  return {
+    id: `${kind}_style:${suggestion.suggestedAt}`,
+    kind: "agent_draft",
+    title: words.title,
+    detail: `Suggested in a chat${day} · Nothing changes until an admin saves it on ${words.page}.`,
+    href: words.href,
+    action: "Review",
+  };
+}
+
+/**
+ * The notes Vizzy suggested in chats that nobody has kept or removed (agent record, admins only):
+ * one row. `more`: the read was full, so there may be more than it counted.
+ */
+export function agentNotesItem(waiting: number, more = false): ReviewItem | null {
+  if (waiting <= 0) return null;
+  return {
+    id: "brand_notes:suggested",
+    kind: "agent_draft",
+    title: more ? `${waiting} or more notes Vizzy suggested` : `${waiting} note${waiting === 1 ? "" : "s"} Vizzy suggested`,
+    detail: "From your chats · Keep the right ones on What we've seen. Articles use only the notes you keep.",
+    href: BRAND_KIT_NOTES_ROUTE,
+    action: "Review",
+  };
+}
+
+/** Most suggested notes read for the row. */
+const NOTES_READ = 50;
+
+/**
+ * What Review lists that only the agent record added (AGENT_RECORD_ENABLED, admins only), each
+ * read where it lives: the brand record's style suggestions, and the notes from chats waiting
+ * (equality on status and source only, up to 50: a full read says "or more").
+ */
+async function agentRecordItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const styles = isEmailStyleEnabled() || isBrandImageStyleEnabled();
+  const [tenant, notes] = await Promise.all([
+    styles ? soft("style suggestions", getTenantById(ctx.tenantId, db), null as Tenant | null) : (null as Tenant | null),
+    isBrandNotesEnabled()
+      ? soft(
+          "suggested notes",
+          forTenant(ctx, db).brandNotes.find({
+            where: [
+              ["status", "==", "suggested"],
+              ["source", "==", "chat"],
+            ],
+            limit: NOTES_READ,
+          }),
+          [] as BrandNote[],
+        )
+      : ([] as BrandNote[]),
+  ]);
+  return [
+    isEmailStyleEnabled() ? agentStyleItem("email", tenant?.emailStyleSuggestion) : null,
+    isBrandImageStyleEnabled() ? agentStyleItem("image", tenant?.imageStyleSuggestion) : null,
+    agentNotesItem(notes.length, notes.length >= NOTES_READ),
+  ].filter((i): i is ReviewItem => !!i);
 }
 
 /** A hub-and-spoke plan whose hub is written but not approved (its spokes wait on it). */
@@ -778,7 +913,7 @@ export async function loadContentHubItems(ctx: TenantContext, workspaces: Array<
 
 export async function loadReview(
   ctx: TenantContext,
-  opts: { lifecycle: boolean; includeContent: boolean },
+  opts: { lifecycle: boolean; includeContent: boolean; /** Count a due measure's check as it shows (the page; not the sidebar's count). */ workCount?: boolean },
   db?: FirestoreLike,
 ): Promise<Review> {
   const repos = forTenant(ctx, db);
@@ -841,12 +976,27 @@ export async function loadReview(
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
+  // Follow-ups from the investor or funding board: everyone on the team sees them, only admins decide one.
+  const raiseFollowUps = isRaiseFollowupsEnabled()
+    ? await soft(
+        "board follow-ups",
+        import("@/lib/raise/pipeline/followups").then((m) => m.followUpReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
+  // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
+  const recordItems = isAgentRecordEnabled() && ctx.role === "admin" ? await soft("agent record", agentRecordItems(ctx, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
   const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
+  // Work (WORK_ENABLED): checks due, tasks ready to start and Vizzy's task suggestions, for members
+  // too, as Work's view shows them. One fake database stands for every database in tests.
+  const work = isWorkEnabled()
+    ? await soft("work", workReviewItems(ctx, { ...(db ? { controlDb: db, regionDb: () => db } : {}), count: opts.workCount !== false }), [] as ReviewItem[])
+    : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -865,6 +1015,8 @@ export async function loadReview(
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...personSuggestions,
+    ...work,
+    ...raiseFollowUps,
     ...businessFacts,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
@@ -874,6 +1026,7 @@ export async function loadReview(
     ...numberSuggestions,
     ...refreshItems(dueArticles, readyArticles),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
+    ...recordItems,
   ].filter((i): i is ReviewItem => !!i);
 
   return { aiLines, items };
@@ -884,9 +1037,24 @@ export async function loadReview(
 const COUNT_TTL_MS = 2 * 60 * 1000;
 const countCache = new Map<string, { at: number; total: number }>();
 
-/** The count's cache key: per brand, and per role, since some items are for admins only. */
-function countKey(tenantId: string, role: TenantContext["role"]): string {
-  return `${tenantId}|${role === "admin" ? "admin" : "member"}`;
+/**
+ * The count's cache key: per brand, per role (some items are for admins only) and, while Work is
+ * on, whether the person owns the brand's organisation, since owners count the whole
+ * organisation's Work and everyone else in a multi brand organisation only their brand's.
+ */
+export function countKey(tenantId: string, role: TenantContext["role"], owner?: boolean): string {
+  return `${tenantId}|${role === "admin" ? "admin" : "member"}${owner === undefined ? "" : owner ? "|owner" : "|not_owner"}`;
+}
+
+/** Whether the person owns the brand's organisation, read live: undefined while Work is off, "unread" when it can't be read. */
+async function ownerFlag(ctx: TenantContext, db?: FirestoreLike): Promise<boolean | undefined | "unread"> {
+  if (!isWorkEnabled()) return undefined;
+  try {
+    const o = await organisationContextFor(ctx, db);
+    return o?.isOwner === true;
+  } catch {
+    return "unread";
+  }
 }
 
 export async function countReview(
@@ -895,19 +1063,20 @@ export async function countReview(
   db?: FirestoreLike,
 ): Promise<number> {
   const now = opts.now ?? Date.now();
-  const key = countKey(ctx.tenantId, ctx.role);
-  const hit = countCache.get(key);
+  const owner = await ownerFlag(ctx, db);
+  // Who the person is couldn't be read: count fresh, and keep it for no one else.
+  const key = owner === "unread" ? null : countKey(ctx.tenantId, ctx.role, owner);
+  const hit = key ? countCache.get(key) : undefined;
   if (hit && now - hit.at < COUNT_TTL_MS) return hit.total;
-  const review = await loadReview(ctx, { lifecycle: opts.lifecycle, includeContent: !db }, db);
+  const review = await loadReview(ctx, { lifecycle: opts.lifecycle, includeContent: !db, workCount: false }, db);
   const total = review.aiLines + review.items.length;
-  countCache.set(key, { at: now, total });
+  if (key) countCache.set(key, { at: now, total });
   return total;
 }
 
-/** Forget one brand's cached count, after something that changes it (a change marked seen). */
+/** Forget one brand's cached counts, every role and owner flag, after something that changes them (a change marked seen). */
 export function forgetReviewCount(tenantId: string): void {
-  countCache.delete(countKey(tenantId, "admin"));
-  countCache.delete(countKey(tenantId, "member"));
+  for (const key of [...countCache.keys()]) if (key.startsWith(`${tenantId}|`)) countCache.delete(key);
 }
 
 /** Test hook: forget cached counts. */

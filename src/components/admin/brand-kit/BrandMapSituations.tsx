@@ -10,6 +10,7 @@ import { Dot, STATE_LABEL, WriteNext } from "./BrandMapCoverage";
 import { smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
 import { BrandMapFindSituations } from "./BrandMapFindSituations";
+import { useBrandMapTabs } from "./BrandMapTabs";
 import { askedText, askSituation, proposedOf, type AskRun } from "./situationAsk";
 
 /**
@@ -73,7 +74,11 @@ export function BrandMapSituations({
   const [finding, setFinding] = useState(false);
   const [list, setList] = useState<BrandMapSituation[] | null>(null);
   const [filter, setFilter] = useState<Filter>({ kind: "all" });
-  const [openId, setOpenId] = useState<string | null>(null);
+  // A link from another view (Find what they ask on the Strategy tab) names the situation to open.
+  const tabsApi = useBrandMapTabs();
+  const [openId, setOpenId] = useState<string | null>(() => tabsApi?.situation() ?? null);
+  const panel = useRef<HTMLElement | null>(null);
+  const linked = useRef(openId !== null);
   const [open, setOpen] = useState<SituationRead | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -106,6 +111,16 @@ export function BrandMapSituations({
     if (openId) void loadOpen(openId);
     else setOpen(null);
   }, [openId, loadOpen]);
+  // Taken once: coming back to this view later opens nothing by itself.
+  useEffect(() => {
+    tabsApi?.clearSituation();
+  }, [tabsApi]);
+  // Opened from a link: once it has loaded, bring its panel into view.
+  useEffect(() => {
+    if (!open || !linked.current) return;
+    linked.current = false;
+    panel.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [open]);
 
   async function act(run: () => Promise<{ ok: boolean; data: unknown }>, done?: string) {
     setBusy(true);
@@ -260,7 +275,7 @@ export function BrandMapSituations({
           </div>
         </section>
 
-        <aside aria-label="Buying situation" className="min-w-0">
+        <aside ref={panel} aria-label="Buying situation" className="min-w-0">
           {open ? (
             <SituationDetail
               key={`${open.situation.id}:${open.situation.rev}`}

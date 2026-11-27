@@ -15,11 +15,14 @@ export type RevealKey = (typeof REVEALABLE)[number];
 
 /**
  * Every sidebar section picks a rule, so a new NavKey fails typecheck until it does. "always"
- * shows from the start (Home, Review, Ideas, Brand, Settings); "reveal" can wait under Coming up.
+ * shows from the start (Home, Review, Work, Ideas, Brand, Settings); "reveal" can wait under
+ * Coming up.
  */
 export const REVEAL_RULE: Record<NavKey, "always" | "reveal"> = {
   home: "always",
   review: "always",
+  // Work (WORK_ENABLED) is the organisation's own list, under Ask Vizzy: it never waits.
+  work: "always",
   launches: "always",
   content: "reveal",
   products: "reveal",

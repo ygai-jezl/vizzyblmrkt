@@ -7,6 +7,9 @@ import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/con
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
+import { isContentLanguageEnabled } from "@/lib/i18n/flags";
+import { isWorkEnabled } from "@/lib/work/flags";
+import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -29,7 +32,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work" | "raise_pipeline";
 }
 
 /**
@@ -86,6 +89,10 @@ export interface HelpBodyProps {
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer gets it from the admin shell). */
   join?: boolean;
+  /** Work, the one list of tasks and the daily log (isWorkEnabled(), a server switch: the drawer gets it from the admin shell). */
+  work?: boolean;
+  /** Vizzy's Work tools: suggestions in Review and drafts in chat (isWorkVizzyEnabled(), a server switch, from the shell too). */
+  workVizzy?: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), a server switch: the drawer gets it from the admin shell). */
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */
@@ -94,6 +101,12 @@ export interface HelpBodyProps {
   settingsHistory?: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), a server switch: the drawer gets it from the admin shell). */
   nextActionCard?: boolean;
+  /** Review lists the email and image style and the notes Vizzy suggested (isAgentRecordEnabled(), a server switch: the drawer gets it from the admin shell). */
+  agentRecord?: boolean;
+  /** Readers per language and one language list (isLanguageReadersEnabled(), a server switch: the drawer gets it from the admin shell). */
+  languageReaders?: boolean;
+  /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  raiseFollowUps?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -148,8 +161,16 @@ export const HELP_PAGES: HelpPage[] = [
     "Sign in with your email and a password: create your account, confirm it with a code, reset or change your password, and sign out everywhere.",
     "password_signin",
   ),
+  page(
+    "work",
+    "Work",
+    "start",
+    "One list of everything the business has to do, at every stage and across your brands, and a log of what got done each day.",
+    "work",
+  ),
   page("email-sending", "Email sending", "ready", "Verify the domain you send from, then add your From address, privacy policy link and postal address."),
   page("your-brand", "Your brand", "ready", "Add your logo, colours and fonts, and write your brand voice so everything Vizzy writes sounds like you."),
+  page("languages", "Languages", "ready", "Choose the language YouGrow writes everything in for your brand, and the languages your waitlists are offered in.", "content_language"),
   page("email-style", "Email style", "ready", "Give every email your logo, colours and fonts."),
   page("launch-and-waitlist", "Launch and waitlist", "launch", "Create a launch, turn on the welcome email, then share your waitlist page."),
   page(
@@ -185,6 +206,13 @@ export const HELP_PAGES: HelpPage[] = [
     "Everyone from your launches, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
     "audience_one_view",
   ),
+  page(
+    "investors-and-funding",
+    "Investors and funding",
+    "grow",
+    "Set up investor or lender fields in one press, work a board by stage, log why each one passed and get follow-ups in Review.",
+    "raise_pipeline",
+  ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
   page("invite-your-waitlist", "Invite your waitlist", "product", "Bring the people on your waitlist into your product, in waves."),
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
@@ -213,6 +241,9 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
+  if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
+  if (p.onlyWhen === "work") return isWorkEnabled();
+  if (p.onlyWhen === "raise_pipeline") return isRaisePipelineEnabled();
   return true;
 }
 

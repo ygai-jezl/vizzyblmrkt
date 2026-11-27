@@ -48,12 +48,14 @@ from .tools.brand_strategy import get_brand_strategy
 from .tools.content_strategy import get_content_strategy
 from .tools.usage import get_usage
 from .tools.settings_history import get_settings_history
+from .tools.drafts import get_drafts
 from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
 from .tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact
 from .tools.next_action import get_next_action
+from .tools.work import draft_work_decision, draft_work_log, get_work, suggest_work_task
 
 root_agent = LlmAgent(
     name="vizzybl_marketing_root",
@@ -90,6 +92,7 @@ root_agent = LlmAgent(
     # get_content_strategy reads the brand's approved content plan: pillars, the next weeks and the counts (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
     # get_settings_history reads who changed the brand's fields, journeys, catalogs and team views, and any older version (read only);
+    # get_drafts reads what became of the drafts Vizzy, research and the autopilot made, from the agent record (read only);
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
     # review_article starts or moves on a refresh review of one and says what it proposes (never applies);
     # get_setup_status/read_help_page answer "what should I set up first?"
@@ -98,7 +101,10 @@ root_agent = LlmAgent(
     # consent); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
     # about the business (facts, quotes and conversations for admins), and suggest_business_fact
     # files something new it heard for an admin to keep in About your business; get_next_action reads
-    # Home's Your next action and what became of its steps (read only, admins).
+    # Home's Your next action and what became of its steps (read only, admins); get_work reads
+    # the organisation's Work tasks and daily log (read only), and
+    # suggest_work_task/draft_work_log/draft_work_decision suggest a task for Review and draft a
+    # Log note or a decision a person saves (never Must have, never Approve the plan).
     # More marketing FunctionTools land alongside them.
     tools=[
         retrieve_knowledge,
@@ -129,6 +135,7 @@ root_agent = LlmAgent(
         get_content_strategy,
         get_usage,
         get_settings_history,
+        get_drafts,
         list_articles_due,
         review_article,
         get_setup_status,
@@ -138,6 +145,10 @@ root_agent = LlmAgent(
         read_onboarding_conversation,
         suggest_business_fact,
         get_next_action,
+        get_work,
+        suggest_work_task,
+        draft_work_log,
+        draft_work_decision,
     ],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
     # connected-product lifecycle journeys. Both save drafts only.

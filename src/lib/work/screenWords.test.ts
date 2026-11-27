@@ -125,6 +125,22 @@ describe("Work's screen words", () => {
     expect(page).toContain("shows the last 20 changes, newest first");
   });
 
+  it("say on the help page where an operator's counts come from only while the learning loops are on", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: WorkHelp } = await import("@/components/help/pages/work");
+    const { LOOPS_COUNT_NOTE } = await import("./words");
+    const page = (loops: boolean) => renderToStaticMarkup(WorkHelp({ workVizzy: false, ideaWords: false, loops }) as never).replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
+    const on = page(true);
+    expect(on).toContain("Work counts those from the learning loops' weekly counts across brands, never brand by brand.");
+    expect(on).toContain(`Each of these counts ends "${LOOPS_COUNT_NOTE}"`);
+    const off = page(false);
+    expect(off).not.toContain("weekly counts across brands");
+    expect(off).not.toContain(LOOPS_COUNT_NOTE);
+    const text = on.replace(/<[^>]+>/g, " ");
+    expect(dashesIn(text)).toEqual([]);
+    expect(aiTellsIn(text)).toEqual([]);
+  });
+
   it("keep the house style in Work's screens themselves", () => {
     const dir = join(process.cwd(), "src", "components", "admin", "work");
     for (const f of readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {

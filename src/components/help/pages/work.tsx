@@ -1,6 +1,7 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { ideaWord } from "@/lib/nav/terms";
 import { isWorkVizzyEnabled } from "@/lib/work/flags";
 import { DRAFT_COPY } from "@/lib/work/draft";
@@ -8,7 +9,7 @@ import { IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenW
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { DECLINE_WHY_CHOICES } from "@/lib/work/suggestion";
 import { WORK_REVIEW_COPY } from "@/lib/work/reviewCards";
-import { countedLine, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
+import { countedLine, LOOPS_COUNT_NOTE, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -16,7 +17,9 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * know it worked, checks, import, and Work in Review. The lines about Vizzy suggesting tasks and
  * drafting Log notes and decisions show while Vizzy's Work tools are on (WORK_VIZZY_ENABLED, a server
  * switch: the How to drawer passes the shell's answer). "Make it an idea" is in the words people
- * read (ideaWords). Every business named is made up, and the words it quotes are the app's own.
+ * read (ideaWords). While the learning loops are on (LOOPS_ENABLED, a server switch the drawer gets
+ * as `loops`), it says an operator's counts come from the loops' weekly counts across brands. Every
+ * business named is made up, and the words it quotes are the app's own.
  */
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -44,7 +47,7 @@ const CANT_COUNT = countedLine({
   timeZone: "Europe/London",
 });
 
-export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords = isIdeaWordsEnabled(), loops = isLoopsEnabled() }: HelpBodyProps = {}) {
   const word = ideaWord(ideaWords);
   const reasons = DECLINE_WHY_CHOICES.map((r) => r.label);
   return (
@@ -275,6 +278,14 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           A measure that counts one of your copy&apos;s own AI purposes, types or loop kinds is counted only for the people who
           run its learning loop. Everyone else, Vizzy too, reads &quot;{OPERATOR_COUNT_LINE}&quot;
         </li>
+        {loops ? (
+          <li>
+            For them, Work counts those from the learning loops&apos; weekly counts across brands, never brand by brand. It
+            reads whole weeks, Monday to Sunday, up to the newest 13, so a week that isn&apos;t over yet isn&apos;t counted. A
+            week shows a number only with counts from 10 organisations or more, brands that opted out are left out, and things
+            made count up to 20 for each organisation a week. Each of these counts ends &quot;{LOOPS_COUNT_NOTE}&quot;
+          </li>
+        ) : null}
         <li>
           Set a measure on a task that is done already, and its check is set as Done would have set it, or for today if that
           day has passed. Change the days on a check still to come, and the check moves with them.

@@ -261,9 +261,10 @@ function workChangeSource(row: Pick<WorkLogRow, "source">): FieldChangeSource {
  * names no person (Work is the team's, never a brand's people); the task, brand and organisation
  * are in refs. A change row is shaped like record.field_changed ({field, before, after, source});
  * the task's first change row ("added") is work.task_added with its origin's kind. A check row
- * carries the measure's kind, which measure and the read; a decision says whether it approves a
- * plan and whether the choice took the recommended pick. Words people wrote (an entry's note, a
- * decision's question) stay on the row.
+ * carries the measure's kind, which measure, the read and the brand's own count (never one across
+ * brands, which is for operators); a decision says whether it approves a plan and whether the
+ * choice took the recommended pick. Words people wrote (an entry's note, a decision's question)
+ * stay on the row.
  */
 export function fromWorkLog(row: WorkLogRow): OntologyEvent {
   const base = {
@@ -290,7 +291,15 @@ export function fromWorkLog(row: WorkLogRow): OntologyEvent {
       return {
         ...base,
         kind: "work.checked",
-        properties: { action: row.check.action, checkKind: row.check.kind, measureKind: row.check.measureKind, which: row.check.which, read: row.check.read, counted: row.check.counted?.n ?? null },
+        properties: {
+          action: row.check.action,
+          checkKind: row.check.kind,
+          measureKind: row.check.measureKind,
+          which: row.check.which,
+          read: row.check.read,
+          // The brand's own count only: one from the learning loops' counts across brands (`weeks`) is for operators.
+          counted: row.check.counted && row.check.counted.weeks === undefined ? (row.check.counted.n ?? null) : null,
+        },
       };
     case "decision":
       return {

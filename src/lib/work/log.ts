@@ -7,7 +7,7 @@ import { dayIn } from "./schedule";
 import { planKeyOf } from "./screenWords";
 import { nowOf, seesTask, type WorkDeps, type WorkScope } from "./scope";
 import { dueChecks, entriesToday, loadTasks, type RegionDown, type WorkTaskView } from "./service";
-import { isDay, withoutLoopLines, WORK_LIMITS, type WorkLogRow, type WorkLogRowOf, type WorkStatus } from "./types";
+import { isDay, isOperatorCounted, withoutLoopLines, WORK_LIMITS, type WorkLogRow, type WorkLogRowOf, type WorkStatus } from "./types";
 import { placeForNew } from "./validate";
 import { REGION_CONFIGS } from "@/lib/tenant";
 
@@ -35,11 +35,11 @@ export interface LogDayView extends LogDay {
   capped: boolean;
 }
 
-/** A value that may hold a check with a purpose's count (units) on it. */
-function withoutUnits(v: unknown): unknown {
+/** A value that may hold a check with an operator's count on it: a purpose's units, or the learning loops' weeks. */
+function withoutOperatorCount(v: unknown): unknown {
   if (!v || typeof v !== "object") return v;
-  const counted = (v as { counted?: { units?: unknown } | null }).counted;
-  return counted && counted.units !== undefined ? { ...(v as Record<string, unknown>), counted: null } : v;
+  const counted = (v as { counted?: { units?: unknown; weeks?: unknown } | null }).counted;
+  return isOperatorCounted(counted) ? { ...(v as Record<string, unknown>), counted: null } : v;
 }
 
 /** A typed links value, before or after, without its loop lines. */
@@ -48,14 +48,15 @@ function linksWithoutLoopLines(v: unknown): unknown {
 }
 
 /**
- * A row as someone who isn't an operator gets it: a count of this copy's own purposes (units),
- * kept on a read's row or in a check's value before and after, and a loop line link in a typed
- * links change, are for operators only (decision 14).
+ * A row as someone who isn't an operator gets it: a count of this copy's own purposes, types or
+ * loop kinds (a purpose's units, or the learning loops' weeks), kept on a read's row or in a
+ * check's value before and after, and a loop line link in a typed links change, are for
+ * operators only (decision 14).
  */
 export function rowForViewer(scope: Pick<WorkScope, "operator">, row: WorkLogRow): WorkLogRow {
   if (scope.operator) return row;
-  if (row.kind === "check" && row.check.counted?.units !== undefined) return { ...row, check: { ...row.check, counted: null } };
-  if (row.kind === "change" && row.field === "check") return { ...row, before: withoutUnits(row.before), after: withoutUnits(row.after) };
+  if (row.kind === "check" && isOperatorCounted(row.check.counted)) return { ...row, check: { ...row.check, counted: null } };
+  if (row.kind === "change" && row.field === "check") return { ...row, before: withoutOperatorCount(row.before), after: withoutOperatorCount(row.after) };
   if (row.kind === "change" && row.field === "typedLinks") return { ...row, before: linksWithoutLoopLines(row.before), after: linksWithoutLoopLines(row.after) };
   return row;
 }

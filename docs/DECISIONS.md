@@ -237,6 +237,18 @@ Where the build follows the code, not the plan (the plan's intent kept):
   board (#270) are raised by YouGrow's rule (`investor_quiet`, a gap line) with no stamp, so their
   moves count under no kind. Approved examples (#256) keep a person's approved emails and hub
   pieces through `recordExemplar`, a learned writer from before the loops, frozen with the others.
+- Work reads the loops counts (4.10, and the pick on Work's counts across brands): with
+  `LOOPS_ENABLED` on, a due measure check that counts a purpose, an ontology type or a `LOOPS`
+  kind reads `usedAcrossBrands` over the closed ISO weeks it covers, the newest 13
+  (`loopsCountForCheck` in `src/lib/work/counted.ts`), never walking brands, so a type and a kind
+  are counted for the first time. A week below 10 organisations adds nothing and is said, and the
+  line says the weeks not over yet, the older weeks left out and `USED_NOTE` in Work's words
+  (`LOOPS_COUNT_NOTE`); the check keeps it under an optional `counted.weeks`, so old checks read
+  as before, and the Log hides it from anyone who isn't an operator, as it hides units, and
+  `work.checked` events leave it out. With the switch off Work v1's purpose walk stays, and leaves
+  out every brand whose `lb:` holds `fleetOptOut`. Product events stay the brand's own. Tested in
+  `src/lib/work/counted.test.ts`, `words.test.ts`, `service.checks.test.ts`, `screenWords.test.ts`
+  and `src/lib/ontology/events.test.ts`.
 
 Enforced where:
 
@@ -275,9 +287,9 @@ until their saves count one. Person plan drafts and brand map records keep no st
 product journeys, a journey's own style and the email and image style suggestions keep theirs only
 on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted. An email named by its enrolment keeps its
 stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not
-counted, and a failed synthesis writes no line. Work's counted measures call `usedAcrossBrands` once
-Work lands. An operator path for agents waits for the company retro (step 6), decline reasons for
-other kinds for the edits loop (step 7), and fleet defaults, industry and Proven for step 9.
+counted, and a failed synthesis writes no line. An operator path for agents waits for the company
+retro (step 6), decline reasons for other kinds for the edits loop (step 7), and fleet defaults,
+industry and Proven for step 9.
 
 What follows: two new collections in the control plane, `fleet_cells` and `loop_lane`'s
 organisation marks; the 4 step 5 field exemptions written in ADR-0028's deploy, deployed only when

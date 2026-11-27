@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { USED_NOTE } from "@/lib/loops/used";
 import {
   askAgainNotice,
   countedLine,
   doneCheckNotice,
   IMPORT_ROW_MESSAGES,
+  LOOPS_COUNT_NOTE,
   monthsWords,
   movesWhat,
   nextCheckNotice,
@@ -45,11 +47,26 @@ const LINES: CountedLineInput[] = [
   { part: { kind: "runs_better", what: "crashes", look: { days: 7 } }, counted: null, brandName: "Lumen Notes", timeZone: "UTC" },
 ];
 
+/** Counts from the learning loops' weekly counts across brands, as Work keeps them on a check. */
+const weeksSpan = { from: "2026-11-16T00:00:00.000Z", to: "2026-11-29T23:59:59.999Z", at: "2026-12-05T00:00:00.000Z" };
+const typeOf = { kind: "used", counts: { type: "content_plan" }, look: { days: 14 } } as const;
+const LOOPS_LINES: CountedLineInput[] = [
+  { part: purpose, counted: { ...weeksSpan, n: 1800, weeks: { read: 2, shown: 2, orgs: 12, open: 1, openFrom: "2026-11-30T00:00:00.000Z", older: 0, beforeDone: true } }, brandName: null, timeZone: "UTC", loopsOn: true },
+  { part: typeOf, counted: { ...weeksSpan, n: 64, weeks: { read: 2, shown: 1, orgs: 10, open: 0, older: 0 } }, brandName: null, timeZone: "UTC", loopsOn: true },
+  { part: typeOf, counted: { ...weeksSpan, from: "2026-08-31T00:00:00.000Z", n: 640, weeks: { read: 13, shown: 11, orgs: 10, open: 2, openFrom: "2026-11-30T00:00:00.000Z", older: 1 } }, brandName: null, timeZone: "UTC", loopsOn: true },
+  { part: purpose, counted: { ...weeksSpan, hidden: true, weeks: { read: 2, shown: 0, open: 0, older: 0 } }, brandName: null, timeZone: "UTC", loopsOn: true },
+  { part: purpose, counted: { from: "2026-12-01T10:00:00.000Z", to: "2026-12-03T13:00:00.000Z", at: "2026-12-04T09:00:00.000Z", weeks: { read: 0, shown: 0, open: 1, openFrom: "2026-11-30T00:00:00.000Z", older: 0 } }, brandName: null, timeZone: "UTC", loopsOn: true },
+  { part: { kind: "used", counts: { loopKind: "post_image" }, look: { days: 14 } } as CountedLineInput["part"], counted: { ...weeksSpan, n: 160, weeks: { read: 2, shown: 2, orgs: 11, open: 0, older: 0, row: "image_style" } }, brandName: null, timeZone: "UTC", loopsOn: true },
+];
+
 describe("Work's words", () => {
   it("keep the house style: no dashes as punctuation and no AI tells", () => {
     const all = [
       ...stringsIn([WORK_MESSAGES, IMPORT_ROW_MESSAGES, WORK_STATUS_LABEL, PLAN_STATE_LABEL]),
       ...LINES.map(countedLine),
+      ...LINES.map((l) => countedLine({ ...l, loopsOn: true })),
+      ...LOOPS_LINES.map(countedLine),
+      LOOPS_COUNT_NOTE,
       doneCheckNotice("2026-12-04T08:00:00.000Z", "Europe/London", true),
       askAgainNotice("2026-12-11T08:00:00.000Z", "Europe/London"),
       nextCheckNotice("2026-11-21T08:00:00.000Z", "Europe/London"),
@@ -92,6 +109,46 @@ describe("Work's words", () => {
     expect(countedLine(LINES[11]!)).toBe("Work can't count open rate yet, so your read is the record.");
     expect(countedLine(LINES[12]!)).toBe("Work can't count crashes, so your read is the record.");
     expect(movesWhat({ meaning: "conversions", word: "Sign ups" })).toBe("sign ups");
+  });
+
+  it("say what a count from the learning loops covers: the weeks shown and left out, the organisations, and what it can miss", () => {
+    expect(countedLine(LOOPS_LINES[1]!)).toBe(
+      `Work counted about 64 content plan records made across brands in 1 of the 2 weeks from 16 Nov to 29 Nov, from 10 organisations. Each organisation counts up to 20 a week. The other week didn't have counts from 10 organisations yet, so it is left out. ${LOOPS_COUNT_NOTE}`,
+    );
+    expect(countedLine(LOOPS_LINES[2]!)).toBe(
+      `Work counted about 640 content plan records made across brands in 11 of the 13 weeks from 31 Aug to 29 Nov, from at least 10 organisations a week. Each organisation counts up to 20 a week. The other 2 weeks didn't have counts from 10 organisations yet, so they are left out. Work reads the newest 13 weeks, so the week before them is left out. The 2 weeks from 30 Nov aren't over yet, so they aren't counted. ${LOOPS_COUNT_NOTE}`,
+    );
+    expect(countedLine(LOOPS_LINES[3]!)).toBe(
+      `Work counted AI calls for suggesting angles across brands in the 2 weeks from 16 Nov to 29 Nov. How many isn't shown: no week had counts from 10 organisations yet. ${LOOPS_COUNT_NOTE}`,
+    );
+    expect(countedLine(LOOPS_LINES[4]!)).toBe("Work counts AI calls for suggesting angles across brands in whole weeks, and the week of 30 Nov isn't over yet, so your read is the record.");
+    // A purpose's line says the meter is off first, as it does for the walk's count.
+    expect(countedLine({ ...LOOPS_LINES[0]!, meterOff: true })).toBe(countedLine(LINES[6]!));
+    // Uses are never capped: only things made say the cap.
+    expect(countedLine(LOOPS_LINES[0]!)).not.toContain("counts up to");
+    expect(countedLine(LOOPS_LINES[5]!)).toContain("counts up to 20 a week");
+  });
+
+  it("say every point of USED_NOTE in Work's own words", () => {
+    const points: Array<[RegExp, RegExp]> = [
+      [/added once and never retried/, /fails to save isn't tried again/],
+      [/own uploads are left out/, /own uploads aren't counted/],
+      [/nothing is counted while the learning loops are off/, /nothing is counted while the learning loops are off/],
+      [/brands that opted out are left out/, /brands that opted out are left out/],
+      [/a short week undercounts/, /a week some brands didn't report counts less/],
+      [/counts lag up to a week/, /counts can take up to a week to come in/],
+    ];
+    for (const [note, work] of points) {
+      expect(USED_NOTE).toMatch(note);
+      expect(LOOPS_COUNT_NOTE).toMatch(work);
+    }
+    expect(USED_NOTE.split(",").length).toBe(LOOPS_COUNT_NOTE.split(",").length);
+  });
+
+  it("wait for the check to count a type or a LOOPS kind with the loops on, and say it can't be counted yet with them off", () => {
+    expect(countedLine({ ...LINES[7]!, loopsOn: true })).toBe("Work counts it once the check is due.");
+    expect(countedLine({ ...LINES[8]!, loopsOn: true })).toBe("Work counts it once the check is due.");
+    expect(countedLine(LINES[8]!)).toBe("Work can't count vizzy_chat yet, so your read is the record.");
   });
 
   it("count a purpose in the resource that lists fewest purposes", () => {

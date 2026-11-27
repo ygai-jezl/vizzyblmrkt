@@ -379,4 +379,26 @@ describe("a count of this copy's own purposes (operators only)", () => {
     expect(JSON.stringify(day)).not.toMatch(/"units"/);
     expect(JSON.stringify(value(await logDay(await nina(), null, w.deps)))).toMatch(/"units":2468/);
   });
+
+  it("with the learning loops on, comes from the weekly counts across brands, never every brand's meter, and stays the operators' own", async () => {
+    const t = await duePurposeTask();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    // Done on 20 Nov (2026-W47), due 27 Nov (W48): W47 is closed, W48 isn't over.
+    w.control.seed("fleet_cells", "fh:_calls:2026-W47", { n: { orgs: { content_angle: 12 }, calls: { content_angle: 340 } } });
+    allTenantsRead.n = 0;
+    const page = value(await taskPage(await nina(), t.ref, w.deps));
+    expect(allTenantsRead.n).toBe(0);
+    expect(page.task.check?.counted).toMatchObject({ n: 340, weeks: { read: 1, shown: 1, orgs: 12, open: 1, older: 0, beforeDone: true } });
+    expect(page.checkLine).toMatch(/^Work counted about 340 AI calls for suggesting angles across brands in the week of 16 Nov, from 12 organisations\. /);
+    expect(page.checkLine).toContain("The week of 23 Nov isn't over yet, so it isn't counted.");
+    const samScope = await w.scope(PEOPLE.sam);
+    const sam = value(await taskPage(samScope, t.ref, w.deps));
+    expect(sam.task.check?.counted).toBeNull();
+    expect(sam.checkLine).toBe(OPERATOR_COUNT_LINE);
+    // The read's row and the count's change row keep it; the Log gives it only to operators.
+    value(await act({ ref: t.ref, action: "read", read: "better" }));
+    const samDay = JSON.stringify(value(await logDay(samScope, null, w.deps)));
+    expect(samDay).not.toMatch(/"weeks"|340/);
+    expect(JSON.stringify(value(await logDay(await nina(), null, w.deps)))).toMatch(/"weeks":\{"read":1/);
+  });
 });

@@ -16,8 +16,8 @@ import { rowKindOf } from "./stages";
  *   brand's meter once LOOPS_ENABLED is on.
  *
  * Nothing shows below LOOP_RULES.cellOrgs organisations, and every answer carries the check text
- * (USED_NOTE). This is the seam Work's measure checks (src/lib/work/counted.ts, Work's pull
- * request) call once both are in; until then nothing calls it but its tests. Server only.
+ * (USED_NOTE). Work's measure checks call it (loopsCountForCheck in src/lib/work/counted.ts),
+ * which say USED_NOTE in Work's own words (LOOPS_COUNT_NOTE in src/lib/work/words.ts). Server only.
  */
 
 /** The most closed weeks one read covers: a quarter. */

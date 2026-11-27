@@ -65,6 +65,9 @@ describe("Next up's candidates on a small brand map", () => {
     expect(without.map((c) => c.questionId)).toEqual(["q_bbbbbbb1", "q_aaaaaaa2", "q_bbbbbbb2"]);
     const withIt = await nextUpCandidates(A, {}, { db, strategy: async () => approved });
     expect(withIt.map((c) => `${c.questionId}:${c.focus}`)).toEqual(["q_aaaaaaa2:true", "q_bbbbbbb1:false", "q_bbbbbbb2:false"]);
+    // It names the focus situation it is on, so a pick can say which one it serves.
+    expect(withIt.map((c) => c.situationId ?? null)).toEqual(["sit_focus0001", null, null]);
+    expect(without.every((c) => c.situationId === undefined)).toBe(true);
   });
 
   it("reads the approved strategy itself only with its switch on", async () => {

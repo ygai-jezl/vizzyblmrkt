@@ -72,6 +72,9 @@ describe("cut-offs", () => {
     expect([CANDIDATE_MIN_SIM.old, DUP_QUESTION_SIM.old, DUP_NOTE_SIM.old, MIN_SIM.old, COVERED_SIM.old, PACK_COVERED_SIM.old]).toEqual([0.5, 0.93, 0.85, 0.65, 0.65, 0.65]);
     expect(LOOKS_LIKE.old).toBe(0.9);
     expect(NEAR_SUBJECT.old).toBe(0.6);
+    // The new store's values, measured with measure-question-dupes --model new (2026-11-27).
+    expect([LOOKS_LIKE.new, NEAR_SUBJECT.new, CANDIDATE_MIN_SIM.new, DUP_QUESTION_SIM.new, DUP_NOTE_SIM.new]).toEqual([0.91, 0.7, 0.55, 0.93, 0.83]);
+    expect([MIN_SIM.new, COVERED_SIM.new, PACK_COVERED_SIM.new]).toEqual([0.66, 0.66, 0.66]);
   });
 });
 

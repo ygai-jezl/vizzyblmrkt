@@ -375,6 +375,20 @@ const MAX_BLOG_LINKS = 12;
 const MAX_BLOG_SOURCES = 12;
 const MAX_BLOG_ENTITIES = 16;
 
+/**
+ * Which approved strategy and content plan a piece of work came from (STRATEGY_RESULTS_ENABLED), on a
+ * Next up pick, an autopilot run and an article's brief: when each was approved, the focus buying
+ * situation it serves and the plan's slot it fills, each null when it has none. Absent while the
+ * switch is off or nothing is approved, and on everything made before.
+ */
+export const BasedOnSchema = z.object({
+  strategyAt: z.string().max(40).nullable().catch(null).default(null),
+  planAt: z.string().max(40).nullable().catch(null).default(null),
+  situationId: z.string().max(64).nullable().catch(null).default(null),
+  slotId: z.string().max(64).nullable().catch(null).default(null),
+});
+export type BasedOn = z.infer<typeof BasedOnSchema>;
+
 /** The blog hub's brief. Lives on the plan; research fills it and the operator edits it. */
 export const BlogBriefSchema = z.object({
   /** The question the article answers — its H1. "" = research (or the writer) picks one. */
@@ -408,6 +422,8 @@ export const BlogBriefSchema = z.object({
   /** The buying situation the article is written for (BRAND_MAP_SITUATIONS_ENABLED): absent =
    *  not looked at yet (research may pick one), null = a person said none, an id = chosen. */
   situationId: z.string().max(64).nullable().optional(),
+  /** The strategy and plan the article came from (STRATEGY_RESULTS_ENABLED): set when Next up's pick made it. */
+  basedOn: BasedOnSchema.optional().catch(undefined),
   /** The author's role, for the byline and the author box (CREATE_BLOG_EDITORIAL_ENABLED).
    *  Optional with no default, so briefs saved before parse exactly as they did. */
   authorRole: z.string().max(120).optional(),

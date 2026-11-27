@@ -114,7 +114,7 @@ export const searchConsoleManifest = {
       },
     },
   ],
-  uses: ["vizzy.read"],
+  uses: ["vizzy.read", "signals.search"],
   hooks: { live: "searchConsole.searchAnalytics", accounts: "searchConsole.sites", collect: "searchConsole.collectDays" },
   disconnect: "Disconnecting deletes the sign in YouGrow keeps. To end access at Google too, remove YouGrow from your Google account's third party connections.",
 } satisfies ConnectorManifestInput;

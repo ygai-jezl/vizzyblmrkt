@@ -14,6 +14,7 @@ import {
   deleteContentPlan,
 } from "@/lib/tenant/workspaceContent";
 import { BlogBriefSchema, ContentGraphSchema, ContentPlanStatus } from "@/lib/types/contentPlan";
+import { keptBasedOn } from "@/lib/brandStrategy/basedOn";
 import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
 import { articleAddressProblem } from "@/lib/content/blog/address";
 import { removePlanPageSoftly, syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
@@ -90,6 +91,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const problem = address ? articleAddressProblem(address) : null;
     if (problem) return NextResponse.json({ error: "invalid_address", reason: problem }, { status: 400 });
   }
+  // What the brief came from (STRATEGY_RESULTS_ENABLED) is the server's: the stored one stays, whatever a save sends.
+  if (rest.blog) rest.blog = keptBasedOn(rest.blog, plan.blog);
   await updateContentPlan(ctx, workspaceId, planId, { ...rest, ...(address !== undefined ? { hubUrl: address } : {}) });
   const updated = await getContentPlan(ctx, workspaceId, planId);
   await syncPlanPageSoftly(ctx, { workspaceId, planId, plan: updated });

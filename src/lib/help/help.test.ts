@@ -44,6 +44,7 @@ import { RAISE_REASONS } from "@/lib/raise/reasons";
 import { BOARD_HREF } from "@/lib/raise/pipeline/setup";
 import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
 import { REVIEW_ORDER, REVIEW_SECTIONS } from "@/lib/review/summary";
+import { HOW_IT_WENT_WORDS } from "@/components/admin/brand-kit/strategyMessages";
 
 
 /**
@@ -1163,6 +1164,19 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     } finally {
       process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = was;
     }
+  });
+
+  it("explains How it went on the Strategy tab with the words the tab says", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("**How it went** shows each month from the 2nd of the next");
+    expect(text).toContain(`**${HOW_IT_WENT_WORDS.tooEarly}**`);
+    expect(text).toContain("**Rest of your map**");
+    expect(text).toContain('"Connect Google Analytics 4 to see which focus situations bring sign-ups."');
+    expect(text).toContain('"Share Google Search Console with your team and Vizzy to see which focus situations people find you for in search."');
+    expect(text).toContain("**What we can measure:**");
+    expect(text).toContain("approve on 20 November and December comes first, added up on 2 January");
+    expect(text).toContain("In **Rest of your map**, a question on two of your situations counts in each.");
+    expect(text).toContain("the month waits a day and tries again, twice at most");
   });
 
   it("explains the Content plan while its switch is on, and leaves it out while it is off", () => {

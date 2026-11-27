@@ -124,7 +124,7 @@ export const ga4Manifest = {
       },
     },
   ],
-  uses: ["vizzy.read"],
+  uses: ["vizzy.read", "signals.traffic"],
   hooks: { live: "googleAnalytics.runReport", accounts: "googleAnalytics.properties", collect: "googleAnalytics.collectDays" },
   disconnect: "Disconnecting deletes the sign in YouGrow keeps. To end access at Google too, remove YouGrow from your Google account's third party connections.",
 } satisfies ConnectorManifestInput;

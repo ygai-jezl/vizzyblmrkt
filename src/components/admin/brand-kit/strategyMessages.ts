@@ -14,6 +14,7 @@ export const STRATEGY_ERRORS: Record<string, string> = {
   no_month: "There's no approved strategy to add up yet.",
   no_month_due: "No month is due to be added up now. Each month is added up once, on the 2nd of the next.",
   month_held: "A connected tool couldn't be read, so last month waits. It is tried again tomorrow.",
+  month_read_failed: "Your brand's own records couldn't be read just now, so nothing was added up. Try again in a few minutes.",
   no_suggestion: "That suggestion isn't waiting any more. It may have been watched or left out already.",
   competitors_unreadable: "Couldn't read your competitors just now, so nothing was approved. Try again.",
   strategy_changed: "The strategy was changed elsewhere since you opened it. It now shows what was saved: check it, then try again.",

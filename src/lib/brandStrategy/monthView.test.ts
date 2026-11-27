@@ -102,6 +102,24 @@ describe("How it went as the tab reads it", () => {
     expect(((await nov.json()) as { preview: { note: string } }).preview.note).toBe(PREVIEW_NOTE("2027-01-02", false));
   });
 
+  it("answers 503 month_read_failed when its own reads fail, by hand or as a preview, and keeps nothing", async () => {
+    const db = new FakeFirestore();
+    await seed(db, A, "2026-11-20T09:00:00.000Z");
+    const before = await forTenant(A, db).brandStrategy.getById(brandStrategyDocId("ten_A"));
+    const outcomes = vi.fn(async () => {
+      throw new Error("down");
+    });
+    const deps = { db, loadTenant: async () => null, outcomes, catalog: () => [] };
+    const preview = await runMonthFromRequest(A, { preview: true }, { ...deps, now: () => NOW });
+    expect(preview.status).toBe(503);
+    expect(await preview.json()).toEqual({ error: "month_read_failed" });
+    // December is due on 2 Jan: the look by hand fails the same way, and nothing is written.
+    const look = await runMonthFromRequest(A, {}, { ...deps, now: () => new Date("2027-01-03T10:00:00.000Z") });
+    expect(look.status).toBe(503);
+    expect(await look.json()).toEqual({ error: "month_read_failed" });
+    expect(await forTenant(A, db).brandStrategy.getById(brandStrategyDocId("ten_A"))).toEqual(before);
+  });
+
   it("keeps its words to house style", () => {
     const d = { starsKept: 3, starsRemoved: 1, claimsEdited: 2, picksSkipped: 2, checksActed: 1, checksDismissed: 1, capped: true };
     const lines = [

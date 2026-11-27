@@ -108,6 +108,7 @@ type RunDeps = MonthDeps & MonthViewDeps & { loadTenant?: (id: string) => Promis
  *    when no month is due, `month_held` when a connected tool couldn't be read (tried again tomorrow);
  *  - {"preview": true}: this month so far, from the 1st to now, with connected results over the last
  *    28 days as of today, answered and never written.
+ * A read of the brand's own data that fails answers 503 `month_read_failed`, and nothing is kept.
  */
 export async function runMonthFromRequest(ctx: TenantContext, body: unknown, deps: RunDeps = {}): Promise<Response> {
   const parsed = RunMonthSchema.safeParse(body ?? {});
@@ -116,8 +117,10 @@ export async function runMonthFromRequest(ctx: TenantContext, body: unknown, dep
   const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
   const doc = await readBrandStrategyDoc(ctx, { db: deps.db });
   if (!doc?.approved) return NextResponse.json({ error: "no_month" }, { status: 409 });
+  const readFailed = () => NextResponse.json({ error: "month_read_failed" }, { status: 503 });
   if (parsed.data.preview) {
-    const month = await previewMonth(ctx, tenant, deps);
+    const month = await previewMonth(ctx, tenant, deps).catch(() => undefined);
+    if (month === undefined) return readFailed();
     if (!month) return NextResponse.json({ error: "no_month" }, { status: 409 });
     const situations = await listSituations(ctx, { db: deps.db }).catch(() => [] as BrandMapSituation[]);
     const counts = monthCounts(doc, month.month);
@@ -126,7 +129,8 @@ export async function runMonthFromRequest(ctx: TenantContext, body: unknown, dep
   }
   const due = monthDue(doc, now);
   if (!due) return NextResponse.json({ error: "no_month_due", nextLookOn: nextLookOn(doc, now) }, { status: 409 });
-  const done = await lookAtMonth(ctx, tenant, deps, { month: due });
+  const done = await lookAtMonth(ctx, tenant, deps, { month: due }).catch(() => undefined);
+  if (done === undefined) return readFailed();
   if (done && "held" in done) return NextResponse.json({ error: "month_held", retryAt: done.held.retryAt, kinds: done.held.kinds }, { status: 409 });
   if (!done) return NextResponse.json({ error: "no_month_due", nextLookOn: nextLookOn(doc, now) }, { status: 409 });
   return monthsFromRequest(ctx, deps);

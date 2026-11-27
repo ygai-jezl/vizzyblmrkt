@@ -284,6 +284,34 @@ describe("generateNode", () => {
       expect(fake.mock.calls[2]![0]).not.toHaveProperty("piece");
       expect(fake.mock.calls[2]![0]).not.toHaveProperty("skipSourceId");
     });
+
+    it("an email and a hub follow the approved examples and still write in the brand's language (CONTENT_LANGUAGE_ENABLED)", async () => {
+      vi.stubEnv("CONTENT_LANGUAGE_ENABLED", "true");
+      const real = await vi.importActual<typeof import("@/lib/plans/meter")>("@/lib/plans/meter");
+      const usageSpy = vi.mocked(aiUsage);
+      usageSpy.mockImplementation((c, p, o) => real.aiUsage(c, p, { ...o, tenant: { defaultLocale: "fr" } as never }));
+      try {
+        mocked.mockResolvedValue(JSON.stringify({ subject: "S", previewText: "P", subjectVariants: [], body: "Bonjour {{first_name}}" }));
+        const email = node({ id: "e1", type: "email", channel: "newsletter", role: "Email 1" });
+        await generateNode({ ctx, workspaceId: "ws1", plan: plan([email], { objective: "email_sequence", sequenceType: "welcome" }), node: email }, noRag, vi.fn().mockResolvedValue(approvedBlock) as never);
+        const emailPrompt = mocked.mock.calls.at(-1)?.[0] ?? "";
+
+        mocked.mockResolvedValue(JSON.stringify({ body: "copy" }));
+        const hub = node({ id: "hub", type: "hub", channel: "newsletter" });
+        await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub]), node: hub }, noRag, vi.fn().mockResolvedValue(approvedBlock) as never);
+        const hubPrompt = mocked.mock.calls.at(-1)?.[0] ?? "";
+
+        for (const prompt of [emailPrompt, hubPrompt]) {
+          expect(prompt).toContain("APPROVED EXAMPLES");
+          expect(prompt).toContain("WRITE IN French");
+          // The language comes after the examples, so an example in another language never decides it.
+          expect(prompt.indexOf("WRITE IN French")).toBeGreaterThan(prompt.indexOf("END EXAMPLES"));
+        }
+      } finally {
+        usageSpy.mockImplementation(real.aiUsage);
+        vi.unstubAllEnvs();
+      }
+    });
   });
 
   describe("email-sequence nodes", () => {

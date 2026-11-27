@@ -225,7 +225,7 @@ function sameCampaigns(a: readonly ContactCampaignLink[], b: readonly ContactCam
     JSON.stringify(
       [...links]
         .sort((x, y) => x.campaignId.localeCompare(y.campaignId))
-        .map((l) => [l.campaignId, l.signupId, l.status, l.amountReferred ?? 0, l.score ?? null, l.joinedVia ?? "form"]),
+        .map((l) => [l.campaignId, l.signupId, l.status, l.amountReferred ?? 0, l.score ?? null, l.joinedVia ?? "form", l.locale ?? null]),
     );
   return norm(a) === norm(b);
 }
@@ -258,7 +258,10 @@ function patchFor(personId: string, current: Contact, next: Derived, nowIso: str
   const campaignsChanged = !sameCampaigns(current.campaigns ?? [], campaigns);
   const optOutsChanged = JSON.stringify(current.optOuts ?? null) !== JSON.stringify(optOuts ?? null);
   const activeChanged = !sameDay(current.activeAt, summary.activeAt ?? undefined);
-  if (!tagsChanged && !productsChanged && !reachChanged && !campaignsChanged && !optOutsChanged && !activeChanged && !current.needsSync) {
+  // Their language is written only while LANGUAGE_READERS_ENABLED is on (summarize sets it then).
+  const counted = summary.language !== undefined;
+  const languageChanged = counted && (current.language ?? null) !== summary.language;
+  if (!tagsChanged && !productsChanged && !reachChanged && !campaignsChanged && !optOutsChanged && !activeChanged && !languageChanged && !current.needsSync) {
     return null;
   }
   return {
@@ -271,6 +274,7 @@ function patchFor(personId: string, current: Contact, next: Derived, nowIso: str
     reach: summary.reach,
     optOuts,
     ...(summary.activeAt ? { activeAt: summary.activeAt, sortKey: sortKeyOf(summary.activeAt, personId) } : {}),
+    ...(counted ? { language: summary.language ?? null } : {}),
     ...(tagsChanged || productsChanged || reachChanged ? { changedAt: nowIso } : {}),
     needsSync: false,
     updatedAt: nowIso,

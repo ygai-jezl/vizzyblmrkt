@@ -6,6 +6,7 @@ import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isRateLimited, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { isPasteEnabled, isVizzyPasteEnabled } from "./flags";
+import { PASTE_LIMITS } from "./parse";
 
 /**
  * The gates for Paste a list (RAISE_PASTE_ENABLED), in the order of the People gates
@@ -37,12 +38,18 @@ export function removeCompanyAdmin(req: Request): Promise<AdminGate> {
   return adminOnly(isPasteEnabled(), req);
 }
 
-/** The most a paste request's body may hold, in bytes: the text's 200,000 characters and room for JSON. */
-export const PASTE_BODY_BYTES = 262_144;
+/**
+ * The most a paste request's body may hold, in bytes: a guard only. It fits the text's 200,000
+ * characters at their largest once sent as JSON (6 bytes for a \uXXXX escape; 2 for a tab, a new
+ * line or a quote; 3 for most non-Latin characters in UTF-8), with room for the source. The text's
+ * own limit is in characters and parseSheet checks it, so no paste the box or Vizzy allows is
+ * refused here for its bytes.
+ */
+export const PASTE_BODY_BYTES = PASTE_LIMITS.textChars * 6 + 4_096;
 
 /**
  * A paste request's JSON body, refused as `too_long` before it is read when it says it is over the
- * cap, and again once read. The text is read here and never logged.
+ * guard, and again once read. The text is read here and never logged.
  */
 export async function pasteBody(req: Request): Promise<{ ok: true; body: unknown } | { ok: false; error: "too_long" | "invalid_input" }> {
   const said = Number(req.headers.get("content-length") ?? "0");

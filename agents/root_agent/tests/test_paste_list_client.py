@@ -63,6 +63,13 @@ def test_too_much_text_never_reaches_the_app(monkeypatch):
     assert out == {"status": "error", "code": "too_long", "message": "That's too much text to read at once. Paste fewer rows or columns."}
 
 
+def test_the_body_keeps_accents_and_other_scripts_as_utf8():
+    body = plc.encode_payload(plc.build_payload("Name,Email\nZoë Example,zoe@example.test\n漢字,kanji@example.test", "Café list"))
+    assert "Zoë".encode("utf-8") in body and "漢字".encode("utf-8") in body
+    assert b"\\u" not in body
+    assert json.loads(body.decode("utf-8"))["source"] == "Café list"
+
+
 def test_unavailable_without_a_token_or_a_callback_url(monkeypatch):
     _no_call(monkeypatch)
     assert plc.propose({}, ROWS, "An event")["status"] == "unavailable"

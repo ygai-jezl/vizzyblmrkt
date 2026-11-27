@@ -83,11 +83,22 @@ describe("POST /api/admin/audience/paste", () => {
     const big = await post({ text: "x".repeat(270_000), source: "An event" });
     expect(big.status).toBe(413);
     expect(await big.json()).toEqual({ error: "too_long" });
-    const said = await post({ text: "Email\njo@example.com", source: "An event" }, { "content-length": "300000" });
+    const said = await post({ text: "Email\njo@example.com", source: "An event" }, { "content-length": "1300000" });
     expect(said.status).toBe(413);
     expect((await post({ text: `Email\n${"x".repeat(200_001)}`, source: "An event" })).status).toBe(413);
     expect((await post({ text: "jo@example.com,Jo", source: "An event" })).status).toBe(400);
     expect(db.dump("agent_actions")).toHaveLength(0);
+  });
+
+  it("takes a list under 200,000 characters whatever its size in bytes, as the box and Vizzy allow", async () => {
+    // 50 rows of non-Latin text: about 100,000 characters, 300,000 bytes once sent as UTF-8.
+    const rows = Array.from({ length: 50 }, (_, i) => `p${i}@example.com\t${"漢".repeat(1_990)}`);
+    const body = JSON.stringify({ text: ["Email\tCity", ...rows].join("\n"), source: "An event" });
+    expect(Buffer.byteLength(body)).toBeGreaterThan(262_144);
+    const res = await post(body, { "content-length": String(Buffer.byteLength(body)) });
+    expect(res.status).toBe(201);
+    const stored = JSON.stringify(db.dump("agent_actions"));
+    expect(stored).not.toContain("漢");
   });
 
   it("reads the list into one card for the session's brand (201), skipped rows by number only", async () => {

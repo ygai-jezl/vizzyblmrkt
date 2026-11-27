@@ -35,9 +35,14 @@ _ERRORS = {
 }
 
 
+def encode_payload(payload: dict) -> bytes:
+    """The body as UTF-8 JSON, with accents and other scripts kept as they are, not as 6 byte escapes."""
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
 def _post(url: str, token: str, payload: dict) -> "tuple[int, str]":
     """POST to the paste endpoint. Isolated so tests can monkeypatch it."""
-    data = json.dumps(payload).encode("utf-8")
+    data = encode_payload(payload)
     req = urllib.request.Request(url, data=data, method="POST", headers={"X-Canvas-Context": token, "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:

@@ -207,7 +207,7 @@ describe("Work's Used counts", () => {
     const n = rows.get(fleetCellId.kind("next_up", W))!;
     expect(n).toMatchObject({ week: { orgs: 10 }, made: { orgs: 1 }, cov: { orgs: 1 }, out: { none: { made: 20 } } });
     expect(kindView(n)).toMatchObject({ weekOrgs: 10, madeOrgs: 1, covOrgs: 1 });
-    await addToFleetCells([{ id: fleetCellId.kind("next_up", W), n }], db);
+    await addToFleetCells([{ id: fleetCellId.kind("next_up", W), n: n as never }], db);
     expect(await usedAcrossBrands({ loopKind: "next_up" }, [W], { db })).toEqual({ note: USED_NOTE, weeks: [{ week: W, orgs: 1, count: null }] });
   });
 });

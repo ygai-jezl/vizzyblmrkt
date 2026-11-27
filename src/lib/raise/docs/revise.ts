@@ -11,6 +11,7 @@ import {
   authorsText,
   brandForPrompt,
   buildSlide,
+  citeFor,
   clip,
   fenced,
   needsFor,
@@ -20,6 +21,7 @@ import {
   renameTokens,
   requestsOf,
   responseSchema,
+  strayWarning,
   teamPeople,
   type BuildCtx,
   type ModelSlide,
@@ -29,7 +31,7 @@ import { fillBlock, metricReader, refreshBlocks, typedBlock, type BlockRequest, 
 import { AMOUNT_NEED, DEFAULT_LAYOUT, MISSING_SECTION, SECTION_BRIEF, guidanceFor, outlineFor } from "./outlines";
 import { raiseContext, type RaisePack, type RaisePackDeps } from "./pack";
 import { saveRaiseVersion, type RaiseResult, type StoreDeps } from "./store";
-import { labelWords, promptLabels, withoutLabels } from "./text";
+import { citationsOut, labelWords, slideTextParts } from "./text";
 import {
   BLOCK_UNITS,
   CURRENCIES,
@@ -267,8 +269,14 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
     blocks.push(f.block);
   }
   const dropped: string[] = [];
-  const labels = promptLabels(c.pack);
-  const t = (text: string, max: number) => clip(withoutLabels(renameTokens(text, ids, dropped, keep), labels), max);
+  const cite = citeFor(c);
+  const stray = new Set<string>();
+  const cleaned = (text: string) => {
+    const r = citationsOut(text, cite);
+    r.stray.forEach((x) => stray.add(x));
+    return r.text;
+  };
+  const t = (text: string, max: number) => clip(cleaned(renameTokens(text, ids, dropped, keep)), max);
   const headline = t(m.headline, L.headline) || s.headline;
   const points = m.points.map((p) => t(p, L.point)).filter(Boolean).slice(0, pointsCap(s.layout, s.section, c.stage));
   const notes = t(m.notes, L.notes) || s.notes;
@@ -283,8 +291,9 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
             .slice(0, L.compareRows),
         }
       : undefined;
-  const people = (s.section === "team" || s.layout === "team") && m.people.length ? teamPeople(m.people, c.pack, n, warnings) : undefined;
+  const people = (s.section === "team" || s.layout === "team") && m.people.length ? teamPeople(m.people, c.pack, n, warnings, cite, stray) : undefined;
   if (dropped.length) warnings.push(`Slide ${n} named a number it didn't ask for, so it was left out.`);
+  if (stray.size) warnings.push(strayWarning(n, [...stray]));
   const known = new Set(c.pack.lines.map((l) => l.id));
   const sources = [...new Set(m.sources.map((x) => x.trim()).filter((x) => known.has(x)))].slice(0, L.sources);
   return {
@@ -302,10 +311,12 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
 }
 
 /** Only the slide's notes again, as the model answered; the rest of the slide as it was. */
-function withNotes(s: Slide, m: ModelSlide, c: TextCtx): Slide | null {
+function withNotes(s: Slide, m: ModelSlide, n: number, c: TextCtx, warnings: string[]): Slide | null {
   const dropped: string[] = [];
-  const notes = clip(withoutLabels(renameTokens(m.notes, new Map(), dropped, new Set(s.blocks.map((b) => b.id))), promptLabels(c.pack)), L.notes);
+  const said = citationsOut(renameTokens(m.notes, new Map(), dropped, new Set(s.blocks.map((b) => b.id))), citeFor(c));
+  const notes = clip(said.text, L.notes);
   if (!notes) return null;
+  if (said.stray.length) warnings.push(strayWarning(n, said.stray));
   return { ...s, notes, ai: { headline: s.ai?.headline ?? s.headline, points: s.ai?.points ?? s.points, notes, at: c.now.toISOString(), prompt: REVISE_PROMPT_TAG } };
 }
 
@@ -487,7 +498,9 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
     const fresh = await raiseContext(ctx, { audience: doc.audience, stage: doc.stage }, { db: deps.db, loadTenant: async () => tenant, ...deps.pack, reader });
     const merged = mergeLines(doc.sources, fresh.lines);
     if (merged.sources.length > doc.sources.length) sources = merged.sources;
-    const c: TextCtx = { outline: outlineFor(doc.audience, doc.stage), pack: { ...fresh, lines: merged.lines }, reader, now, stage: doc.stage };
+    // The deck as it is and what was asked are words the model was shown: an id among them stays.
+    const shown = [...doc.current.slides.flatMap((x) => [...slideTextParts(x), x.notes, ...(x.people ?? []).map((p) => p.line)]), ...tasks.map((x) => x.ask ?? "")];
+    const c: TextCtx = { outline: outlineFor(doc.audience, doc.stage), pack: { ...fresh, lines: merged.lines }, reader, now, stage: doc.stage, shown };
 
     const generate = deps.generate ?? generateJsonWithSchema;
     const raw = await generate(revisePrompt(doc, work, tasks, c.pack, now), {
@@ -514,7 +527,7 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
         if (m) work[n - 1] = await rewritten(s, m, n, c, warnings);
         else warnings.push(CHANGE_WARNINGS.notRewritten(n));
       } else {
-        const next = m ? withNotes(s, m, c) : null;
+        const next = m ? withNotes(s, m, n, c, warnings) : null;
         if (next) work[n - 1] = next;
         else warnings.push(CHANGE_WARNINGS.emptyNotes(n));
       }

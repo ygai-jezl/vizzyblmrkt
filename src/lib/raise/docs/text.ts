@@ -166,19 +166,25 @@ export function promptLabels(pack: { lines: readonly { id: string }[]; authors: 
 }
 
 /**
- * A slide's text with the prompt's own ids taken out, the leak #274 found in strategy goals:
- * "Shops come back weekly (P3)" is "Shops come back weekly". Empty brackets and doubled commas
- * left behind go too. Text with none comes back as it was. Pure.
+ * The prompt ids the model may write as its own references: every id in `labels` except one that
+ * is also a word in what the model was shown (`shown`: the brand's name, the pack, the team list,
+ * the brief, the deck as it is), such as a brand called "A1 Taxis" or a slide's own "L2". Pure.
  */
-export function withoutLabels(text: string, labels: ReadonlySet<string>): string {
-  if (!labelsIn(text, labels).length) return text;
-  // A run of ids, such as "P1, P2 and P3", goes as one.
-  const id = `\\b(?:${[...labels].join("|")})\\b`;
-  const run = new RegExp(`\\s*${id}(?:\\s*(?:,|;|and|&)\\s*${id})*`, "g");
-  return text
-    .replace(run, "")
-    .replace(/[([]\s*[)\]]/g, "")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+export function citeLabels(labels: ReadonlySet<string>, shown: readonly string[]): Set<string> {
+  const words = new Set(labelsIn(shown.join("\n"), labels));
+  return new Set([...labels].filter((l) => !words.has(l)));
+}
+
+/**
+ * Model text with Vizzy's own reference ids, the leak #274 found in strategy goals: a bracket that
+ * holds only such ids, such as "(P3)" or "[P1, P3]", goes, and any other is kept as written and
+ * named in `stray`, so the slide says to check how it reads. Real words are never taken out. Pure.
+ */
+export function citationsOut(text: string, cite: ReadonlySet<string>): { text: string; stray: string[] } {
+  if (!cite.size || !labelsIn(text, cite).length) return { text, stray: [] };
+  const id = `\\b(?:${[...cite].join("|")})\\b`;
+  const sep = "(?:,|;|/|&|and|to|-|\\u2013)";
+  const group = new RegExp(`\\s*[([]\\s*${id}(?:\\s*${sep}\\s*${id})*\\s*[)\\]]`, "g");
+  const out = text.replace(group, "").replace(/\s+([,.;:!?])/g, "$1").trim();
+  return { text: out, stray: labelsIn(out, cite) };
 }

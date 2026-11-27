@@ -1060,6 +1060,14 @@ describe("Search", () => {
     const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.languages!({ raiseKit }), "https://app.example.com");
     expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) are in English for now, whatever your language.");
     expect(md(false)).not.toContain("Raise kit");
+    expect(md(true)).toContain("Everything Vizzy writes for you, except Raise kit decks for now, is in your language");
+    expect(md(false)).toContain("Everything Vizzy writes for you is in your language");
+  });
+
+  it("says on Review and approvals that decks aren't in the agent record, only while the Raise kit is on", () => {
+    const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ agentRecord: true, raiseKit }), "https://app.example.com");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) aren't in it either: Vizzy answers about one from its own versions.");
+    expect(md(false)).not.toContain("Decks and lender packs");
   });
 
   it("lists the Raise kit's decks in what search covers only while the Raise kit is on, as the drawer is told", () => {

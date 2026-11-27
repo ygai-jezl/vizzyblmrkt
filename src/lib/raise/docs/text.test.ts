@@ -9,6 +9,8 @@ import {
   labelWords,
   periodWordsFor,
   promptLabels,
+  citationsOut,
+  citeLabels,
   renderText,
   segmentsOf,
   slideWordsOf,
@@ -17,7 +19,6 @@ import {
   textOf,
   tokenIdsIn,
   wordsOf,
-  withoutLabels,
 } from "./text";
 
 const B = block({ id: "mb_aaaaaaaa", display: "4,310", periodWords: "12 weeks to 26 Nov" });
@@ -91,22 +92,29 @@ describe("formatting", () => {
 
 describe("the prompt's own ids in a slide's words", () => {
   const labels = promptLabels({ lines: [{ id: "P1" }, { id: "P2" }, { id: "P3" }], authors: [{ ref: "A1" }], numbers: { launches: [{}, {}] } });
+  const cite = citeLabels(labels, []);
 
   it("lists the pack, team and launch ids, and no task ids", () => {
     expect([...labels].sort()).toEqual(["A1", "L1", "L2", "P1", "P2", "P3"]);
   });
 
-  it("takes them out with the brackets and commas they leave", () => {
-    expect(withoutLabels("Shops come back weekly (P3)", labels)).toBe("Shops come back weekly");
-    expect(withoutLabels("From P1, P2 and our tills", labels)).toBe("From and our tills");
-    expect(withoutLabels("Growth [P1, P3] since spring", labels)).toBe("Growth since spring");
-    expect(withoutLabels("A1 leads sales; L2 is our second launch.", labels)).toBe("leads sales; is our second launch.");
+  it("never counts an id that is a word in what the model was shown", () => {
+    expect([...citeLabels(labels, ["A1 Taxis gets you home", "Fees stay low on an L2"])].sort()).toEqual(["L1", "P1", "P2", "P3"]);
   });
 
-  it("leaves words alone that aren't its ids, and text with none as it was", () => {
-    expect(withoutLabels("For people with T1 diabetes", labels)).toBe("For people with T1 diabetes");
-    expect(withoutLabels("Our P9 plan, then P1", labels)).toBe("Our P9 plan, then");
-    const clean = "Shops  keep   their spacing (as typed)";
-    expect(withoutLabels(clean, labels)).toBe(clean);
+  it("takes out a bracket of ids only, and names any other id left in the words", () => {
+    expect(citationsOut("Shops come back weekly (P3).", cite)).toEqual({ text: "Shops come back weekly.", stray: [] });
+    expect(citationsOut("Growth [P1, P3] since spring", cite)).toEqual({ text: "Growth since spring", stray: [] });
+    for (const s of ["(P1/P2)", "(P1-P3)", "(P1 to P3)", "(P1 and P2)"]) expect(citationsOut(`Weekly ${s}`, cite).text, s).toBe("Weekly");
+    expect(citationsOut("As P1 says, stock day eats a Sunday.", cite)).toEqual({ text: "As P1 says, stock day eats a Sunday.", stray: ["P1"] });
+    expect(citationsOut("Our loan book is rated A1 by our bank", cite)).toEqual({ text: "Our loan book is rated A1 by our bank", stray: ["A1"] });
+  });
+
+  it("leaves number tokens, other words and text with no ids as they were", () => {
+    expect(citationsOut("{{mb_abcd1234}} shops joined in {{mb_abcd1234:period}} (P2)", cite).text).toBe("{{mb_abcd1234}} shops joined in {{mb_abcd1234:period}}");
+    expect(citationsOut("For people with T1 diabetes (see our study)", cite)).toEqual({ text: "For people with T1 diabetes (see our study)", stray: [] });
+    expect(citationsOut("Our P9 plan", cite)).toEqual({ text: "Our P9 plan", stray: [] });
+    const shown = citeLabels(labels, ["Learners go from A1 to B2"]);
+    expect(citationsOut("Learners go from A1 to B2 in six months", shown)).toEqual({ text: "Learners go from A1 to B2 in six months", stray: [] });
   });
 });

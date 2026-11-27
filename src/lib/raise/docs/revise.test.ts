@@ -216,6 +216,31 @@ describe("changes the model writes", () => {
     expect(r.value.warnings).toContain("Slide 4 named a number it didn't ask for, so it was left out.");
   });
 
+  it("takes a bracket of the prompt's ids out of a rewrite, and never a word the deck or the ask already had", async () => {
+    const doc = await deck();
+    generate.mockResolvedValue(
+      JSON.stringify({
+        slides: [
+          { task: "T1", headline: "Our loan book is rated A1 (P1)", points: ["Weekly growth, every week [P1]"], notes: "As P1 says, we are rated A1.", sources: ["P1"] },
+          { task: "T2", notes: "Say why owners care now (P1), then pause." },
+        ],
+      }),
+    );
+    const r = await revise(doc, [
+      { change: "rewrite", slide: 4, ask: "Say our loan book is rated A1" },
+      { change: "notes", slide: 5, ask: "Shorter" },
+    ]);
+    if (!r.ok) throw new Error(r.error);
+    const [s4, s5] = [r.value.doc.current.slides[3]!, r.value.doc.current.slides[4]!];
+    expect(s4.headline).toBe("Our loan book is rated A1");
+    expect(s4.points).toEqual(["Weekly growth, every week"]);
+    expect(s4.notes).toBe("As P1 says, we are rated A1.");
+    expect(s4.ai).toMatchObject({ headline: "Our loan book is rated A1", notes: "As P1 says, we are rated A1." });
+    expect(s5.notes).toBe("Say why owners care now, then pause.");
+    expect(r.value.warnings).toContain("Slide 4 has P1, Vizzy's own reference for where a line came from, in its words. Check how it reads.");
+    expect(r.value.warnings.some((w) => w.startsWith("Slide 5 has"))).toBe(false);
+  });
+
   it("writes a new slide after the one named, numbers filled by the server", async () => {
     const doc = await deck();
     generate.mockResolvedValue(

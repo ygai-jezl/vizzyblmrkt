@@ -252,6 +252,10 @@ const UNRESOLVED: Record<string, Unresolved> = {
   "src/app/api/agent/article-review/route.ts": { why: "Vizzy starts or moves on an article's review; the copy a person applies is saved and read for in refreshPropose.ts.", reads: { blog_refresh: [REFRESH_PROPOSE] } },
   "src/app/api/agent/brand-notes/route.ts": { why: "Vizzy files the notes it wrote as suggestions; agentSuggestNotes counts them as it files them.", reads: { brand_notes: ["src/lib/brandNotes/agentApi.ts"] } },
   "src/app/api/agent/business-profile/route.ts": { why: "Vizzy writes down a fact it heard for an admin to keep; agentSuggestFact counts it as it saves it.", reads: { onboarding: ["src/lib/onboarding/agentApi.ts"] } },
+  "src/app/api/agent/work/route.ts": {
+    why: "Vizzy suggests a Work task or drafts a Log note or decision; agentWorkPost stamps each under vizzy_chat and counts it as it saves it.",
+    reads: { vizzy_chat: ["src/lib/work/agentApi.ts"] },
+  },
 };
 
 /** Files that keep no stamp, each with its reason from UNSTAMPED_REASONS (4.3). */

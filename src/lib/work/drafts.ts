@@ -5,6 +5,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
+import type { Made } from "@/lib/types/loopStamp";
 import {
   decisionDraftOf,
   DecisionDraftSchema,
@@ -89,8 +90,16 @@ export interface Drafted<T> {
   draft: T;
 }
 
-/** Propose a draft under the first round of its key that isn't set aside: the same draft waiting answers "open". */
-async function proposeDraft<T extends object>(scope: WorkScope, o: { action: string; key: (round: number) => string; proposal: Record<string, unknown>; draft: T }, deps: WorkDeps): Promise<WorkResult<Drafted<T>>> {
+/**
+ * Propose a draft under the first round of its key that isn't set aside: the same draft waiting
+ * answers "open". `made` is the stamp Vizzy's route read (vizzy_chat), kept only with
+ * LOOPS_ENABLED on, so a person's save counts once against it where the draft closes.
+ */
+async function proposeDraft<T extends object>(
+  scope: WorkScope,
+  o: { action: string; key: (round: number) => string; proposal: Record<string, unknown>; draft: T; made?: Made },
+  deps: WorkDeps,
+): Promise<WorkResult<Drafted<T>>> {
   const now = nowOf(deps);
   const db = regionDbOf(scope, deps);
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -119,6 +128,7 @@ async function proposeDraft<T extends object>(scope: WorkScope, o: { action: str
         expiresAt: new Date(now.getTime() + DRAFT_DAYS * DAY_MS).toISOString(),
         // What Vizzy drafted stays beside what the person saved.
         clearDetailsOnClose: false,
+        ...(o.made ? { made: o.made } : {}),
         at: now.toISOString(),
       },
       { db },
@@ -135,8 +145,8 @@ async function seenTask(scope: WorkScope, ref: number, deps: WorkDeps): Promise<
   return task && seesTask(scope, task) ? task : null;
 }
 
-/** Draft a Log note for today (draft_work_log): checked as the entry would be, kept until a person saves it. */
-export async function draftWorkLog(scope: WorkScope, input: unknown, deps: WorkDeps = {}): Promise<WorkResult<Drafted<LogDraft>>> {
+/** Draft a Log note for today (draft_work_log): checked as the entry would be, kept until a person saves it. `made`: what made it. */
+export async function draftWorkLog(scope: WorkScope, input: unknown, deps: WorkDeps = {}, made?: Made): Promise<WorkResult<Drafted<LogDraft>>> {
   const parsed = DraftLogInputSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues);
   const b = parsed.data;
@@ -154,14 +164,18 @@ export async function draftWorkLog(scope: WorkScope, input: unknown, deps: WorkD
   }
   const draft = LogDraftSchema.parse({ workstream: b.workstream, state: b.state, note: b.note, links: b.links, taskId, ref: taskId ? b.ref : null, brandId });
   const day = dayIn(nowOf(deps), scope.session.timeZone);
-  return proposeDraft(scope, { action: WORK_LOG_DRAFT_ACTION, key: (r) => agentDedupeKey(WORK_LOG_DRAFT_ACTION, brandId ?? "whole_business", digest(draft), day, `r${r}`), proposal: { entry: draft }, draft }, deps);
+  return proposeDraft(
+    scope,
+    { action: WORK_LOG_DRAFT_ACTION, key: (r) => agentDedupeKey(WORK_LOG_DRAFT_ACTION, brandId ?? "whole_business", digest(draft), day, `r${r}`), proposal: { entry: draft }, draft, ...(made ? { made } : {}) },
+    deps,
+  );
 }
 
 /**
  * Draft a decision on a task (draft_work_decision): the question, 2 to 4 options and Vizzy's pick
- * with why. Approve the plan is never drafted: that gate stays with people.
+ * with why. Approve the plan is never drafted: that gate stays with people. `made`: what made it.
  */
-export async function draftWorkDecision(scope: WorkScope, input: unknown, deps: WorkDeps = {}): Promise<WorkResult<Drafted<DecisionDraft>>> {
+export async function draftWorkDecision(scope: WorkScope, input: unknown, deps: WorkDeps = {}, made?: Made): Promise<WorkResult<Drafted<DecisionDraft>>> {
   if (input && typeof input === "object" && typeof (input as { question?: unknown }).question === "string" && isPlanApprovalQuestion((input as { question: string }).question)) return refuse("plan_drafted");
   if (input && typeof input === "object" && "plan" in input) return refuse("plan_drafted");
   const parsed = DraftDecisionInputSchema.safeParse(input);
@@ -182,7 +196,13 @@ export async function draftWorkDecision(scope: WorkScope, input: unknown, deps: 
   if (!draft.success) return invalidInput(draft.error.issues);
   return proposeDraft(
     scope,
-    { action: WORK_DECISION_DRAFT_ACTION, key: (r) => agentDedupeKey(WORK_DECISION_DRAFT_ACTION, task.id, digest(draft.data), `r${r}`), proposal: { decision: draft.data }, draft: draft.data },
+    {
+      action: WORK_DECISION_DRAFT_ACTION,
+      key: (r) => agentDedupeKey(WORK_DECISION_DRAFT_ACTION, task.id, digest(draft.data), `r${r}`),
+      proposal: { decision: draft.data },
+      draft: draft.data,
+      ...(made ? { made } : {}),
+    },
     deps,
   );
 }

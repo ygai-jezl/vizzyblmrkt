@@ -242,7 +242,7 @@ export const LOOPS = {
   images: none("This is the image style learner from before versions, and where versions are on its calls move to the loops' own learner."),
   loop_learn: none("The learners themselves, judged by the loops they feed."),
   vizzy_chat: gap(
-    "Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.",
+    "Vizzy's Work task suggestions and drafts and the notes it suggests in chat keep what it proposed beside what the person did with each one, and with the learning loops on Work's answers are counted kept, edited or dismissed, but nothing learns from those choices yet.",
     LATER,
   ),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),

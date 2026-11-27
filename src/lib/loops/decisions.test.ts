@@ -57,6 +57,17 @@ describe("a decision on an agent action", () => {
     }
   });
 
+  it("counts a Work suggestion or Log draft by the fields the person changed first: edited for any, kept for none (ADR-0020)", () => {
+    const suggestion = action({ proposal: { task: { title: "Compare three pricing pages" } } });
+    expect(agentDecisionSignals(suggestion, action({ state: "acted", result: { task: { title: "Compare two pricing pages" }, edited: ["title"] } }))).toEqual({ edited: 1 });
+    expect(agentDecisionSignals(suggestion, action({ state: "acted", result: { task: { title: "Compare three pricing pages" }, edited: [] } }))).toEqual({ kept: 1 });
+    const note = action({ proposal: { entry: { workstream: "Pricing page", note: "Copy done" } } });
+    expect(agentDecisionSignals(note, action({ state: "acted", result: { logId: "wl_1", edited: ["note"] } }))).toEqual({ edited: 1 });
+    // A drafted decision keeps its question and options as drafted: the choice is the person's, so kept.
+    const decision = action({ proposal: { decision: { question: "Which listing first?" } } });
+    expect(agentDecisionSignals(decision, action({ state: "acted", result: { logId: "wl_2", chosen: "b", agreed: false } }))).toEqual({ kept: 1 });
+  });
+
   it("counts undone, and a person's dismissal with the why they gave", () => {
     expect(agentDecisionSignals(action({ state: "acted" }), action({ state: "undone" }))).toEqual({ undone: 1 });
     expect(agentDecisionSignals(action({}), action({ state: "declined", declined: { reason: "dismissed" } }))).toEqual({ declined: 1 });

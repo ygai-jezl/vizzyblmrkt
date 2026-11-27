@@ -30,12 +30,19 @@ function fieldValues(part: Record<string, unknown> | null | undefined): unknown 
   return part && typeof part === "object" ? part[FIELD_VALUES_KEY] : undefined;
 }
 
+/** Whether an acted result says a person changed the draft first: the agent record's `true`, or Work's list of the fields they changed. */
+function editedFirst(result: Record<string, unknown> | null | undefined): boolean {
+  const edited = result?.edited;
+  return edited === true || (Array.isArray(edited) && edited.length > 0);
+}
+
 /**
  * The signals one move of an agent action counts, from the record before and after it:
  * - acted is kept, or edited when the field values it acted on differ from the ones proposed, or
- *   when the agent record says a person changed the draft first (`result.edited`, from its
- *   fingerprint; ADR-0026); a result with other data, such as the new person's id, can't say, so it
- *   counts kept;
+ *   when the result says a person changed the draft first: the agent record's `result.edited`,
+ *   from its fingerprint (ADR-0026), or the fields Work's Edit then add or a saved Log draft names
+ *   (ADR-0020), where an empty list is kept; a result with other data, such as the new person's id,
+ *   can't say, so it counts kept;
  * - undone is undone;
  * - a person's dismissal is declined, with the why they gave if any (Work's `declined.why`, read as
  *   given); expiry, staleness and being superseded count nothing here, so those suggestions stay
@@ -46,7 +53,7 @@ function fieldValues(part: Record<string, unknown> | null | undefined): unknown 
 export function agentDecisionSignals(before: AgentAction, after: AgentAction): Signals | null {
   if (before.state === after.state) return null;
   if (after.state === "acted") {
-    if (after.result?.edited === true) return { edited: 1 };
+    if (editedFirst(after.result)) return { edited: 1 };
     const proposed = fieldValues(before.proposal);
     const acted = fieldValues(after.result);
     const edited = proposed !== undefined && acted !== undefined && stable(proposed) !== stable(acted);

@@ -223,6 +223,20 @@ Where the build follows the code, not the plan (the plan's intent kept):
   pointers still hold. The holdback block always says something: no images in the 28 days,
   image learning off on this copy, or votes only on images with no learned look yet. On the help
   page, the counts across brands sit after Ask Vizzy, where the Help board puts them.
+- After merging Work (ADR-0020): Vizzy's Work route (`/api/agent/work`) is a maker, so each task
+  suggestion and each Log note or decision it drafts keeps a stamp under `vizzy_chat`, in the scope
+  of what it becomes (`work_task`, `work_log` or `work_decision`, by Vizzy), and counts made once
+  where it is saved (the route sits in `UNRESOLVED`, read in `src/lib/work/agentApi.ts`). Add to
+  Work, Edit then add and a saved draft move the action inside Work's own transaction, beside the
+  task or the row, so `src/lib/tenant/work.ts` counts the saved move once after it commits, as
+  `transitionAgentAction` does: kept, or edited when Work's result names a field the person
+  changed (`result.edited`, a list); a drafted decision counts kept, as its question and options
+  are Vizzy's and the choice is the person's. Dismiss goes through `transitionAgentAction` and
+  counts declined with Work's why; expiry counts nothing. The counts go to the session brand's own
+  region, even when a decision's task is kept in another. Follow-ups from the investor and funding
+  board (#270) are raised by YouGrow's rule (`investor_quiet`, a gap line) with no stamp, so their
+  moves count under no kind. Approved examples (#256) keep a person's approved emails and hub
+  pieces through `recordExemplar`, a learned writer from before the loops, frozen with the others.
 
 Enforced where:
 

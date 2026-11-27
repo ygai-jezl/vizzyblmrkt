@@ -210,6 +210,8 @@ export {
   trimOutcomes,
 } from "./nextActionCards";
 export type { ClaimResult, CommitResult, NextActionWrite, OutcomeInput, OutcomeError, OutcomeResult } from "./nextActionCards";
+// Translations: the brand's mark and daily call count, each in a transaction (the records through forTenant).
+export { markTranslationsQueued, clearTranslationsQueued, takeTranslationCall } from "./translations";
 // The settings log: a setting and its version in one transaction (read the versions through forTenant).
 export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
 export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";

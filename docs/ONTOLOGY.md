@@ -619,6 +619,7 @@ An email journey on the lifecycle engine, for a product's users or a launch's wa
   - `lifecycle_journeys`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `lifecycle_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Published versions never change.
   - `lifecycle_counters`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `translations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Its emails in other languages, each with a draft and the approved words.
 - Links: `enrolment` through journeyId (many); `product` through connectionId; `idea` through campaignId, for a waitlist journey
 - Erase:
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (a launch's waitlist journey goes with it)

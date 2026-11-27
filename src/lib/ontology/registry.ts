@@ -718,7 +718,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner"],
     home: "brand",
     personal: "none",
-    stores: [regional("lifecycle_journeys"), regional("lifecycle_versions", "published versions never change"), regional("lifecycle_counters")],
+    stores: [
+      regional("lifecycle_journeys"),
+      regional("lifecycle_versions", "published versions never change"),
+      regional("lifecycle_counters"),
+      regional("translations", "its emails in other languages, each with a draft and the approved words"),
+    ],
     links: [
       { to: "enrolment", via: "journeyId", many: true },
       { to: "product", via: "connectionId", many: false },

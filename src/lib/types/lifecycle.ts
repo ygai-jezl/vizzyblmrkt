@@ -454,6 +454,12 @@ export const LifecycleJourneySchema = z.object({
    */
   startsOnDate: z.boolean().optional(),
   /**
+   * Set by publish while ASSET_TRANSLATIONS_ENABLED is on (or Make versions): the translations
+   * lane (src/lib/i18n/translationsTick.ts) still has to check this journey's emails against
+   * its languages. Cleared by the lane once it has queued what they need.
+   */
+  translationsDueAt: z.string().nullable().optional(),
+  /**
    * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
    * signed up inside the window once the journey can first email everyone (its
    * mode or the environment's ceiling rose to live). Resumable: the cursor is the

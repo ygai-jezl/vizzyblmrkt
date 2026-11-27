@@ -99,6 +99,21 @@ describe("a Draft run", () => {
     expect(done!.graph.nodes.every((n) => !n.scheduledAt)).toBe(true);
   });
 
+  it("puts the strategy and plan its pick came from on the article's brief, only with How it went on", async () => {
+    const basedOn = { strategyAt: "2026-11-02T09:00:00.000Z", planAt: null, situationId: "sit_aaaaaa01", slotId: null };
+    for (const on of [true, false]) {
+      vi.stubEnv("BRAND_MAP_ENABLED", "true");
+      vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+      vi.stubEnv("STRATEGY_RESULTS_ENABLED", on ? "true" : "false");
+      const { deps } = setup();
+      const run = await createRun(A, { id: "run_aaaaaaaaaaaaaaaaaaaaaaaa", mode: "draft", trigger: "schedule", step: "create", question: Q, basedOn }, deps);
+      expect(run.basedOn).toEqual(basedOn);
+      await step(run.id, deps);
+      const plan = await getContentPlan(A, "ws1", "ap_aaaaaaaaaaaaaaaaaaaaaaaa", deps.db);
+      expect(plan!.blog!.basedOn, String(on)).toEqual(on ? basedOn : undefined);
+    }
+  });
+
   it("finds its own plan again after a crash, never a second one", async () => {
     const { deps } = setup();
     const id = await draftRun(deps);

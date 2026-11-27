@@ -149,7 +149,7 @@ export const cloudflareManifest = {
       },
     },
   ],
-  uses: ["vizzy.read"],
+  uses: ["vizzy.read", "signals.bots"],
   hooks: { live: "cloudflare.zoneDaily", accounts: "cloudflare.zones", collect: "cloudflare.collectDays" },
   disconnect: "Disconnecting deletes the token YouGrow keeps. Cloudflare has no way for us to cancel it, so delete it in Cloudflare too.",
 } satisfies ConnectorManifestInput;

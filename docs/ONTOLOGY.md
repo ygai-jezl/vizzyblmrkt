@@ -1168,7 +1168,7 @@ A research file the brand brought in, read into findings for the brand map.
 
 ### Brand strategy (`brand_strategy`)
 
-The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, and the weekly check that sets the approved strategy against what the watched competitors publish.
+The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, the weekly check that sets the approved strategy against what the watched competitors publish, and How it went: the last 12 months added up for each focus situation and the rest of the map, each with where its numbers came from.
 
 - Status: built
 - Home: the brand's region
@@ -1180,8 +1180,8 @@ The brand's strategy, one record per brand, approved by a person: who it's for (
   - `deleteBrandStrategy` in `src/lib/brandStrategy/store.ts`, on removing the record (an admin presses Start over on the Strategy tab)
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. One short record per brand, read whole by the writer, research, Next up and Vizzy.
-- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, `theirArticles`, `theirNewArticles`, `competitorArticles`, `namingArticles`, through `get_brand_strategy`
-- Made by: `brand_strategy`, `competitor_find`, `competitor_claim_match`, `strategy_check` (see Learning)
+- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, `theirArticles`, `theirNewArticles`, `competitorArticles`, `namingArticles`, `focusArticlesLive`, `focusArticlesNew`, `focusTheirArticles`, `focusSearchClicks`, `focusSearchImpressions`, `focusVisits`, `focusKeyActions`, `focusAiCitations`, `siteVisits`, `roadmapDue`, `roadmapDone`, `starsKept`, `starsRemoved`, `claimsEdited`, `picksSkipped`, `checksActed`, `checksDismissed`, through `get_brand_strategy`
+- Made by: `brand_strategy`, `competitor_find`, `competitor_claim_match`, `strategy_check`, `strategy_month` (see Learning)
 
 ### Content strategy (`content_strategy`)
 
@@ -2125,11 +2125,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-103 kinds: 0 learn, 0 fleet only, 26 own, 36 gap and 41 none.
+104 kinds: 0 learn, 0 fleet only, 26 own, 36 gap and 42 none.
 
-124 call sites: 0 learn, 0 fleet only, 36 own, 42 gap and 46 none.
+125 call sites: 0 learn, 0 fleet only, 36 own, 42 gap and 47 none.
 
-Not learning: 88 of 124 call sites, under gap and none lines.
+Not learning: 89 of 125 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2375,6 +2375,8 @@ No line says this yet.
   - `src/lib/competitors/coverage.ts`
 - `competitor_profile` (rule, What competitors write). Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves.
   - `src/lib/competitors/profile.ts`
+- `strategy_month` (rule, How the strategy went each month). How it went adds up plain counts anyone can check, each from a source it names, and chooses nothing for the brand, so it has nothing to learn.
+  - `src/lib/brandStrategy/monthRules.ts`
 - `pattern_holdout` (rule, Post patterns holdout). A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results.
   - `src/lib/distribute/feedback/patterns.ts`
 - `waitlist_rank` (rule, Waitlist order). The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own.

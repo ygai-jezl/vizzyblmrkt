@@ -12,8 +12,12 @@ import { COMPETITOR_GROUP_LABEL, NOT_GROUPED_LABEL, claimShown, competitorsOf, t
 import { isMonitored, sameStrategy } from "./adminApi";
 import { FLAG_WORDS, reasonLine } from "./checkRules";
 import { liveCompetitors } from "./competitors";
-import { isBrandStrategyChatEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { isBrandStrategyChatEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled, isStrategyResultsEnabled } from "./flags";
+import { strategyMonthsView, type StrategyMonthsView } from "./monthView";
 import { readBrandStrategyDoc } from "./store";
+import { OUTCOME_WORDS, OUTCOMES, type CoverageState } from "@/lib/metrics/outcomes";
+import type { MeaningKey } from "@/lib/metrics/meanings";
+import type { OutcomeDeps } from "@/lib/connectors/outcomes";
 
 /**
  * For Vizzy's get_brand_strategy (/api/agent/brand-strategy, BRAND_STRATEGY_CHAT_ENABLED): the
@@ -77,10 +81,93 @@ export function againstCompetitors(check: StrategyCheck | null, nowIso: string, 
   };
 }
 
+export const HOW_IT_WENT_NOTE =
+  "Plain counts, added up by code once a month for the month before: each focus situation of the approved strategy beside the rest of the map. " +
+  "Each kind of result comes from one connection, named in `sources`, so nothing is counted twice. A kind in `notMeasured` wasn't measured that month: never guess it. " +
+  "`siteVisits` is the whole site, never a situation's. Connected results cover the days in `resultsFor`, not the calendar month. In the rest of the map, a question on two of its situations counts in each. Say what the numbers show; a person decides what to change.";
+
+export const MEASURING_NOTE =
+  "What each kind of result can be measured from now. For a kind with `measuredBy: null`, `whatToSay` is the line to give and `link` where a person connects or shares it.";
+
+/** Why a kind wasn't measured, in words. */
+const WHY: Record<Exclude<CoverageState, "measured">, string> = {
+  not_shared: "connected, but not shared with the team and Vizzy",
+  failed: "connected, but it couldn't be read",
+  not_connected: "nothing that measures it is connected",
+};
+
+/** A month's numbers by meaning, as Vizzy reads them. */
+const ROW_MEANING: Record<string, MeaningKey> = {
+  searchClicks: "focusSearchClicks",
+  searchImpressions: "focusSearchImpressions",
+  ga4Sessions: "focusVisits",
+  ga4KeyEvents: "focusKeyActions",
+  aiCitations: "focusAiCitations",
+};
+
+/** How it went as Vizzy reads it: the latest month, every number named for its meaning. */
+export function howItWent(v: StrategyMonthsView) {
+  const m = v.months[0];
+  if (v.tooEarly || !m) {
+    return {
+      month: null,
+      tooEarly: v.tooEarly,
+      nextLookOn: v.nextLookOn,
+      note: v.tooEarly ? "Too early to tell: How it went starts with the first full month after the strategy was first approved, added up on `nextLookOn`." : "No month has been added up yet.",
+    };
+  }
+  return {
+    month: m.month,
+    addedUpAt: m.at,
+    approvedPartway: m.partway,
+    resultsFor: m.resultsFor,
+    rows: m.rows.map((r) => ({
+      situation: r.text,
+      focus: r.id !== "rest",
+      focusQuestions: r.questions,
+      focusLiveArticles: r.answered,
+      focusArticlesLive: r.live,
+      focusArticlesNew: r.newLive,
+      ...(r.theirs !== null ? { focusTheirArticles: r.theirs } : {}),
+      ...Object.fromEntries(Object.entries(r.m).flatMap(([k, n]) => (ROW_MEANING[k] && typeof n === "number" ? [[ROW_MEANING[k], n]] : []))),
+    })),
+    ...(typeof m.site.cfVisits === "number" ? { siteVisits: m.site.cfVisits } : {}),
+    ...(m.roadmap ? { roadmap: { roadmapDue: m.roadmap.due, roadmapDone: m.roadmap.done } } : {}),
+    whatPeopleDid: {
+      starsKept: m.did.starsKept,
+      starsRemoved: m.did.starsRemoved,
+      claimsEdited: m.did.claimsEdited,
+      picksSkipped: m.did.picksSkipped,
+      checksActed: m.did.checksActed,
+      checksDismissed: m.did.checksDismissed,
+      mayBeMore: m.did.capped,
+    },
+    sources: Object.fromEntries(Object.entries(m.sources).flatMap(([k, src]) => (src ? [[OUTCOMES[k as keyof typeof OUTCOMES].label, src.siteOnly ? `${src.connector}, whole site only` : src.connector]] : []))),
+    notMeasured: m.missing.map((x) => ({ kind: OUTCOMES[x.kind].label, why: WHY[x.why] })),
+    mayBeLow: m.more.map((k) => OUTCOMES[k].label),
+    note: HOW_IT_WENT_NOTE,
+  };
+}
+
+/** What can be measured now, and what to connect or share for the rest, and why. */
+export function measuring(v: StrategyMonthsView) {
+  return {
+    kinds: v.measuring.map((c) =>
+      c.state === "measured"
+        ? { kind: OUTCOMES[c.kind].label, measuredBy: c.connector, ...(c.siteOnly ? { wholeSiteOnly: true } : {}), ...(c.alsoConnected.length ? { alsoConnected: c.alsoConnected.map((x) => x.connector) } : {}) }
+        : { kind: OUTCOMES[c.kind].label, measuredBy: null, why: WHY[c.state], whatToSay: OUTCOME_WORDS.missing(c), link: c.state === "not_connected" ? (c.could[0]?.href ?? null) : c.href },
+    ),
+    note: MEASURING_NOTE,
+  };
+}
+
 const daysSince = (iso: string, now: Date) => (Date.parse(iso) ? (now.getTime() - Date.parse(iso)) / 86_400_000 : Number.POSITIVE_INFINITY);
 
 /** The approved strategy for Vizzy. */
-export async function agentBrandStrategy(ctx: TenantContext, deps: { db?: FirestoreLike; now?: () => Date; loadTenant?: (id: string) => Promise<Tenant | null> } = {}): Promise<ApiResult> {
+export async function agentBrandStrategy(
+  ctx: TenantContext,
+  deps: { db?: FirestoreLike; now?: () => Date; loadTenant?: (id: string) => Promise<Tenant | null>; catalog?: OutcomeDeps["catalog"] } = {},
+): Promise<ApiResult> {
   const now = (deps.now ?? (() => new Date()))();
   const doc = await readBrandStrategyDoc(ctx, deps).catch(() => null);
   const s = doc?.approved;
@@ -118,6 +205,8 @@ export async function agentBrandStrategy(ctx: TenantContext, deps: { db?: Firest
     return sit && sit.status !== "dismissed" ? [{ situation: sit.text, focusQuestions: sit.counts.questions, focusLiveArticles: sit.counts.answered }] : [];
   });
   const accepted = s.isNotProposals.filter((x) => x.state === "accepted").map((x) => x.text);
+  // How it went (STRATEGY_RESULTS_ENABLED): the latest month, and what can be measured now.
+  const months = isStrategyResultsEnabled() ? await strategyMonthsView(ctx, { db: deps.db, now: () => now, catalog: deps.catalog }).catch(() => null) : null;
   const body = {
     approved: { at: s.at },
     changedSinceApproved: Boolean(doc?.draft && !sameStrategy(doc.draft, s, isStrategyCompetitorsEnabled())),
@@ -143,6 +232,7 @@ export async function agentBrandStrategy(ctx: TenantContext, deps: { db?: Firest
     goal: s.goal ? { text: s.goal.text, measure: s.goal.measure, setAt: s.goal.setAt || null } : null,
     askGoal: !s.goal || daysSince(s.goal.setAt, now) > GOAL_ASK_DAYS,
     ...(checkOn ? { againstCompetitors: againstCompetitors(doc?.check ?? null, now.toISOString(), canWatch && canRead) } : {}),
+    ...(months ? { howItWent: howItWent(months), measuring: measuring(months) } : {}),
     link: STRATEGY_LINK,
     note: NOTE,
   };

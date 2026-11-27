@@ -25,6 +25,7 @@ import { useMapMove } from "./brandMapMove";
 import { useBrandMapTabs } from "./BrandMapTabs";
 import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, TRUNCATED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 import { BrandMapContentPlan } from "./BrandMapContentPlan";
+import { BrandMapHowItWent } from "./BrandMapHowItWent";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
 import { FLAG_TEXT } from "./CompetitorCoverage";
 
@@ -88,11 +89,14 @@ export function BrandMapStrategy({
   canEdit,
   contentPlan = false,
   canAsk = false,
+  howItWent = false,
 }: {
   canEdit: boolean;
   contentPlan?: boolean;
   /** "Find what they ask" can run on a buying situation (its switch, and a model). */
   canAsk?: boolean;
+  /** How it went each month (STRATEGY_RESULTS_ENABLED). */
+  howItWent?: boolean;
 }) {
   // A situation with no questions links to Buying situations, where Find what they ask runs.
   const tabsApi = useBrandMapTabs();
@@ -569,6 +573,8 @@ export function BrandMapStrategy({
           </p>
         ) : null}
       </Section>
+
+      {howItWent && view.approved ? <BrandMapHowItWent /> : null}
 
       {draft?.sources.length ? <p className="text-[11px] text-neutral-500">Made from: {draft.sources.map((s) => STRATEGY_SOURCE_LABEL[s]).join(", ")}.</p> : null}
 

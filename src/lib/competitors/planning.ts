@@ -49,10 +49,13 @@ const MAX_ANGLES = 6;
 const MAX_STATS = 6;
 /**
  * How close in meaning an article must be to count as on the same question: on brand_map_vectors
- * (`old`), or on brand search with SEARCH_COMPETITOR_READS_ENABLED (`new`, provisional until
- * scripts/measure-question-dupes.ts --model new is run, ADR-0025).
+ * (`old`), or on brand search with SEARCH_COMPETITOR_READS_ENABLED (`new`, measured with
+ * scripts/measure-question-dupes.ts --model new on 2026-11-27, ADR-0025: an article that answers
+ * the question scored 0.723 to 0.767, one that doesn't 0.569 to 0.639). 0.66 sits just above the
+ * highest that doesn't, as 0.65 does on the old model (0.642), so a question is never called
+ * uncovered by a strict cut-off.
  */
-export const MIN_SIM: CutOff = { old: 0.65, new: 0.65 };
+export const MIN_SIM: CutOff = { old: 0.65, new: 0.66 };
 
 /** What competitors wrote on a subject or near a question, or null (switch off, not granted, nothing found). */
 export async function competitorContext(

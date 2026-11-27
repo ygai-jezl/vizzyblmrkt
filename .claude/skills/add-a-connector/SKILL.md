@@ -101,10 +101,16 @@ only while `CONNECTOR_MCP_ENABLED` is on too: the registry checks it for the met
 
 ## 8. Its mark
 
-A square svg or png in `public/marks/connectors/<id>/`, named by the manifest's `icon` with its
-owner, and a row in `public/marks/NOTICE.md` with its owner, source and SHA-256.
-`src/lib/connectors/marks.test.ts` checks the file is there, safe, listed and unchanged, and the
-owner is one it knows. Without a mark the screens show two letters (`initials`).
+The owner's own mark, never one drawn for YouGrow. Take it from the owner's own servers: the icon
+their site names (`<link rel="icon">` or `apple-touch-icon`), their app icon, or their press kit.
+Ask before downloading it, and say the file, where it comes from and its size.
+
+- A square svg or png in `public/marks/connectors/<id>/`, named by the manifest's `icon` with its
+  owner. Scale a big file down (128 by 128 is usual, at least 64) without recolouring or reshaping.
+- A row in `public/marks/NOTICE.md` with its owner, the https address it came from and its SHA-256.
+- `src/lib/connectors/marks.test.ts` checks the file is there, safe, listed and unchanged, that it
+  came from an https address, and that the owner is one it knows (add a new owner there).
+- No mark you can use yet? Leave `icon` out: the screens show two letters (`initials`).
 
 ## 9. The learning registry
 

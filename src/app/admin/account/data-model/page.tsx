@@ -9,6 +9,8 @@ import { forTenant } from "@/lib/tenant";
 import { DataModel } from "@/components/admin/audience/DataModel";
 import { isSettingsEraseEnabled, isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { mayMoveBrand, verifiedPersonOf } from "@/lib/tenant";
+import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
+import { RaiseSetupPanel } from "@/components/admin/investors/RaiseSetupPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,8 @@ export const dynamic = "force-dynamic";
  * fields load in the browser. Admins change them; members read. The "Vizzy reads" column and
  * "Vizzy can read this field" show while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on. The Changes
  * box points to Settings › History while SETTINGS_HISTORY_ENABLED is on, and an owner with an admin
- * row sees Erase values on archived fields while SETTINGS_ERASE_ENABLED is on.
+ * row sees Erase values on archived fields while SETTINGS_ERASE_ENABLED is on. Admins see the
+ * Ready-made fields box above the list (Set up for raising or funding) while RAISE_PIPELINE_ENABLED is on.
  */
 export default async function DataModelPage() {
   const ctx = await requireAdminContext();
@@ -41,7 +44,7 @@ export default async function DataModelPage() {
     eraseOwner = !!person && (await mayMoveBrand(person, ctx.tenantId).catch(() => ({ ok: false }))).ok;
   }
   const ideas = { ideas: isIdeaWordsEnabled() };
-  return (
+  const model = (
     <DataModel
       canEdit={ctx.role === "admin"}
       filters={isFieldFiltersEnabled()}
@@ -51,4 +54,6 @@ export default async function DataModelPage() {
       readOnly={{ person: readOnlyFieldDefs("person", sources, ideas), company: readOnlyFieldDefs("company", sources, ideas) }}
     />
   );
+  // The box loads the list below again after a press, so it shows the new fields.
+  return ctx.role === "admin" && isRaisePipelineEnabled() ? <RaiseSetupPanel>{model}</RaiseSetupPanel> : model;
 }

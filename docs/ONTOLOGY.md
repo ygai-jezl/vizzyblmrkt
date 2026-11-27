@@ -626,7 +626,7 @@ An email journey on the lifecycle engine, for a product's users or a launch's wa
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `journey_email`
 - Numbers: `sends`, `delivered`, `people`, `deliveryRate`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `totalOpens`, `totalClicks`, `hardBounces`, `softBounces`, `deferrals`, `complaints`, `unsubscribes`, through `get_email_results`
-- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape` (see Learning)
+- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape`, `ab_winner` (see Learning)
 
 ### Journey enrolment (`enrolment`)
 
@@ -2067,11 +2067,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-99 kinds: 0 learn, 0 fleet only, 23 own, 35 gap and 41 none.
+99 kinds: 0 learn, 0 fleet only, 24 own, 34 gap and 41 none.
 
-120 call sites: 0 learn, 0 fleet only, 33 own, 41 gap and 46 none.
+120 call sites: 0 learn, 0 fleet only, 34 own, 40 gap and 46 none.
 
-Not learning: 87 of 120 call sites, under gap and none lines.
+Not learning: 86 of 120 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2087,6 +2087,7 @@ Not learning: 87 of 120 call sites, under gap and none lines.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
 - `next_action_card`: The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.
 - `brand_strategy`: The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.
+- `lifecycle_journey`: A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.
 
 ### Learns
 
@@ -2144,6 +2145,8 @@ No line says this yet.
   - `src/lib/signals/collect.ts`
 - `canvas.brand_map` (canvas), kept in `brand_map`. A change a person dismissed is kept on the brand map and Vizzy does not file it again, though a buying situation a person asks Vizzy for in chat comes back as a suggestion.
   - `src/lib/canvas/kinds/brandMap.ts`
+- `ab_winner` (rule, Email test winner), kept in `lifecycle_journey`. Where turned on, the winner a person picks for an email test after 50 sends reaches the journey the launch sends from on either engine, so everyone who gets that email from then on gets the winner.
+  - `src/lib/journey/abTest.ts`
 - `next_up_order` (rule, Next up shortlist), kept in `learned`. Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list, and where turned on a subject counts by its size as well as its share answered.
   - `src/lib/nextUp/candidates.ts`
 - `repeat_match` (rule, Repeat match), kept in `learned`. A question your team wrote anyway, added to an article or unlinked is kept on the Learned list and not matched that way again, though the closeness cut offs never move.
@@ -2211,8 +2214,6 @@ No line says this yet.
   - `src/lib/connectors/signals/detect.ts`
 - `send_time` (rule, Send time), look again by 2027-05-01. Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.
   - `src/lib/lifecycle/sendWindow.ts`
-- `ab_winner` (rule, Email test winner), look again by 2027-05-01. A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.
-  - `src/lib/journey/abTest.ts`
 - `journey_shape` (rule, Journey template shape), look again by 2027-05-01. The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.
   - `src/lib/lifecycle/architect.ts`
 - `insight_pick` (rule, Insight an email features), look again by 2027-05-01. Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.

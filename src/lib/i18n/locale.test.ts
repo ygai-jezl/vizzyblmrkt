@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -126,5 +126,23 @@ describe("resolveVisitorLocale", () => {
   it("defaults to the launch default when nothing matches", () => {
     expect(resolveVisitorLocale({ campaign })).toBe("en");
     expect(resolveVisitorLocale({ explicit: "zz", acceptLanguage: "xx", campaign })).toBe("en");
+  });
+});
+
+describe("supportedLocalesFor with one list (LANGUAGE_READERS_ENABLED)", () => {
+  const brand = { defaultLocale: "en", supportedLocales: ["en", "fr"] };
+  const ownList = { strategy: { defaultLocale: "en", supportedLocales: ["en", "de"] } };
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("keeps a launch's own list over the brand's while off", () => {
+    expect(supportedLocalesFor(ownList, brand)).toEqual(["en", "de"]);
+  });
+
+  it("offers the brand's list plus the launch's own from before while on", () => {
+    vi.stubEnv("LANGUAGE_READERS_ENABLED", "true");
+    vi.stubEnv("CONTENT_LANGUAGE_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    expect(supportedLocalesFor(ownList, brand)).toEqual(["en", "fr", "de"]);
+    expect(supportedLocalesFor({ strategy: { defaultLocale: "es" } }, brand)).toEqual(["es", "en", "fr"]);
   });
 });

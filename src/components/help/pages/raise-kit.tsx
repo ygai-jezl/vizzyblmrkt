@@ -1,7 +1,21 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
-import { PRESENT_WORDS, CHECK_WORDS, LABEL_WORDS, LIST_WORDS, NUMBER_DIALOG, PDF_WORDS, RAISE_MESSAGES, SLIDE_RULES, STUDIO_WORDS, UK_PROMOTION_REMINDER } from "@/lib/raise/docs/words";
+import {
+  PRESENT_WORDS,
+  CHECK_WORDS,
+  EDITOR_WORDS,
+  LABEL_WORDS,
+  LIST_WORDS,
+  NUMBER_DIALOG,
+  PDF_WORDS,
+  RAISE_MESSAGES,
+  SLIDE_RULES,
+  STUDIO_WORDS,
+  UK_PROMOTION_REMINDER,
+  needCallout,
+  needCalloutOnly,
+} from "@/lib/raise/docs/words";
 
 /**
  * /help/raise-kit (RAISE_KIT_ENABLED): decks for investors and packs for lenders. Every label and
@@ -16,7 +30,7 @@ export default function RaiseKitHelp({ ideaWords }: HelpBodyProps = {}) {
         Draft a deck for investors or a pack for lenders from what YouGrow already knows about your business, rehearse its
         talk track, present it and save it as a PDF. Every number on a slide says where it came from.
       </Lead>
-      <Meta items={["About 10 minutes for a first draft", "Admins make and change decks, everyone can present", "Whenever you raise or borrow"]} />
+      <Meta items={["About 10 minutes, including filling in Needs", "Admins make and change decks, everyone can present", "Whenever you raise or borrow"]} />
 
       <BeforeAndUnlocks
         before={
@@ -60,21 +74,27 @@ export default function RaiseKitHelp({ ideaWords }: HelpBodyProps = {}) {
       <P>
         Vizzy reads your website, your repo, your brand map, your brand strategy, your competitors, your team list, what you told it
         in About your business, and your sign-ups. Where it can&apos;t find something, the slide shows a Needs callout, such as
-        &quot;Needs: team bios. Add it here or tell Vizzy.&quot; Needs show only while you edit: they never present or print.
+        &quot;{needCalloutOnly("team bios")}&quot;, or &quot;{needCallout("team bios")}&quot; when Vizzy can work on decks in your copy of
+        YouGrow. Needs show only while you edit: they never present or print.
       </P>
       <P>
-        You can also ask Vizzy in the chat, for example &quot;Make me a 10 slide pre-seed deck&quot; or &quot;Make a lender pack for a
-        stock loan&quot;. Vizzy saves a draft and gives you a card to open it. Nothing is sent or shared.
+        When Vizzy can work on decks in your copy, you can also ask in the chat, for example &quot;Make me a 10 slide pre-seed
+        deck&quot; or &quot;Make a lender pack for a stock loan&quot;. Vizzy saves a draft and gives you a card to open it. Nothing is
+        sent or shared.
       </P>
 
       <H2 id="numbers">Where every number comes from</H2>
-      <P>{SLIDE_RULES[1]} Numbers are never written into a slide&apos;s words by hand or by Vizzy: each one is a chip that comes from its own record, with a label and a date.</P>
+      <P>
+        {SLIDE_RULES[1]} Put numbers in as chips with <strong>{NUMBER_DIALOG.title}</strong>: each chip comes from its own record, with a
+        label and a date. Vizzy only ever adds numbers that way. A figure typed into the words has no source, and the{" "}
+        <strong>{STUDIO_WORDS.tabs.checks}</strong> tab says so: {CHECK_WORDS.number_no_source("£14,200")}
+      </P>
       <Pairs
         head={["Label", "What it means"]}
         rows={[
           [`${LABEL_WORDS.seen}, 26 Nov`, "YouGrow counted it from your own data on that date, such as your sign-ups in the last 12 weeks."],
           [`${LABEL_WORDS.typed}, 26 Nov`, "Someone on your team typed it, with where it came from if they said. YouGrow doesn't check it."],
-          [LABEL_WORDS.saidInChat, "You told Vizzy the number in the chat, and Vizzy kept your own words with it."],
+          [LABEL_WORDS.saidInChat, "You told Vizzy the number in the chat, and Vizzy kept your own words with it. Shown in the editor only: Present and the PDF show the label."],
         ]}
       />
       <UL>
@@ -101,8 +121,8 @@ export default function RaiseKitHelp({ ideaWords }: HelpBodyProps = {}) {
           such as &quot;Changed slide 3 headline.&quot;
         </li>
         <li>
-          Or type in <strong>{STUDIO_WORDS.ask}</strong> below the slide, such as &quot;lead with the weekly growth&quot;. Vizzy saves its
-          change as a new version.
+          When Vizzy can work on decks in your copy, you can also type in <strong>{STUDIO_WORDS.ask}</strong> below the slide, such
+          as &quot;lead with the weekly growth&quot;. Vizzy saves its change as a new version.
         </li>
       </UL>
       <P>
@@ -212,6 +232,9 @@ export default function RaiseKitHelp({ ideaWords }: HelpBodyProps = {}) {
           [RAISE_MESSAGES.stale, "Reload the page, then make your change again on the newest version."],
           [RAISE_MESSAGES.deckLimit, "Delete a deck you no longer need, then make the new one."],
           [RAISE_MESSAGES.memberOnly, "Ask an admin on your team to make the change."],
+          [RAISE_MESSAGES.tooLong, "Shorten the headline, a point or the notes on the slide, then choose Save changes again."],
+          [EDITOR_WORDS.noRoom, "A number's chip takes room in the field. Shorten the words, or put the number in the speaker notes."],
+          [EDITOR_WORDS.full, "Remove a number from the slide first, or put it on another slide."],
         ]}
       />
 

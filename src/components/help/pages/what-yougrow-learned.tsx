@@ -14,6 +14,7 @@ import {
 import { LOOK_REFUSED_MESSAGE, NOTE_REFUSED_MESSAGE } from "@/lib/loops/textCheck";
 import { VOTE_REASONS } from "@/lib/loops/reasons";
 import { isLoopsEnabled } from "@/lib/loops/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -25,9 +26,12 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * question 4: counts of organisations below 10 show to the people who run the copy only and never
  * set defaults, and Vizzy's read of the brand's own counts. Made up businesses only. The check
  * examples are verdict()'s own words (learnedWords.test.ts), and the messages are the card's
- * (help.test.ts checks each is in the app).
+ * (help.test.ts checks each is in the app). With only the learning loops on (`imageVersions`
+ * false: the drawer passes the server's switch), it says only what is counted across brands and
+ * how a brand leaves the counts, since no image look is learned.
  */
-export default function WhatYouGrowLearnedHelp({ loops = isLoopsEnabled() }: HelpBodyProps = {}) {
+export default function WhatYouGrowLearnedHelp({ loops = isLoopsEnabled(), imageVersions = isImageStyleVersionsOn() }: HelpBodyProps = {}) {
+  if (!imageVersions && loops) return <CountsOnly />;
   const labels = (direction: "down" | "up") => VOTE_REASONS.image[direction].map((r) => r.label);
   const down = labels("down");
   const up = labels("up");
@@ -173,30 +177,7 @@ export default function WhatYouGrowLearnedHelp({ loops = isLoopsEnabled() }: Hel
         {loops ? " That also leaves your brand out of the counts across brands." : null}
       </P>
 
-      {loops ? (
-        <>
-          <H2 id="counts-across-brands">Counts across brands</H2>
-          <P>
-            YouGrow counts, across every brand on this copy, how often what it learns is used, kept and liked. It counts
-            organisations and numbers only, never images, words or people. Only the people who run this copy see these counts.
-          </P>
-          <P>
-            Numbers of things made, kept and liked show only from 10 organisations. The people who run this copy also see how
-            many organisations reached each step, got stuck, were turned down by a learner or had a Go back card, even when fewer
-            than 10, and those counts never set defaults.
-          </P>
-          <UL>
-            <li>An organisation with several brands counts once, and at most 20 things of each kind count for it each week.</li>
-            <li>Only closed weeks are counted, about once a week.</li>
-            <li>These counts stay inside this copy of YouGrow and are never sent anywhere else.</li>
-          </UL>
-          <P>
-            To leave your brand out, turn off <strong>Help check that learning works</strong> in{" "}
-            <Open href="/admin/account/settings">Settings › General</Open>. That also stops the 1 in 20 images made without what
-            YouGrow learned. Your brand&apos;s own learning carries on.
-          </P>
-        </>
-      ) : null}
+      {loops ? <CountsAcrossBrands holdback /> : null}
 
       <H2 id="where-it-is-kept">Where it is kept</H2>
       <UL>
@@ -241,6 +222,57 @@ export default function WhatYouGrowLearnedHelp({ loops = isLoopsEnabled() }: Hel
         ]}
       />
 
+      <NextPage slug="what-yougrow-learned" />
+    </article>
+  );
+}
+
+/** What is counted across brands, and how a brand leaves the counts; with `holdback`, that leaving also stops the 1 in 20. */
+function CountsAcrossBrands({ holdback }: { holdback: boolean }) {
+  return (
+    <>
+      <H2 id="counts-across-brands">Counts across brands</H2>
+      <P>
+        YouGrow counts, across every brand on this copy, how often what it learns is used, kept and liked. It counts organisations
+        and numbers only, never images, words or people. Only the people who run this copy see these counts.
+      </P>
+      <P>
+        Numbers of things made, kept and liked show only from 10 organisations. The people who run this copy also see how many
+        organisations reached each step, got stuck, were turned down by a learner or had a Go back card, even when fewer than 10,
+        and those counts never set defaults.
+      </P>
+      <UL>
+        <li>An organisation with several brands counts once, and at most 20 things of each kind count for it each week.</li>
+        <li>Only closed weeks are counted, about once a week.</li>
+        <li>These counts stay inside this copy of YouGrow and are never sent anywhere else.</li>
+      </UL>
+      <P>
+        To leave your brand out, turn off <strong>Help check that learning works</strong> in{" "}
+        <Open href="/admin/account/settings">Settings › General</Open>.
+        {holdback ? " That also stops the 1 in 20 images made without what YouGrow learned." : null} Your brand&apos;s own learning
+        carries on.
+      </P>
+    </>
+  );
+}
+
+/** The page while only the learning loops are on: the counts across brands, and Vizzy's read of the brand's own. */
+function CountsOnly() {
+  return (
+    <article>
+      <H1>What YouGrow learned</H1>
+      <Lead>
+        YouGrow counts how often what it makes for your brand is used, kept and changed, so it can see where learning helps. Your
+        brand can leave the counts across brands at any time.
+      </Lead>
+      <Meta items={["About 2 minutes to read", "Anyone on your team", "Admins change it"]} />
+      <CountsAcrossBrands holdback={false} />
+      <H2 id="vizzy">Ask Vizzy</H2>
+      <P>
+        Vizzy can read your brand&apos;s own learning counts for the last 90 days: for each kind of thing YouGrow makes, how far
+        learning got, where it is stuck and why, and how often your team kept, changed or turned down what it made. Ask &quot;Is
+        learning working for us?&quot; It never reads another brand&apos;s counts.
+      </P>
       <NextPage slug="what-yougrow-learned" />
     </article>
   );

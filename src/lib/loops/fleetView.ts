@@ -8,12 +8,15 @@ import { STAGES, STUCK_STEPS, type Stage, type StuckStep } from "./stages";
  *
  * - Numbers of things (outputs made, kept, liked or declined, declines and thumbs by reason,
  *   unstamped saves, coverage and unused), shares and industry splits show only from
- *   LOOP_RULES.cellOrgs (10) contributing organisations; below that they are null, and a screen
- *   says "fewer than 10".
+ *   LOOP_RULES.cellOrgs (10) contributing organisations: those whose week put numbers in the row
+ *   (`week.orgs`), not every organisation seen in the 28 days, and for an image style those
+ *   behind that style (`styles.<style>`). Below that they are null, and a screen says "fewer
+ *   than 10".
  * - Counts of organisations show below 10 in four places, to the people who run the copy only
  *   (the owner's answer to question 4): per step, stuck per plan, by refusal reason and with a Go
  *   back card. They never set defaults. Every other count of organisations (the wait for a check,
- *   and industries) keeps the floor.
+ *   and industries) keeps the floor. A step's total is its own cell (`st.<step>.all`), so an
+ *   organisation two of whose brands are on different plans counts once in it.
  * - Numbers of things are rounded to 2 significant figures.
  */
 
@@ -57,8 +60,14 @@ export interface PlanStall {
 
 /** What the people who run the copy see of one kind of choice in one closed week. */
 export interface KindView {
-  /** Organisations counted in the row. */
+  /** Organisations counted in the row, over the 28 days. */
   orgs: number;
+  /** Organisations whose week put numbers of things in the row: the floor for `things`. */
+  weekOrgs: number;
+  /** The image pool: organisations behind each style's numbers this week, the floor for that style. */
+  styleOrgs: Counts;
+  /** Organisations stuck at Stamped whose things went out with no AI draft kept to compare (shown below 10, as stuck is). */
+  stuckNoDraft: number;
   /** Organisations that reached each step, through the furthest (shown below 10). */
   stages: Record<Stage, number>;
   /** By plan (shown below 10). */
@@ -67,9 +76,9 @@ export interface KindView {
   refused: Counts;
   /** Organisations with a Go back card (shown below 10). */
   cardOrgs: number;
-  /** Organisations with a learned look and no check yet, and the longest wait in whole months (24 or more reads 24); null below 10 organisations. */
+  /** Organisations with a learned look and no check yet, and the longest wait in whole months (24 or more reads 24); null below 10 such organisations, and orgs 0 for none. */
   waiting: { orgs: number; longestMonths: number | null } | null;
-  /** Numbers of things, rounded; null below 10 organisations. */
+  /** Numbers of things, rounded; null below 10 organisations this week. */
   things: KindThings | null;
   /** Organisations per step by industry, only for an industry where it and the rest both have 10 or more. */
   industries: Record<string, Record<Stage, number>>;
@@ -94,6 +103,8 @@ export interface KindThings {
   coverage: number | null;
   /** Made two weeks before with nothing kept, edited or declined since. */
   unused: number;
+  /** Things that went out with no AI draft kept to compare. */
+  noDraft: number;
 }
 
 const byStage = (f: (s: Stage) => number): Record<Stage, number> => Object.fromEntries(STAGES.map((s) => [s, f(s)])) as Record<Stage, number>;
@@ -101,8 +112,9 @@ const byStage = (f: (s: Stage) => number): Record<Stage, number> => Object.fromE
 /** One `fh:<kind>` row's counts (its `n`) as they may be shown. */
 export function kindView(n: unknown): KindView {
   const orgs = num(at(n, "orgs"));
+  const weekOrgs = num(at(n, "week", "orgs"));
   const stageByPlan = (s: Stage) => counts(at(n, "st", s, "p"));
-  const stages = byStage((s) => Object.values(stageByPlan(s)).reduce((a, b) => a + b, 0));
+  const stages = byStage((s) => num(at(n, "st", s, "all")));
 
   const planIds = new Set<string>();
   for (const s of STAGES) for (const p of Object.keys(stageByPlan(s))) planIds.add(p);
@@ -123,12 +135,14 @@ export function kindView(n: unknown): KindView {
     plans[p] = { reached, stuck, topReason, why, amber };
   }
 
-  const shown = showsThings(orgs);
+  const shown = showsThings(weekOrgs);
   const waitOrgs = num(at(n, "wait", "orgs"));
   const months = Object.keys(counts(at(n, "wait", "m")))
     .map((k) => Number(/^m(\d{1,2})$/.exec(k)?.[1]))
     .filter(Number.isFinite);
-  const waiting = shown ? { orgs: waitOrgs, longestMonths: months.length ? Math.max(...months) : null } : null;
+  // The longest wait is one organisation's, so it shows only from 10 that wait.
+  const waiting =
+    waitOrgs === 0 ? { orgs: 0, longestMonths: null } : showsThings(waitOrgs) ? { orgs: waitOrgs, longestMonths: months.length ? Math.max(...months) : null } : null;
 
   let things: KindThings | null = null;
   if (shown) {
@@ -154,6 +168,7 @@ export function kindView(n: unknown): KindView {
       cards: Object.fromEntries(Object.entries(counts(at(n, "cards"), true)).filter(([k]) => k !== "orgs")),
       coverage: all > 0 ? stamped / all : null,
       unused: roundTwo(num(at(n, "unused"))),
+      noDraft: roundTwo(num(at(n, "nodraft"))),
     };
   }
 
@@ -164,7 +179,19 @@ export function kindView(n: unknown): KindView {
     if (showsThings(k) && showsThings(stages.stamped - k)) industries[industry] = byStage((s) => num(at(n, "st", s, "i", industry)));
   }
 
-  return { orgs, stages, plans, refused: counts(at(n, "refused")), cardOrgs: num(at(n, "cards", "orgs")), waiting, things, industries };
+  return {
+    orgs,
+    weekOrgs,
+    styleOrgs: counts(at(n, "styles")),
+    stuckNoDraft: num(at(n, "stuck", "stamped", "nodraft")),
+    stages,
+    plans,
+    refused: counts(at(n, "refused")),
+    cardOrgs: num(at(n, "cards", "orgs")),
+    waiting,
+    things,
+    industries,
+  };
 }
 
 /** What the people who run the copy see of the copy's own row (`fh:_orgs`) in one closed week. */
@@ -176,10 +203,17 @@ export interface OrgsView {
   industries: Counts;
   /** Every industry's organisations, from 10 of them; null below 10 (a screen says "fewer than 10"). */
   industryCounts: Record<string, number | null>;
-  /** Brands that reported the week against brands listed, and reports dropped as late. */
+  /**
+   * Brands the lane visited for the week (reported, late or opted out) against brands listed
+   * (suspended brands left out, as the lane skips them), brands that reported, and reports
+   * dropped as late.
+   */
+  visited: number;
   reported: number;
   listed: number;
   late: number;
+  /** Organisations a learner turned down, by reason: each once, however many kinds refused it (shown below 10). */
+  refused: Counts;
   /** Brands still holding a look on the brand record. */
   oldCopy: number;
   /** How many weeks behind the furthest behind fold was (10 or more reads 10), or null when none was. */
@@ -203,7 +237,9 @@ export function orgsView(n: unknown): OrgsView {
     plans: counts(at(n, "p")),
     industries,
     industryCounts,
+    visited: num(at(n, "visited")),
     reported: num(at(n, "reported")),
+    refused: counts(at(n, "refused")),
     listed: num(at(n, "listed")),
     late: num(at(n, "late")),
     oldCopy: num(at(n, "oldCopy")),

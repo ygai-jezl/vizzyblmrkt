@@ -25,7 +25,8 @@ export const dynamic = "force-dynamic";
  * "save_draft": this route can never activate or publish anything.
  *
  * Every draft is stamped here (learning loops step 5, 4.1): `canvas.<kind>`, made by Vizzy,
- * handed to the kind to keep on the draft it writes, and counted made once it is saved. With
+ * handed to the kind to keep on the draft it writes, and counted made once a new draft is saved
+ * (`saved: "created"`; a rewrite of one already counted, or nothing new, counts nothing). With
  * LOOPS_ENABLED off the stamp is `{ unstamped: "loops_off" }`, nothing is read or counted, and
  * every draft is written as before.
  */
@@ -67,7 +68,9 @@ export async function POST(req: Request) {
       { status: outcome.status },
     );
   }
-  await countMade(ctx, `canvas.${canvasKind.kind}`, made);
+  // Made counts once per saved record (decision 20): not for a draft already waiting, a person
+  // already in People, or Vizzy's new words on a draft it already counted.
+  if (outcome.saved === "created") await countMade(ctx, `canvas.${canvasKind.kind}`, made);
 
   return NextResponse.json({
     ok: true,

@@ -10,7 +10,7 @@ import { rowKindOf } from "./stages";
  * Work's Used counts across brands (learning loops step 5, 4.10 of the plan for steps 4 and 5),
  * read from the heartbeat's closed weeks in `fleet_cells`, never by walking brands:
  *
- * - Used `{loopKind}`: the organisations that made it, and the capped made counts;
+ * - Used `{loopKind}`: the organisations whose week counted it, and the capped made counts;
  * - Used `{type}`: the same per ontology type (`fh:_types`);
  * - Used `{purpose}`: uses per AI purpose (`fh:_calls`), which replaces Work v1's walk over every
  *   brand's meter once LOOPS_ENABLED is on.
@@ -55,7 +55,8 @@ export async function usedAcrossBrands(ask: UsedAsk, weeks: readonly string[], d
     weeks: ws.map((week, i) => {
       const n = rows[i]?.n;
       if ("loopKind" in ask) {
-        const orgs = kindView(n).orgs;
+        // The organisations whose week put numbers in the row, not every one seen in the 28 days.
+        const orgs = kindView(n).weekOrgs;
         // Made by every arm, added up before rounding.
         const out = n && typeof n.out === "object" && n.out ? Object.values(n.out as Record<string, unknown>) : [];
         const made = out.reduce<number>((sum, signals) => {

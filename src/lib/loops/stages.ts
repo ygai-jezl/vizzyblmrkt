@@ -1,4 +1,4 @@
-import { LOOP_SIGNALS, type BrandPointers } from "@/lib/types/loopDay";
+import { LOOP_SIGNALS, NO_DRAFT, type BrandPointers } from "@/lib/types/loopDay";
 import { LOOP_ARMS } from "@/lib/types/loopStamp";
 import { IMAGE_STYLE_SCOPES, LOOP_RULES, LOOPS, type Decision, type LoopKind } from "./registry";
 
@@ -117,9 +117,11 @@ export interface RowWeek {
   unstamped: Counts;
   /** Learning cards, by signal. */
   cards: Counts;
+  /** Stamped things that went out with no AI draft kept to compare (NO_DRAFT): never a person signal. */
+  noDraft: number;
 }
 
-const emptyWeek = (): RowWeek => ({ made: 0, signals: 0, learned: 0, refused: {}, out: {}, scope: {}, own: {}, liked: {}, disliked: {}, declinedWhy: {}, unstamped: {}, cards: {} });
+const emptyWeek = (): RowWeek => ({ made: 0, signals: 0, learned: 0, refused: {}, out: {}, scope: {}, own: {}, liked: {}, disliked: {}, declinedWhy: {}, unstamped: {}, cards: {}, noDraft: 0 });
 const add = (into: Counts, key: string, n: number) => {
   if (PART.test(key) && n !== 0) into[key] = (into[key] ?? 0) + n;
 };
@@ -149,6 +151,10 @@ export function rowsOfWeek(d: unknown): Map<string, RowWeek> {
                 if (signal === "made") w.made += n;
                 else if (PERSON_SIGNALS.has(signal)) w.signals += n;
                 if (style && PART.test(style) && SCOPE_SIGNALS.has(signal)) add(((w.scope[style] ??= {})[arm] ??= {}), signal, n);
+                continue;
+              }
+              if (signal === NO_DRAFT) {
+                w.noDraft += n;
                 continue;
               }
               const dot = signal.indexOf(".");
@@ -246,6 +252,8 @@ export interface RowStage {
   card: boolean;
   /** A learned look in use with no check yet: days since the oldest such look began. */
   waitDays: number | null;
+  /** Things in the window that went out with no AI draft kept to compare, so none could count as kept or edited. */
+  noDraft: number;
 }
 
 const sum = (weeks: readonly RowWeek[], f: (w: RowWeek) => number) => weeks.reduce((n, w) => n + f(w), 0);
@@ -287,7 +295,7 @@ export function rowStage(row: string, weeks: ReadonlyArray<RowWeek | undefined>,
   const oldest = waiting.map((l) => Date.parse(l.adoptedAt)).filter(Number.isFinite).sort((a, b) => a - b)[0];
   const waitDays = waiting.length && oldest !== undefined ? Math.max(0, Math.floor((weekEnd.getTime() - oldest) / DAY_MS)) : null;
   const card = ws.some((w) => (w.cards.proposed ?? 0) > 0);
-  return { reached, stuck, refused, topReason, card, waitDays };
+  return { reached, stuck, refused, topReason, card, waitDays, noDraft: Math.max(0, sum(ws, (w) => w.noDraft)) };
 }
 
 /** Whether a stage is at or before another: the stages a brand reached, counted through the furthest. */

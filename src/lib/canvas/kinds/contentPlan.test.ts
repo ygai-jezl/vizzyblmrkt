@@ -104,7 +104,8 @@ describe("content_plan canvas kind", () => {
     db.seed(key, r.id, { ...plan, graph: { ...graph, nodes: graph.nodes.map((n) => (n.id === "hub" ? { ...n, status: "approved" } : n)) } });
     __resetRateLimitState();
     const ok = await refill(["spoke_1"], "Lead with the time saved");
-    expect(ok).toMatchObject({ ok: true });
+    // The plan was counted made when it was drafted; a refill is a rewrite (decision 20).
+    expect(ok).toMatchObject({ ok: true, saved: "rewritten" });
     const after = db.raw(key, r.id)!;
     expect(after.agentRevision).toBe(2);
     const spoke = (after.graph as ContentGraph).nodes.find((n) => n.id === "spoke_1")!;

@@ -30,6 +30,7 @@ import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { Made } from "@/lib/types/loopStamp";
 import type { Region } from "@/lib/types/tenant";
 import { settleStamp } from "@/lib/loops/stamp";
+import { countLostStamp } from "@/lib/loops/count";
 import type { TenantContext } from "@/lib/tenant/types";
 
 /**
@@ -440,7 +441,11 @@ export async function generateSocialPostImage(
         parentAssetId: null,
         byteSize: img.bytes.length,
       },
-    ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+    ).catch(async (e) => {
+      console.warn("[brandKit] record social image failed:", e);
+      // The image goes on the post anyway, so its stamp is lost with the row (4.1).
+      await countLostStamp(tenantCtx(input.tenantId, input.region!), stamp);
+    });
   }
   // Cap the stored prompt to the ContentNode.imagePrompt schema limit (1000).
   return { imageAssetRef: stored.filename, imagePrompt: cappedPrompt, source: "agent3", made: stamp };
@@ -647,8 +652,10 @@ export async function generateEbookSlotImage(
       },
     )
       .then((a) => a.id)
-      .catch((e) => {
+      .catch(async (e) => {
         console.warn("[brandKit] record ebook image failed:", e);
+        // The image goes in the chapter anyway, so its stamp is lost with the row (4.1).
+        await countLostStamp(tenantCtx(input.tenantId, input.region!), stamp);
         return null;
       });
   }

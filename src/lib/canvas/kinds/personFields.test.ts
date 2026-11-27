@@ -209,7 +209,9 @@ describe("the person_fields kind", () => {
   it("answers with the one waiting for the same suggestion, replaces one for the same field, and won't raise a decided one again", async () => {
     const first = await suggest({ [SEATS]: 15 });
     const again = await suggest({ [SEATS]: 15 });
-    expect(again).toMatchObject({ ok: true, id: first.ok ? first.id : "" });
+    // The one waiting is no new suggestion: made counts once, for the first (decision 20).
+    expect(first).toMatchObject({ ok: true, saved: "created" });
+    expect(again).toMatchObject({ ok: true, id: first.ok ? first.id : "", saved: "none" });
     if (again.ok) expect(again.summary).toMatch(/already waiting/);
 
     const newer = await suggest({ [SEATS]: 16 });

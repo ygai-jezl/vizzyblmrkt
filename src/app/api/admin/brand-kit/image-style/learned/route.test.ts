@@ -117,6 +117,21 @@ describe("POST, the Undo done line's Forget and the learning setting", () => {
     session.getAdminContext.mockResolvedValueOnce(member);
     expect((await post({ op: "help_check", on: true })).status).toBe(403);
   });
+
+  it("with only LOOPS_ENABLED on, answers the learning setting alone, signed in and admin, so a brand can leave the counts", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    expect(await (await post({ op: "help_check", on: false })).json()).toEqual({ ok: true, offSince: "2027-06-03T09:00:00.000Z" });
+    expect(actions.setHelpCheck).toHaveBeenCalledWith(admin, false);
+    // Every other change needs image style versions.
+    expect((await post({ op: "undo", scope: NATURAL })).status).toBe(503);
+    expect(actions.undoLook).not.toHaveBeenCalled();
+    session.getAdminContext.mockResolvedValueOnce(member);
+    expect((await post({ op: "help_check", on: true })).status).toBe(403);
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await post({ op: "help_check", on: true })).status).toBe(401);
+  });
 });
 
 describe("GET /api/admin/brand-kit/image-style/learned", () => {

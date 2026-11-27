@@ -62,6 +62,7 @@ const writeWithAgent: InviteCopyWriter = async ({ campaign, brief, productName, 
   return v?.subject && v?.body ? { subject: v.subject, body: v.body } : null;
 };
 
+/** `edited`: Vizzy's new words on a wave it already drafted, which was counted made when it was drafted. */
 function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasAuthorOutcome {
   const url = `/admin/launches/${campaign.id}/invites?wave=${wave.id}`;
   return {
@@ -87,6 +88,7 @@ function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasA
       ],
       warnings: 0,
     },
+    saved: edited ? "rewritten" : "created",
   };
 }
 

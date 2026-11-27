@@ -94,7 +94,7 @@ describe("POST /api/admin/email/image with image style versions on (learning loo
     vi.mocked(loopsRead.learnedFor).mockResolvedValue({ block: { look: "Warm daylight on flour.", holdback: false }, stamp });
   });
 
-  it("reads the look for the hero's style, counts the image once stored, and hands back its stamp as a token", async () => {
+  it("reads the look for the hero's style and counts the image once stored, with no token, since the email's save checks none", async () => {
     const res = await POST(req({ campaignId: "camp_1", brief: "Opening day" }));
     expect(vi.mocked(loopsRead.learnedFor).mock.calls.at(-1)!.slice(1, 3)).toEqual([
       "email_hero",
@@ -102,8 +102,11 @@ describe("POST /api/admin/email/image with image style versions on (learning loo
     ]);
     expect(last()).toMatchObject({ learnedImageStyle: "Warm daylight on flour." });
     expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "email_hero", stamp, {});
-    expect(loopsStamp.signStamp).toHaveBeenCalledWith(expect.anything(), stamp, {});
-    expect(await res.json()).toMatchObject({ imageUrl: "https://x/i.png", stampToken: "st1.token.sig" });
+    // No save of the email checks a token yet, so none is signed (and the brand's key isn't read).
+    expect(loopsStamp.signStamp).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toMatchObject({ imageUrl: "https://x/i.png" });
+    expect(body).not.toHaveProperty("stampToken");
   });
 
   it("counts nothing and hands back no token when no image was made", async () => {
@@ -113,11 +116,11 @@ describe("POST /api/admin/email/image with image style versions on (learning loo
     expect(await res.json()).not.toHaveProperty("stampToken");
   });
 
-  it("held back: no look in the brief, and the token says so", async () => {
+  it("held back: no look in the brief, and the stamp it counts says so", async () => {
     const held: LoopStamp = { ...stamp, made: "m1.image_style.natural_photo.1.h", arm: "holdback", items: [], tokens: { rules: 0, examples: 0 } };
     vi.mocked(loopsRead.learnedFor).mockResolvedValueOnce({ block: { look: null, holdback: true }, stamp: held });
     await POST(req({ campaignId: "camp_1", brief: "Opening day" }));
     expect(last()).toMatchObject({ learnedImageStyle: null });
-    expect(loopsStamp.signStamp).toHaveBeenCalledWith(expect.anything(), held, {});
+    expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "email_hero", held, {});
   });
 });

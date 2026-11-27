@@ -47,7 +47,8 @@ describe("the floors", () => {
     const v9 = kindView(nine.get(fleetCellId.kind("next_up", W)));
     expect(v9.orgs).toBe(9);
     expect(v9.things).toBeNull();
-    expect(v9.waiting).toBeNull();
+    // Nobody waits for a check on Next up.
+    expect(v9.waiting).toEqual({ orgs: 0, longestMonths: null });
     // Counts of organisations still show below 10, to the people who run the copy.
     expect(v9.stages.stamped).toBe(9);
     expect(v9.plans.pro?.reached.stamped).toBe(9);
@@ -56,6 +57,46 @@ describe("the floors", () => {
     const v10 = kindView(ten.get(fleetCellId.kind("next_up", W)));
     expect(v10.things?.out).toEqual({ none: { made: 30, kept: 10 } });
     expect(v10.things?.coverage).toBe(1);
+  });
+
+  it("floors this week's numbers on the organisations whose week has them: one organisation's week never shows behind 9 that made things earlier", () => {
+    const earlier = { c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 2 } } } } } };
+    const now = { c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 7, voted: 5, liked: 1, "disliked.looks_fake": 4 } } } } } };
+    const rows = rowsFrom([
+      ...Array.from({ length: 9 }, () => ({ window: [earlier, undefined, undefined, undefined], plan: "free" })),
+      { window: [undefined, undefined, undefined, now], plan: "free" },
+    ]);
+    const v = kindView(rows.get(fleetCellId.kind("image_style", W)));
+    expect(v.orgs).toBe(10);
+    expect(v.weekOrgs).toBe(1);
+    expect(v.things).toBeNull();
+    expect(v.styleOrgs).toEqual({ natural_photo: 1 });
+  });
+
+  it("shows the longest wait for a check only from 10 organisations that wait", () => {
+    const looks = [{ scope: "image_style.natural_photo", adoptedAt: "2026-09-01T00:00:00.000Z", checked: false }];
+    const made = { c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 1 } } } } } };
+    const three = rowsFrom(Array.from({ length: 12 }, (_, i) => ({ window: [undefined, undefined, undefined, made], plan: "free", looks: i < 3 ? looks : [] })));
+    expect(kindView(three.get(fleetCellId.kind("image_style", W))).waiting).toBeNull();
+    const ten = rowsFrom(Array.from({ length: 12 }, (_, i) => ({ window: [undefined, undefined, undefined, made], plan: "free", looks: i < 10 ? looks : [] })));
+    expect(kindView(ten.get(fleetCellId.kind("image_style", W))).waiting).toMatchObject({ orgs: 10 });
+  });
+
+  it("counts an organisation once in a step's total even when its brands count under two plans", () => {
+    const buffer = new FleetBuffer();
+    let mark: Parameters<typeof creditMark>[0] = null;
+    for (const plan of ["pro", "granted"]) {
+      const report = brandWeekReport({ week: W, window: [undefined, undefined, undefined, { c: { next_up: { next_up: { v0: { none: { made: 1 } } } } } }], looks: [], plan, industry: "unknown", calls: {}, oldCopy: false });
+      const c = creditMark(mark, report, "t");
+      if (c.late) throw new Error("late");
+      mark = c.mark;
+      for (const k of c.orgCells) buffer.add(W, k, 1);
+    }
+    const v = kindView(buffer.cells().find((x) => x.id === fleetCellId.kind("next_up", W))!.n);
+    expect(v.orgs).toBe(1);
+    expect(v.stages.stamped).toBe(1);
+    // Each plan's row still holds it.
+    expect([v.plans.pro?.reached.stamped, v.plans.granted?.reached.stamped]).toEqual([1, 1]);
   });
 
   it("shows counts of organisations below 10 in exactly the four places question 4 names", () => {
@@ -101,10 +142,22 @@ describe("industries and the copy's own row", () => {
   it("splits by industry only where an industry and the rest both have 10 organisations, so Unknown alone never splits", () => {
     const rows = rowsFrom(Array.from({ length: 12 }, () => ({ window: [undefined, undefined, undefined, { c: { next_up: { next_up: { v0: { none: { made: 1 } } } } } }], plan: "free" })));
     expect(kindView(rows.get(fleetCellId.kind("next_up", W))).industries).toEqual({});
-    const mixed = { orgs: 25, st: { stamped: { p: { free: 25 }, i: { unknown: 12, bakery: 13 } } } };
+    const mixed = { orgs: 25, st: { stamped: { all: 25, p: { free: 25 }, i: { unknown: 12, bakery: 13 } } } };
     expect(Object.keys(kindView(mixed).industries).sort()).toEqual(["bakery", "unknown"]);
-    const o = orgsView({ orgs: 12, p: { free: 12 }, i: { unknown: 12 }, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehind: { w7: 1, w10: 1 } });
-    expect(o).toEqual({ orgs: 12, plans: { free: 12 }, industries: {}, industryCounts: { unknown: 12 }, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehindWeeks: 10 });
+    const o = orgsView({ orgs: 12, p: { free: 12 }, i: { unknown: 12 }, visited: 18, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehind: { w7: 1, w10: 1 }, refused: { plan: 3 } });
+    expect(o).toEqual({
+      orgs: 12,
+      plans: { free: 12 },
+      industries: {},
+      industryCounts: { unknown: 12 },
+      visited: 18,
+      reported: 14,
+      listed: 20,
+      late: 1,
+      oldCopy: 2,
+      foldBehindWeeks: 10,
+      refused: { plan: 3 },
+    });
     // The table shows each industry from 10 organisations, Unknown alone included; below 10 it is null.
     expect(orgsView({ orgs: 21, i: { unknown: 12, bakery: 9 } }).industryCounts).toEqual({ unknown: 12, bakery: null });
   });
@@ -127,8 +180,9 @@ describe("Work's Used counts", () => {
     const db = new FakeFirestore();
     await addToFleetCells(
       [
-        { id: fleetCellId.kind("image_style", W), n: { orgs: 12, out: { learned: { made: 117 }, holdback: { made: 8 } } } },
-        { id: fleetCellId.kind("image_style", "2026-W49"), n: { orgs: 4, out: { learned: { made: 30 } } } },
+        { id: fleetCellId.kind("image_style", W), n: { orgs: 14, week: { orgs: 12 }, out: { learned: { made: 117 }, holdback: { made: 8 } } } },
+        // 11 organisations over the 28 days, but only 4 counted this week: the floor is the week's.
+        { id: fleetCellId.kind("image_style", "2026-W49"), n: { orgs: 11, week: { orgs: 4 }, out: { learned: { made: 30 } } } },
         { id: fleetCellId.types(W), n: { orgs: { content_plan: 10 }, made: { content_plan: 64 } } },
       ],
       db,

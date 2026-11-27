@@ -109,8 +109,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: result.reason === "image_limit" ? 429 : 502 },
     );
   }
-  // Counted once handed back, with its stamp signed for the layout's save (decision 20); email
-  // images never count a remake (decision 12).
+  // Counted once handed back (decision 20; a token only for a save that checks one, and the
+  // layout's save checks none yet); email images never count a remake (decision 12).
   const stampToken = await handBack(
     ctx,
     "email_block_image",

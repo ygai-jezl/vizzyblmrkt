@@ -764,11 +764,28 @@ describe("what made an email (LOOPS_ENABLED, learning loops step 5)", () => {
   const counted = (db: FakeFirestore) => db.dump(LOOP_DAYS).map((d) => d.d);
   afterEach(() => vi.unstubAllEnvs());
 
-  it("counts the welcome made once as send_time, in one write when the run ends", async () => {
+  it("counts the welcome made once as send_time, in one write when the run ends, with its stamp on the send record", async () => {
     vi.stubEnv("LOOPS_ENABLED", "true");
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
     const w = await world();
     await throughWelcome(w);
     expect(counted(w.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } } }]);
+    expect(w.db.dump("email_sends")[0]?.made).toMatchObject({ kind: "send_time" });
+  });
+
+  it("counts records_off beside made when no record keeps the stamp: send records off, or an email named by its enrolment", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const off = await world();
+    await throughWelcome(off);
+    expect(counted(off.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
+
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("LIFECYCLE_SEND_TRACKING", "true");
+    const tracked = await world();
+    await throughWelcome(tracked);
+    // The enrolment form writes no send record, so the stamp is kept nowhere and coverage says so.
+    expect(tracked.db.dump("email_sends")).toHaveLength(0);
+    expect(counted(tracked.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
   });
 
   it("with LOOPS_ENABLED off sends the same email and never opens loop_days (decision 22)", async () => {

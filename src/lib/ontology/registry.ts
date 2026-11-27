@@ -1443,7 +1443,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "fleet_cell",
     name: "Counts across brands",
     description:
-      "What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing, and numbers of things show only from 10 organisations.",
+      "What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing of theirs (only that the lane visited them), and numbers of things show only from 10 organisations.",
     place: "platform",
     status: "built",
     madeBy: [],

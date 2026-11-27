@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LOOP_DAYS, loopDayId } from "@/lib/tenant/loops";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import { handBack, SAVE_TOKENS_MAX, stampsFromTokens, withStampToken } from "./handBack";
+import { handBack, SAVE_TOKENS_MAX, stampsFromTokens, TOKEN_SAVES, withStampToken } from "./handBack";
 import { learnedFor } from "./read";
 import { STAMP_HEADER, stampHeaders, tokensFromRequest } from "./stampHeader";
 import { sumWeek } from "./testing/sumWeek";
 
 /**
  * The browser round trip (learning loops step 5, decision 20 and 4.2 of the plan for steps 4
- * and 5): an output handed to the browser is counted made once and its stamp signed; the save
- * checks the token it brings back, and counts a refused one. Hearth Bakery and Lumen are made up.
+ * and 5): an output handed to the browser is counted made once and, where its save checks one
+ * (TOKEN_SAVES), its stamp signed; the save checks the token it brings back, and counts a refused
+ * one. Hearth Bakery and Lumen are made up.
  */
 
 const hearth: TenantContext = { tenantId: "ten_hearth", region: "eu", source: "idtoken" };
@@ -43,6 +45,17 @@ describe("with LOOPS_ENABLED on", () => {
     // The token holds no key and no brand.
     expect(Buffer.from(token!.split(".")[1]!, "base64url").toString("utf8")).not.toContain("hearth");
     expect(await stampsFromTokens(hearth, ["brand_voice"], [token], { db, now: NOW })).toEqual([stamp]);
+  });
+
+  it("signs no token for a kind whose save checks none, and still counts it made", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(hearth, "email_copy", {}, { now: NOW });
+    expect(TOKEN_SAVES.has("email_copy")).toBe(false);
+    expect(await handBack(hearth, "email_copy", stamp, { db, now: NOW })).toBeNull();
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toMatchObject({ c: { email_copy: { email_copy: { v0: { none: { made: 1 } } } } } });
+    // No key was read or minted for a token no save would check.
+    expect(db.raw(LOOP_DAYS, loopDayId.key(hearth.tenantId))).toBeUndefined();
+    expect([...TOKEN_SAVES].sort()).toEqual(["brand_kit", "brand_notes", "brand_voice"]);
   });
 
   it("refuses and counts a changed, foreign, expired or wrong kind's token, and leaves it out", async () => {

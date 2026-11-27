@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     brandVoice: await activeBrandVoiceText(ctx.tenantId),
     usage: aiUsage(ctx, "email_copy"),
   });
-  // Handed to the browser to save later: counted made once and its stamp signed for the save (learning loops step 5, decision 20).
+  // Handed to the browser to save later: counted made once; the email's save checks no token yet, so none is signed (learning loops step 5, decision 20).
   const stampToken = await handBack(ctx, "email_copy", (await learnedFor(ctx, "email_copy")).stamp);
   return NextResponse.json(withStampToken(result, stampToken));
 }

@@ -22,8 +22,10 @@ function lines(s: string): string[] {
 
 export function BrandSettings() {
   const [kit, setKit] = useState<BrandKit>({});
-  // The extracted kit's stamp token, sent with the next save (learning loops step 5).
-  const [stampToken, setStampToken] = useState<string | null>(null);
+  // The stamp tokens of what was made for the kit (the extract, and colours kept from a source),
+  // sent with the next save (learning loops step 5).
+  const [stampTokens, setStampTokens] = useState<string[]>([]);
+  const addStampToken = useCallback((token: string) => setStampTokens((t) => (t.includes(token) ? t : [...t, token])), []);
   const [fontsText, setFontsText] = useState("");
   const [dosText, setDosText] = useState("");
   const [dontsText, setDontsText] = useState("");
@@ -65,7 +67,7 @@ export function BrandSettings() {
         const data = (await res.json().catch(() => ({}))) as { brandKit?: BrandKit; stampToken?: string };
         if (res.ok && data.brandKit) {
           applyKit(data.brandKit);
-          setStampToken(data.stampToken ?? null);
+          if (data.stampToken) addStampToken(data.stampToken);
           setMsg("Brand kit extracted — review and save.");
         } else {
           setMsg("Extraction failed — try another PDF or fill the fields manually.");
@@ -74,7 +76,7 @@ export function BrandSettings() {
         setBusy(null);
       }
     },
-    [],
+    [addStampToken],
   );
 
   async function onUpload(file: File) {
@@ -111,13 +113,13 @@ export function BrandSettings() {
     try {
       const res = await fetch("/api/admin/account/brand", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...stampHeaders([stampToken]) },
+        headers: { "Content-Type": "application/json", ...stampHeaders(stampTokens) },
         body: JSON.stringify(payload),
       });
       setMsg(res.ok ? "Saved." : "Save failed.");
       if (res.ok) {
         setColorsDirty(false);
-        setStampToken(null);
+        setStampTokens([]);
       }
     } finally {
       setBusy(null);
@@ -190,6 +192,7 @@ export function BrandSettings() {
               setKit((k) => ({ ...k, palette, palettes }));
               setColorsDirty(true);
             }}
+            onStampToken={addStampToken}
           />
         </div>
       </div>

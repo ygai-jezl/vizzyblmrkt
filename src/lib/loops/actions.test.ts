@@ -135,9 +135,18 @@ describe("the learning setting", () => {
     expect(pointers.scopes[NATURAL]?.v).toBe(2);
   });
 
-  it("does nothing with versions off", async () => {
+  it("does nothing with versions and the learning loops off", async () => {
     vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
     expect(await setHelpCheck(hearth, false, deps())).toEqual({ ok: false, error: "switch" });
+    expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: false, error: "switch" });
+  });
+
+  it("with only the learning loops on, still lets a brand leave the counts across brands (decision 4)", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    expect(await setHelpCheck(hearth, false, deps())).toEqual({ ok: true, offSince: NOW.toISOString() });
+    expect((await readBrandPointers(hearth, db)).fleetOptOut).toEqual({ at: NOW.toISOString() });
+    // The image actions stay off.
     expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: false, error: "switch" });
   });
 });

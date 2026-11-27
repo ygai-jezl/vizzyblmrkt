@@ -3,6 +3,8 @@ import { z } from "zod";
 import { imageStyleAdmin, imageStyleMember } from "@/lib/content/imageStyle/admin";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { getAdminContext } from "@/lib/auth/session";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { forgetReviewCount } from "@/lib/review/summary";
 import {
   editLook,
@@ -34,6 +36,8 @@ export const dynamic = "force-dynamic";
  *   the confirm, and Forget of the look an Undo just left), Edit the words, Keep this look, Go back,
  *   Resume suggestions, and the learning setting (help_check). Origin, image style versions on
  *   (which needs the image style on), sign in and admin (imageStyleAdmin), then a strict body.
+ *   With only LOOPS_ENABLED on (learning loops step 5), the learning setting alone answers, after
+ *   origin, sign in and admin, so a brand can always leave the counts across brands.
  * The member comes from the session, never the body or the query.
  */
 
@@ -105,17 +109,28 @@ function answer(r: ActionResult, tenantId: string): NextResponse {
   return NextResponse.json({ error: r.error, ...(message ? { message } : {}) }, { status: STATUS[r.error] });
 }
 
+/** Sign in and admin, for the learning setting while only the learning loops are on: it needs no image style. */
+async function learningSettingAdmin(): Promise<{ ok: true; ctx: NonNullable<Awaited<ReturnType<typeof getAdminContext>>> } | { ok: false; response: NextResponse }> {
+  const ctx = await getAdminContext();
+  if (!ctx) return { ok: false, response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  if (ctx.role !== "admin") return { ok: false, response: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
+  return { ok: true, ctx };
+}
+
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;
-  // Versions need the image style itself on, so this switch answers first.
-  if (!isImageStyleVersionsOn()) return NextResponse.json({ error: "image_style_versions_disabled" }, { status: 503 });
-  const g = await imageStyleAdmin(req);
+  // Versions need the image style itself on, so this switch answers first. With only the learning
+  // loops on, the learning setting still answers (decision 4: a brand can always leave the counts).
+  const versions = isImageStyleVersionsOn();
+  if (!versions && !isLoopsEnabled()) return NextResponse.json({ error: "image_style_versions_disabled" }, { status: 503 });
+  const g = versions ? await imageStyleAdmin(req) : await learningSettingAdmin();
   if (!g.ok) return g.response;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   const ctx = g.ctx;
   const body = parsed.data;
+  if (!versions && body.op !== "help_check") return NextResponse.json({ error: "image_style_versions_disabled" }, { status: 503 });
   switch (body.op) {
     case "undo":
       return answer(await undoLook(ctx, body.scope), ctx.tenantId);

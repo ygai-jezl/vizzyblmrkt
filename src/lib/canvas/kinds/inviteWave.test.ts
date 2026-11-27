@@ -82,7 +82,9 @@ describe("invite_wave canvas kind", () => {
     if (!first.ok) throw new Error("expected a draft");
     expect(db.raw("invite_waves", first.id)?.subject).toContain("{{product_name}}");
     const edited = await author(db, { scope: { campaignId: "beta", waveId: first.id }, size: 1, subject: "Doors open", body: "Come in" });
-    expect(edited).toMatchObject({ ok: true, id: first.id });
+    // Made counted once, when the wave was drafted; Vizzy's new words on it are a rewrite (decision 20).
+    expect(first).toMatchObject({ saved: "created" });
+    expect(edited).toMatchObject({ ok: true, id: first.id, saved: "rewritten" });
     expect(db.raw("invite_waves", first.id)).toMatchObject({ subject: "Doors open", size: 1 });
     expect(await author(db, { scope: { campaignId: "beta", waveId: "wav_missing" } })).toMatchObject({ ok: false, status: 404 });
   });

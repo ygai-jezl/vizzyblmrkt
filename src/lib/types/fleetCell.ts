@@ -7,10 +7,14 @@
  * (through its mark on `loop_lane`).
  *
  * - `fh:<kind>:<isoWeek>`: one kind of choice (the five image kinds count once, as one pool):
- *   organisations per stage and stuck, by plan and industry, refusals, cards, declines, made and
- *   voted by arm (capped per organisation), unstamped saves and coverage.
- * - `fh:_orgs:<isoWeek>`: organisations by plan and industry, brands visited against listed, late
- *   reports, the oldest week not yet folded, and brands still holding a look on the brand record.
+ *   organisations per stage (in all, and by plan and industry) and stuck, those whose week put
+ *   numbers in the row (`week.orgs`) and, for the pool, behind each style (`styles`), refusals,
+ *   cards, declines, made and voted by arm (capped per organisation), unstamped saves, coverage
+ *   and things that went out with no draft kept.
+ * - `fh:_orgs:<isoWeek>`: organisations by plan, industry and refusal reason, brands visited
+ *   (opted out ones included) against listed (suspended ones left out), brands that reported,
+ *   late reports, the oldest week not yet folded, and brands still holding a look on the brand
+ *   record.
  * - `fh:_types:<isoWeek>`: made per ontology type, with organisations.
  * - `fh:_calls:<isoWeek>`: calls per AI purpose, with organisations.
  *

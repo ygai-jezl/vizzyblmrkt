@@ -90,6 +90,8 @@ function parseChanges(raw: Array<Record<string, unknown>>): { ok: true; changes:
 function outcome(args: { filed: number; waiting: number; summary: string; warnings: string[] }, url: string = BRAND_KIT_MAP_ROUTE): CanvasAuthorOutcome {
   return {
     ok: true,
+    // Made counts only when something new was filed: a call that filed nothing made nothing.
+    saved: args.filed > 0 ? "created" : "none",
     id: "brand_map",
     status: "suggested",
     url,

@@ -8,6 +8,7 @@ import { setImageLearningPaused } from "./actions";
 import { countCard, countKindSignals, loopWeekOf } from "./count";
 import { weekBefore } from "./fold";
 import { cardsAsNotice, containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash, visitHash } from "./tick";
+import { loopsData } from "./loopsSection";
 
 /** The loops lane (learning loops step 4, 4.5): its page through the brands, the idle check, the guard and the seed. */
 
@@ -228,7 +229,8 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
     db.seed(LOOP_LANE, "o:org_lumen", { d: { week: W, cells: ["_orgs/orgs"], outputs: {} } });
     db.seed(LOOP_DAYS, "ls:ten_lumen_eu", { tenantId: "ten_lumen_eu", d: { foldedThrough: weekBefore(w1), heartbeatWeek: weekBefore(w1) } });
     expect(await lane()).toMatchObject({ brands: 1, reported: 1, late: 1 });
-    expect(row(fleetCellId.orgs(w1))).toEqual({ late: 1 });
+    // Visited for that week too: a late report is still a visit.
+    expect(row(fleetCellId.orgs(w1))).toEqual({ late: 1, visited: 1 });
     const now = row(fleetCellId.orgs(W))!;
     expect(now.orgs).toBeUndefined();
     expect(now).toMatchObject({ p: { open: 1 }, reported: 1 });
@@ -244,6 +246,22 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
     expect((await readLaneState(ctxOf("ten_hearth"), db)).heartbeatWeek).toBe(W);
     // Its own week is still folded.
     expect(db.raw(LOOP_DAYS, `lt:ten_hearth:${W}`)).toBeDefined();
+  });
+
+  it("compares brands visited, opted out ones included, with brands listed, suspended ones left out, so coverage isn't behind for good", async () => {
+    brand("ten_a");
+    await made("ten_a", 3);
+    brand("ten_b");
+    await runLoopsTransaction(ctxOf("ten_b"), async (txn) => writeBrandPointersTx(txn, ctxOf("ten_b"), { scopes: {}, fleetOptOut: { at: "2026-12-01T09:00:00.000Z" } }, db), db);
+    brand("ten_c", { status: "suspended" });
+    await lane();
+    await lane();
+    await lane();
+    const orgs = row(fleetCellId.orgs(W))!;
+    expect(orgs).toMatchObject({ orgs: 1, reported: 1, visited: 2, listed: 2 });
+    const d = loopsData({ week: W, orgs, rows: new Map() }, { meterOn: false, today: NOW, docsUrl: "" });
+    expect(d.behind).toBe(false);
+    expect(d.coverage[0]).toEqual({ k: "Brands visited", v: "2 of 2 this week", amber: false });
   });
 
   it("counts each closed week's brands listed once, however many runs it takes", async () => {

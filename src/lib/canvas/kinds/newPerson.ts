@@ -56,6 +56,7 @@ export async function authorNewPerson({ ctx, input, made }: CanvasAuthorArgs, de
       summary: "They're already in People, so nothing was drafted. Their page is linked.",
       warnings: [],
       card: { kind: "new_person", id: r.personId, title: "Already in People", url, stats: [], warnings: 0, note: "Nothing was added.", cta: "Open their page" },
+      saved: "none",
     };
   }
   const url = draftHref(r.action.id);
@@ -79,6 +80,8 @@ export async function authorNewPerson({ ctx, input, made }: CanvasAuthorArgs, de
       note: "Nobody is added until you confirm it and say how they agreed.",
       cta: "Open the form",
     },
+    // The same form already waiting is not a new draft.
+    saved: r.outcome === "open" ? "none" : "created",
   };
 }
 

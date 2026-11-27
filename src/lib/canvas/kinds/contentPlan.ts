@@ -167,6 +167,8 @@ export async function authorContentPlanDraft(
         " Review them on the canvas; nothing is scheduled.",
       warnings: result.failed.map((id) => `${id}: couldn't be written`),
       card: c,
+      // The plan was counted made when Vizzy drafted it; each piece counts under its own writer's kind.
+      saved: "rewritten",
     };
   }
 
@@ -328,6 +330,7 @@ export async function authorContentPlanDraft(
       " Nothing is scheduled.",
     warnings: result.failed.map((id) => `${id}: couldn't be written`),
     card: c,
+    saved: "created",
   };
 }
 

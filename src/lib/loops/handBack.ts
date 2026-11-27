@@ -8,8 +8,9 @@ import { signStamp, verifyStamp } from "./stamp";
  * Outputs handed to the browser and saved later (learning loops step 5, decision 20 and 4.2 of the
  * plan for steps 4 and 5): email assist, Edit mode Vizzy, the brand voice and brand kit drafts,
  * notes extract, Suggest an angle, the email layout and the email images. The route that makes
- * one counts it made once and hands back its stamp as a signed token beside the output; the save
- * route checks the token before it stores what the person saved.
+ * one counts it made once; for a kind whose save checks a token (TOKEN_SAVES) it also hands back
+ * its stamp as a signed token beside the output, and the save route checks the token before it
+ * stores what the person saved.
  *
  * With the kind's switch off (decision 22) nothing is counted, signed or read: no token goes out,
  * and a save reads no key. A token is good for LOOP_RULES.stampTokenDays and its signature covers
@@ -28,13 +29,23 @@ export interface HandBackDeps {
 export const SAVE_TOKENS_MAX = 20;
 
 /**
- * Count a made thing handed to the browser and sign its stamp for the save that follows. Null
- * when it has no stamp, its kind's switch is off, or signing failed (logged; the output still goes).
+ * The kinds whose save checks a stamp token today: brand voice, the brand kit (its extract and the
+ * colours kept from a source, both saved with Brand settings) and brand notes. Every other hand
+ * back (email assist, Edit mode Vizzy, the email layout, hero and block image, Suggest an angle)
+ * counts made but signs no token, since no save would check it, and a token would read the
+ * brand's key for nothing. A kind joins once its save sends `x-stamp-tokens` and checks them.
+ */
+export const TOKEN_SAVES: ReadonlySet<LoopKind> = new Set<LoopKind>(["brand_voice", "brand_kit", "brand_notes"]);
+
+/**
+ * Count a made thing handed to the browser and, for a kind whose save checks one (TOKEN_SAVES),
+ * sign its stamp for that save. Null when it has no stamp, its kind's switch is off, its save
+ * checks no token, or signing failed (logged; the output still goes).
  */
 export async function handBack(ctx: TenantContext, kind: LoopKind, made: Made, deps: HandBackDeps = {}): Promise<string | null> {
   if (!countsFor(kind)) return null;
   await countMade(ctx, kind, made, deps);
-  if ("unstamped" in made) return null;
+  if ("unstamped" in made || !TOKEN_SAVES.has(kind)) return null;
   return signStamp(ctx, made, deps).catch((err) => {
     console.warn(`[loops] signing the stamp for ${kind} failed`, err instanceof Error ? err.message.slice(0, 200) : "error");
     return null;

@@ -80,18 +80,21 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
 }
 
 /**
- * Settings › General › Learning (IMAGE_STYLE_VERSIONS_ENABLED): Help check that learning works,
- * read from the brand's pointers in its region. A read that fails leaves the section out. With
- * LOOPS_ENABLED on its words widen (step 5): off also leaves the brand out of the counts across brands.
+ * Settings › General › Learning (IMAGE_STYLE_VERSIONS_ENABLED or LOOPS_ENABLED): Help check that
+ * learning works, read from the brand's pointers in its region. A read that fails leaves the
+ * section out. With LOOPS_ENABLED on its words widen (step 5): off also leaves the brand out of the
+ * counts across brands, and with only LOOPS_ENABLED on that is all it does, so a brand can always
+ * leave the counts (decision 4).
  */
 async function learningSetting(ctx: TenantContext): Promise<ReactElement | null> {
-  if (!isImageStyleVersionsOn()) return null;
+  const versions = isImageStyleVersionsOn();
+  if (!versions && !isLoopsEnabled()) return null;
   const pointers = await readBrandPointers(ctx).catch(() => {
     console.warn("[settings] the learning setting didn't load");
     return null;
   });
   if (!pointers) return null;
-  return <LearningSettingCard isAdmin={ctx.role === "admin"} offSince={pointers.fleetOptOut?.at ?? null} counts={isLoopsEnabled()} />;
+  return <LearningSettingCard isAdmin={ctx.role === "admin"} offSince={pointers.fleetOptOut?.at ?? null} counts={isLoopsEnabled()} holdback={versions} />;
 }
 
 /**

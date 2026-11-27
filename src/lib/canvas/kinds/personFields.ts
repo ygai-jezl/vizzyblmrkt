@@ -74,6 +74,8 @@ export async function authorPersonFields({ ctx, input, made }: CanvasAuthorArgs,
       note: "Suggested: nothing changes until someone confirms it on their page.",
       cta: "Open their page",
     },
+    // The same suggestion already waiting is not a new one; one in place of another is.
+    saved: r.outcome === "open" ? "none" : "created",
   };
 }
 

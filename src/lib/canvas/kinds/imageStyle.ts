@@ -63,6 +63,8 @@ export async function authorImageStyleSuggestion(
   const url = BRAND_KIT_IMAGE_STYLE_ROUTE;
   return {
     ok: true,
+    // A new suggestion, in place of any waiting.
+    saved: "created",
     id: "image_style",
     status: "suggested",
     url,

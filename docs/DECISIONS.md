@@ -36,7 +36,10 @@ Decided:
    changes, so an image or a brief never replaces the words' stamp; the graph's replace overlay keeps
    both, so a Save can't forge or clear them. `GeneratedNodePatch.made` became `madeBy`. Every journey
    email is stamped `send_time`, with an AI line as its root; each invite reads its wave's stamp. A
-   stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save.
+   stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save,
+   for the kinds whose save checks one (`TOKEN_SAVES`: brand voice, the brand kit, its extract and
+   the colours kept from a source on either page, and brand notes); the other hand backs count made
+   and sign no token, so no token goes out that nothing checks.
    The other makers (26 files: the brand map, strategy, competitors, blog, notes, onboarding, trending,
    the judge, enrichment, the architect, the content plan, journeys and Your next action) count made
    at their own save with no stamp on their records yet. New unstamped reasons: `nothing_made`,
@@ -53,6 +56,14 @@ Decided:
    a post never counts twice. Step 2's learn lines count `learned` or `refused.<reason>`, so the
    Memory Bank shows in the stages. The meter keeps `callsByPurpose` in the same merged write.
    Batch senders count through a per run `CountBuffer`, written once per brand at the end of the run.
+   The canvas route counts made only when a kind saved a new draft (`saved: "created"`): a form or
+   suggestion already waiting, a person already in People, a brand map call that filed nothing, and
+   Vizzy's new words on an invite wave, a plan's pieces or a journey it already drafted count
+   nothing more, so made never outruns the answers. A stamped post that goes out with no AI draft
+   kept counts `no_draft` beside its stamp, never kept or edited, and the stuck line names it. A
+   stamp no record keeps counts beside made: `records_off` for an email sent with send records off
+   or named by its enrolment (`LIFECYCLE_SEND_TRACKING`), and `stamp_lost` for an image whose
+   library row failed after it went on the post, the eBook or the cover.
 5. **The lane, widened.** With `LOOPS_ENABLED` the lane runs on its own (the tick route's guard),
    folds every kind's closed weeks and, once a week is folded, sends each brand's heartbeat: its
    stage on every kind over 4 closed weeks (Declared, Stamped, Signalled, Learning, Checked; Proven is
@@ -60,19 +71,30 @@ Decided:
    `LOOP_RULES.stallDays` and `stallOutputs`), its learners' refusals, its Go back cards, its wait
    for a check, its unused things, coverage and calls by purpose, by plan and by industry (all
    `unknown` until onboarding records one). `ls:` keeps the week before the organisation's mark moves,
-   so a rerun never reports it twice. Opted out brands send nothing.
+   so a rerun never reports it twice. Opted out brands send nothing of theirs: each week the lane
+   visits them counts once as `visited`, as brands listed count every brand, so Brands visited
+   compares like with like. Brands listed leave suspended brands out, as the lane never visits them.
 6. **Counts across brands count organisations.** `fleet_cells` (control plane, counts only under
    `n`, no brand or organisation ids or hashes) holds `fh:<kind>:<week>`, `fh:_orgs:<week>`,
    `fh:_types:<week>` and `fh:_calls:<week>`. An organisation counts once in a cell through its one
    mark in `loop_lane` (`o:<organisationId>`, or `o:t:<tenantId>` for a brand alone), which holds its
-   newest week only; outputs count at most 20 per organisation a cell a week
-   (`LOOP_RULES.orgOutputsCap`). A report for an older week than the mark's is dropped and counted
+   newest week only; outputs count at most 20 per organisation a week for each kind and signal,
+   however they were made (learned, held back or neither), and for each image style, against
+   budgets kept on the mark only (`budgetOf`); a group's outputs scale by one factor, so liked
+   against voted, or kept against made, reads the same capped as not (`LOOP_RULES.orgOutputsCap`).
+   A step's total is its own cell (`st.<step>.all`), so an organisation two of whose brands are on
+   different plans counts once in it. A report for an older week than the mark's is dropped and counted
    late: a slow brand undercounts, never twice. Only the Loops section, the heartbeat and Work's Used
    reader import `fleetCells`.
 7. **The floors (question 4, yes).** Numbers of things (made, kept, liked, declined, declines by
    reason), shares and industry splits show only from 10 contributing organisations
-   (`LOOP_RULES.cellOrgs`). Counts of organisations per stage, stuck per plan, by refusal reason and
-   with a Go back card show below 10, to the people who run the copy only, and never set defaults.
+   (`LOOP_RULES.cellOrgs`): those whose week put numbers in the row (`week.orgs`), not every one seen
+   in the 28 days; an image style's holdback line from 10 behind that style (`styles.<style>`); the
+   longest wait for a check from 10 that wait. Work's Used reader floors on the same cell. Counts of
+   organisations per stage, stuck per plan, by refusal reason and with a Go back card show below 10,
+   to the people who run the copy only, and never set defaults; refusal reasons count each
+   organisation once for the copy (`_orgs.refused`), however many kinds refused it. Declines by
+   reason say "none" only when no kind was below the floor.
 8. **Settings › Loops, for operators only.** `/admin/account/loops`, the last tab, shown while
    `LOOPS_ENABLED` is on and `isLoopsOperator(ctx)` is true, and `notFound()` otherwise. It reads the
    `fh:` rows of the 2 closed weeks in one batched read, with every kind by its label (`kindLabel`)
@@ -98,7 +120,10 @@ Decided:
 11. **Help and self host.** `/help/what-yougrow-learned#counts-across-brands`, shown while
     `LOOPS_ENABLED` is on (the How to drawer is passed the switch as `loops`), says what is counted
     across brands in the words of question 4's yes, that the counts stay inside the copy and how a
-    brand leaves them; the learning setting's How this works opens it. `docs/self-host.md` says
+    brand leaves them; the learning setting's How this works opens it. The learning setting, its
+    `help_check` op and the page show while image style versions or `LOOPS_ENABLED` are on, so a
+    brand can always leave the counts; with only `LOOPS_ENABLED` on they speak of the counts alone
+    (the drawer is passed `imageVersions`). `docs/self-host.md` says
     "Loops counts stay inside this copy": `fleet_cells` and `loop_lane` are written to the copy's own
     `(default)` database and sent nowhere else, and a copy that holds other people's brands says so
     in its privacy policy and DPA first.
@@ -124,8 +149,8 @@ Where the build follows the code, not the plan (the plan's intent kept):
   Buffer and base64 sit outside the heap: step 5's peak is 16.9 MiB.
 - The judge's retry needed no new code: a post that lands in a promoted cluster runs the pass again.
   The plan named no kind for its line, so `post_feedback` joins `LEARN_KINDS`.
-- The `fh:` rows keep only the image pool, so the Loops section has no split by image kind and no
-  organisations per style for the holdback; thumbs down and coverage are for the week, not 28 days;
+- The `fh:` rows keep only the image pool, so the Loops section has no split by image kind, though
+  it counts organisations per style for the holdback; thumbs down and coverage are for the week, not 28 days;
   nothing counts the learner backlog, so that row is left out; Go back cards are one count, not
   open, expired and ignored; and the industry note waits for industry groups.
 - `get_learning` reads a closed week the lane hasn't folded yet from its `lw:` shards, only while its
@@ -133,6 +158,12 @@ Where the build follows the code, not the plan (the plan's intent kept):
   asked. It lists kinds with a learner's outcome too, not only those made, and the five image kinds as
   one entry, `image_style`, with `byKind`, as the Loops section counts them. `looksInUse` moved to
   `src/lib/loops/stages.ts`, so the agent's reader never loads the heartbeat.
+- After review: Vizzy's new words on an invite wave it drafted take the newest stamp but count no
+  second made, as both stamps land in the same cell (version 0, arm none). The plan's "each route
+  returns a token" holds only where the save checks one (`TOKEN_SAVES`). Brands visited count in
+  `fh:_orgs` as one plain number per brand and week, opted out brands included, not on the lane's
+  own document, since the section reads only `fh:` rows and listed already counts every brand. The
+  longest wait floors on the organisations that wait, not on this week's.
 - The plan listed step 5 as ADR-0023, then 0024: dev took 0022 to 0025, work in progress holds 0026,
   the verdict moved to 0027 and step 4 to 0028.
 
@@ -141,13 +172,18 @@ Enforced where:
 - `src/lib/loops/flags.test.ts`, `operators.test.ts`, `registry.test.ts` and
   `scripts/config/feature-switches.test.ts`: the switch, the operator gate and the stuck rule's numbers.
 - `src/lib/loops/stampedWriters.test.ts`, `made.test.ts`, `handBack.test.ts`, `writers.test.ts`,
-  `src/lib/tenant/workspaceContent.stamps.test.ts` and the canvas route test: the writers, the overlay
-  and the token round trip; `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
+  `src/lib/tenant/workspaceContent.stamps.test.ts`, the canvas route and kind tests and the brand
+  kit colours route test: the writers, the overlay, made once per saved draft and the token round
+  trip; `src/lib/email/sends.test.ts`, `src/lib/lifecycle/runner.test.ts` and
+  `src/lib/agents/creative.holdback.test.ts`: `records_off` and `stamp_lost`;
+  `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
 - `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts` and `learnLog.test.ts`: each
   count once, coverage and unused.
 - `src/lib/loops/stages.test.ts`, `heartbeat.test.ts`, `fleetView.test.ts`, `tick.test.ts`,
   `src/lib/tenant/fleetCells.test.ts`, `loopLane.test.ts`, `indexes.test.ts` and `lane.heap.test.ts`
-  (with `--expose-gc`): the stages, the marks, the floors and the lane's memory.
+  (with `--expose-gc`): the stages, the marks and their budgets, the floors, brands visited and the
+  lane's memory; `src/lib/loops/actions.test.ts` and the learned route test: the opt out under
+  either switch.
 - `src/lib/distribute/feedback/patterns.judge.test.ts`: the judge defers.
 - `src/lib/loops/reasonWords.test.ts`, `loopsSection.test.ts` and the Loops page test: plain words,
   the floors on screen, a 404 for anyone else, and who imports `fleetCells`.
@@ -156,12 +192,11 @@ Enforced where:
   ids it reads, its bounds and its words; `src/lib/ontology/registry.test.ts`: every meaning served;
   `src/lib/help/help.test.ts`: the counts across brands section, on and off.
 
-Not yet: token checks at save cover brand voice, the brand kit extract and notes only; email
-assist, the hero, Edit mode Vizzy, the email layout and block image, Suggest an angle and brand
-colours hand tokens back that their saves don't send yet. Journey, product journey and person plan
-drafts, the email and image style suggestions and brand map records keep no stamp (counted only).
-The learning setting's opt out works only with image style versions on, so with only
-`LOOPS_ENABLED` on a brand can't leave the counts across brands yet. Judge deferrals are logged, not
+Not yet: email assist, the hero, Edit mode Vizzy, the email layout and block image and Suggest an
+angle sign no token until their saves send one and check it (`TOKEN_SAVES`); they count made at
+hand back. Journey, product journey and person plan drafts, the email and image style suggestions
+and brand map records keep no stamp (counted only). An email named by its enrolment keeps its
+stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not
 counted, and a failed synthesis writes no line. Work's counted measures call `usedAcrossBrands` once
 Work lands. An operator path for agents waits for the company retro (step 6), decline reasons for
 other kinds for the edits loop (step 7), and fleet defaults, industry and Proven for step 9.

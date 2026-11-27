@@ -1366,4 +1366,32 @@ describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
     expect(drawerBodyProps({ loops: true } as never).loops).toBe(true);
     expect(drawerBodyProps(null).loops).toBe(false);
   });
+
+  it("with only the learning loops on, is listed and says what is counted and how a brand leaves, with nothing about image looks", () => {
+    const versions = process.env.IMAGE_STYLE_VERSIONS_ENABLED;
+    try {
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = "false";
+      process.env.LOOPS_ENABLED = "true";
+      expect(shownHelpPages().some((p) => p.slug === "what-yougrow-learned")).toBe(true);
+      process.env.LOOPS_ENABLED = "false";
+      expect(shownHelpPages().some((p) => p.slug === "what-yougrow-learned")).toBe(false);
+    } finally {
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = versions;
+      delete process.env.LOOPS_ENABLED;
+    }
+    const only = docToMarkdown(HELP_BODIES["what-yougrow-learned"]!({ loops: true, imageVersions: false }), "https://app.example.com");
+    const counts = section(only, "Counts across brands");
+    expect(counts).toContain("turn off **Help check that learning works**");
+    expect(counts).toContain("Your brand's own learning carries on.");
+    expect(only).not.toContain("1 in 20");
+    expect(only).not.toContain("A look for each style");
+    expect(section(only, "Ask Vizzy")).toContain("own learning counts for the last 90 days");
+    for (const line of only.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    // The drawer passes the server's switch for image looks too.
+    expect(drawerBodyProps({ imageVersions: true } as never).imageVersions).toBe(true);
+    expect(drawerBodyProps(null).imageVersions).toBe(false);
+  });
 });

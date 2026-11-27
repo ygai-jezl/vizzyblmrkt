@@ -149,6 +149,12 @@ export async function countTenants(db: FirestoreLike = defaultDb()): Promise<num
   return snap.data().count;
 }
 
+/** How many brands are suspended: one count() read on one field (a single field index), for the brands the lane lists. */
+export async function countSuspendedTenants(db: FirestoreLike = defaultDb()): Promise<number> {
+  const snap = await db.collection("tenants").where("status", "==", "suspended").count().get();
+  return snap.data().count;
+}
+
 /**
  * Resolve the tenant(s) whose email sending uses a given MailChimp audience
  * (list) id. Used by the MailChimp audience webhook to map an unsubscribe/clean

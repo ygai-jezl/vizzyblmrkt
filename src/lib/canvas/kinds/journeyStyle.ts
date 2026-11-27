@@ -116,6 +116,8 @@ function outcome(
     : `I set "${journey.name}" back to your brand's Email style in its draft. ${applies}`;
   return {
     ok: true,
+    // A new style for the journey's draft.
+    saved: "created",
     id: journey.id,
     status: journey.status,
     url,

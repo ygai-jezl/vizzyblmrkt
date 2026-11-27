@@ -245,6 +245,8 @@ export async function authorLifecycleDraft(
         `saved as a draft in test mode. Open the canvas to review the copy and timing, then publish when you're happy — nothing sends until you do.`;
   return {
     ok: true,
+    // Vizzy's new draft of a journey it already counted is not a new journey.
+    saved: existing ? "rewritten" : "created",
     id: journey.id,
     status: journey.status,
     url,

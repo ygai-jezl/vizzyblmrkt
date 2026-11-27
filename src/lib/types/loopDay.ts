@@ -28,6 +28,14 @@ export type LoopDocKind = keyof typeof LOOP_DOC_PREFIXES;
 export const LOOP_SIGNALS = ["made", "kept", "edited", "declined", "voted", "liked", "remade", "undone", "reversed"] as const;
 export type LoopSignal = (typeof LOOP_SIGNALS)[number];
 
+/**
+ * Beside a made thing's signals, not one of them: it went out with no AI draft kept to compare
+ * (4.4 of the plan for steps 4 and 5), such as a LinkedIn or X post while
+ * CONTENT_AI_DRAFT_KEPT_ENABLED is off. Counted under its stamp so the stages can say "no draft
+ * kept"; never a person signal, never made, kept or edited.
+ */
+export const NO_DRAFT = "no_draft" as const;
+
 /** A week as ISO 8601 names it: `2026-W48`. */
 export const ISO_WEEK_RE = /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/;
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { PaletteColor, PaletteGroup } from "@/lib/types/tenant";
 import { BrandColours } from "@/components/admin/brand-kit/BrandColours";
+import { stampHeaders } from "@/lib/loops/stampHeader";
 
 /**
  * The dedicated Brand Kit → Colours page: a thin, self-saving wrapper around the existing
@@ -25,6 +26,8 @@ export function BrandColoursPage({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  // The stamp tokens of colours kept from a source, sent with the next save (learning loops step 5).
+  const [stampTokens, setStampTokens] = useState<string[]>([]);
 
   // Colours use an explicit "Save" (matching Account → Brand); warn before losing unsaved edits.
   useEffect(() => {
@@ -44,12 +47,13 @@ export function BrandColoursPage({
     try {
       const res = await fetch("/api/admin/brand-kit/colours", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...stampHeaders(stampTokens) },
         body: JSON.stringify({ palette, palettes }),
       });
       if (!res.ok) throw new Error();
       setStatus("Saved");
       setDirty(false);
+      setStampTokens([]);
       window.setTimeout(() => setStatus(null), 1500);
     } catch {
       setError("Couldn't save your colours — try again.");
@@ -69,6 +73,7 @@ export function BrandColoursPage({
           setPalettes(next.palettes);
           setDirty(true);
         }}
+        onStampToken={(token) => setStampTokens((t) => (t.includes(token) ? t : [...t, token]))}
       />
       <div className="flex items-center gap-3">
         <button

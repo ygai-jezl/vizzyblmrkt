@@ -4,7 +4,7 @@ import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
 import { fnv1a } from "@/lib/journey/allocation";
 import { readLoopLane, writeLoopLane } from "@/lib/tenant/loopLane";
 import { loopDayId, mergeLaneState, readBrandPointers, readLaneState, readLoopDays } from "@/lib/tenant/loops";
-import { countTenants, listTenantPage, type TenantPageRow } from "@/lib/tenant/registry";
+import { countSuspendedTenants, countTenants, listTenantPage, type TenantPageRow } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { BrandPointersSchema, LaneStateSchema, type BrandPointers, type LaneState } from "@/lib/types/loopDay";
@@ -53,7 +53,8 @@ import { seedBrand } from "./seed";
  *      run adds every brand's credited increments to `fleet_cells` in one batched write at its end.
  * - With LOOPS_ENABLED on, the idle check also waits for a week to report, a brand whose fold is
  *   more than LOOP_RULES.foldBehindDays behind is counted once a week (the fold alarm), and each
- *   closed week's brands listed are counted once, against the brands that reported it.
+ *   closed week's brands listed (suspended brands left out, as the lane skips them) are counted
+ *   once, against the brands the heartbeat visited for it (opted out and late ones included).
  * - Logs: the route adds "brands=<n> rows=<n> heapDeltaMiB=<n>" to its "[tick] loops <ms>ms"
  *   line, and "[loops] fold behind <days>" shows a fold more than 42 days behind.
  * Nothing is kept between brands. Server only.
@@ -451,13 +452,23 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
   });
 
   // Each closed week's brands listed, counted once: the lane document keeps the week first, so a
-  // run that can't keep it adds none.
+  // run that can't keep it adds none. Suspended brands are left out, as the lane never visits them.
   const lastClosed = lastClosedWeek(now);
-  const listNow = loopsOn && (!doc.listedWeek || doc.listedWeek < lastClosed);
+  let listNow = loopsOn && (!doc.listedWeek || doc.listedWeek < lastClosed);
+  let listed = 0;
+  if (listNow) {
+    try {
+      listed = Math.max(0, n - (await countSuspendedTenants(deps.controlDb)));
+    } catch (err) {
+      // Listed again next run, once suspended brands can be counted.
+      console.warn("[loops] counting suspended brands failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+      listNow = false;
+    }
+  }
   const listedWeek = listNow ? lastClosed : doc.listedWeek;
   try {
     await writeLoopLane({ cursor, n, nAt, day: today, calls: callsToday + run.learn.calls, at: now.toISOString(), ...(listedWeek ? { listedWeek } : {}) }, deps.controlDb);
-    if (listNow) fleet.add(lastClosed, "_orgs/listed", n);
+    if (listNow) fleet.add(lastClosed, "_orgs/listed", listed);
   } catch (err) {
     console.warn("[loops] keeping the lane's cursor failed", err instanceof Error ? err.message.slice(0, 200) : "error");
   }

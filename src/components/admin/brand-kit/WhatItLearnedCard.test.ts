@@ -284,6 +284,15 @@ describe("the learning setting (screen 5) and the Image style card", () => {
     expect(member).toContain("disabled");
   });
 
+  it("with only the counts across brands on (no image versions), says leaving the counts is all it does", () => {
+    const only = html(createElement(LearningSettingCard, { isAdmin: true, offSince: null, counts: true, holdback: false }));
+    expect(only).toContain(W.LEARNING_SETTING.countsOnlyWords);
+    expect(only).not.toContain("1 in 20");
+    expect(only).toContain('href="/help/what-yougrow-learned#counts-across-brands"');
+    const both = html(createElement(LearningSettingCard, { isAdmin: true, offSince: null, counts: true }));
+    expect(both).toContain("1 in 20");
+  });
+
   it("gives the selected tile's small text a darker grey, for contrast on its blue", () => {
     const out = html(createElement(ImageStyleCard, { initial: { defaultStyleId: "natural_photo" }, suggestion: null, palette: [], canEdit: true, versions: true }));
     const selected = out.slice(out.indexOf('aria-pressed="true"'));

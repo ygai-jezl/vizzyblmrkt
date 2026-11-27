@@ -94,8 +94,8 @@ export async function POST(req: Request) {
       let full = "";
       let shown = 0;
       let held = false;
-      // A suggestion handed to the editor to keep: counted made once and its stamp signed for the
-      // save (learning loops step 5, decision 20). Never fails the answer.
+      // A suggestion handed to the editor to keep: counted made once; the editor's save checks no
+      // token yet, so none is signed (learning loops step 5, decision 20). Never fails the answer.
       const handOver = async () => handBack(ctx, "edit_mode", (await learnedFor(ctx, "edit_mode", { by: "vizzy" })).stamp).catch(() => null);
       try {
         for await (const chunk of generateTextStream(prompt, {

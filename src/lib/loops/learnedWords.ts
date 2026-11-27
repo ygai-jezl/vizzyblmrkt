@@ -368,6 +368,9 @@ export const LEARNING_SETTING = {
   /** With LOOPS_ENABLED on (step 5), the setting also leaves the brand out of the counts across brands. */
   countsWords:
     "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts and also stops the 1 in 20 images made without what YouGrow learned.",
+  /** With LOOPS_ENABLED on and image style versions off: no image is held back, so the setting only leaves the counts. */
+  countsOnlyWords:
+    "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts.",
   member: "Only admins can change it.",
 } as const;
 /** The line under the setting while it is off: step 4's, or with the counts across brands on (step 5), step 5's. */

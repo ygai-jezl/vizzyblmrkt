@@ -69,13 +69,14 @@ describe("publishing counts what happened to Vizzy's draft", () => {
     expect(cellOf(db)).toEqual({ v0: { none: { kept: 1, edited: 1 } } });
   });
 
-  it("counts neither with no draft kept, nor for a person's own post", async () => {
+  it("counts no_draft, never kept or edited, with no draft kept, and nothing for a person's own post", async () => {
     const db = new FakeFirestore();
     const { stamp } = await learnedFor(ctx, "content_write");
     await scheduleDue(db, "n_1", "linkedin", AI, stamp, null);
     await scheduleDue(db, "n_2", "linkedin", AI, { unstamped: "person_wrote" });
     expect(await processScheduledPosts(ctx, 25, db)).toMatchObject({ done: 2 });
-    expect(db.dump("loop_days")).toEqual([]);
+    // So the heartbeat can say "no draft kept" instead of a stall with no cause (4.4).
+    expect(cellOf(db)).toEqual({ v0: { none: { no_draft: 1 } } });
   });
 
   it("with LOOPS_ENABLED off counts nothing (decision 22)", async () => {

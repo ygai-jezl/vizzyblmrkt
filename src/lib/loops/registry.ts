@@ -411,7 +411,7 @@ export const LOOP_RULES = {
   stampTokenDays: 7,
 
   // ----- Counts across brands (step 5) -----
-  /** An organisation counts at most 20 outputs per cell per week, so one busy organisation can't outweigh the rest. */
+  /** An organisation counts at most 20 outputs a week for each kind and signal, however made, and each image style, scaled together so shares hold. */
   orgOutputsCap: 20,
 
   // ----- Cards -----

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { LOOPS_COPY, type Cell, type LoopsData, type LoopsSectionView } from "@/lib/loops/loopsSection";
 
 /**
@@ -14,6 +15,12 @@ const hint = "text-xs text-neutral-500 dark:text-neutral-400";
 const amberText = "font-semibold text-amber-800 dark:text-amber-300";
 const tone = (c: Cell) => (c.tone === "amber" ? amberText : c.tone === "faint" ? "text-neutral-500 dark:text-neutral-400" : "");
 const num = "px-3 py-2 text-right tabular-nums";
+/** A group's summary: its own chevron, turned while open, in place of the marker a flex summary loses. */
+const summaryBase = "flex cursor-pointer list-none px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900 [&::-webkit-details-marker]:hidden";
+
+function Chevron() {
+  return <ChevronRight size={14} aria-hidden className="shrink-0 self-center text-neutral-500 transition-transform group-open:rotate-90 dark:text-neutral-400" />;
+}
 
 function SectionHead({ id, title, note }: { id: string; title: string; note?: string }) {
   return (
@@ -93,9 +100,10 @@ function Stages({ data }: { data: LoopsData }) {
       <div className="divide-y divide-neutral-200 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
         {data.groups.map((g) =>
           g.lines.length ? (
-            <details key={g.label}>
-              <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm font-semibold hover:bg-neutral-50 dark:hover:bg-neutral-900">
-                <span>{g.label}</span>
+            <details key={g.label} className="group">
+              <summary className={`${summaryBase} items-center gap-2 font-semibold`}>
+                <Chevron />
+                <span className="flex-1">{g.label}</span>
                 <span className={`${hint} font-normal`}>{g.note}</span>
               </summary>
               <div className="overflow-x-auto">
@@ -343,8 +351,9 @@ function Data({ data }: { data: LoopsData }) {
         <div className="divide-y divide-neutral-200 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
           {data.notLearning.map((g) =>
             g.lines.length ? (
-              <details key={g.label} open={g.open}>
-                <summary className="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900">
+              <details key={g.label} open={g.open} className="group">
+                <summary className={`${summaryBase} flex-wrap items-baseline gap-x-3 gap-y-1`}>
+                  <Chevron />
                   <span className="font-semibold">{g.label}</span>
                   <span className="min-w-0 flex-1 text-neutral-600 dark:text-neutral-400">{g.note}</span>
                   {g.over ? <span className={`text-xs ${amberText}`}>{g.over}</span> : null}

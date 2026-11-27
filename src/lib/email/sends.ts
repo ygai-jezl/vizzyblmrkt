@@ -48,8 +48,9 @@ function attributionOf(long: Record<string, string>): Omit<EventMetadata, "tenan
  *
  * `made` (learning loops step 5, decision 19) is required: what made the email, its stamp or why
  * it has none, kept on a new record with LOOPS_ENABLED on and never in the metadata. The sender
- * counts made itself; a stamp whose record couldn't be written counts `stamp_lost` here, in the
- * run's CountBuffer when one is given.
+ * counts made itself; a stamp whose record couldn't be written counts `stamp_lost` here, and one
+ * with no record to keep it (send records off) counts `records_off`, in the run's CountBuffer
+ * when one is given.
  */
 export async function sendMetadata(
   ctx: Pick<TenantContext, "tenantId" | "region">,
@@ -65,9 +66,15 @@ export async function sendMetadata(
     counts?: CountBuffer;
   },
 ): Promise<Record<string, string>> {
-  if (!isEmailSendRecordsEnabled()) return long;
+  if (!isEmailSendRecordsEnabled()) {
+    await countSendUnrecorded(ctx, deps.made, deps.kind, deps);
+    return long;
+  }
   const a = attributionOf(long);
-  if (!a) return long;
+  if (!a) {
+    await countSendUnrecorded(ctx, deps.made, deps.kind, deps);
+    return long;
+  }
   const id = sendIdOf(ctx.tenantId, emailEventKeyBase(a));
   const now = (deps.now ?? (() => new Date()))().toISOString();
   const made = keptMade(deps.made);
@@ -88,6 +95,24 @@ export async function sendMetadata(
     }
     return long;
   }
+}
+
+/**
+ * An email that goes with a stamp but no record to keep it on (4.2 row 4): send records are off,
+ * or a product journey's email names its enrolment instead (LIFECYCLE_SEND_TRACKING). The sender
+ * still counts it made, as the plan says, and this counts `records_off` beside it, so coverage
+ * shows the gap instead of reading 100%. Nothing for an email with no stamp. Never throws.
+ */
+export async function countSendUnrecorded(
+  ctx: Pick<TenantContext, "tenantId" | "region">,
+  made: Made,
+  kind: LoopKind,
+  deps: { db?: FirestoreLike; counts?: CountBuffer } = {},
+): Promise<void> {
+  if ("unstamped" in made) return;
+  const full: TenantContext = { ...ctx, source: "system" };
+  if (deps.counts) deps.counts.unstamped(full, kind, "records_off");
+  else await countUnstamped(full, kind, "records_off", { db: deps.db });
 }
 
 /**

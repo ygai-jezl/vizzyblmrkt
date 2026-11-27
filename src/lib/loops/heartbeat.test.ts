@@ -102,6 +102,33 @@ describe("a brand's week", () => {
     expect(planKeyOf(row("a"))).toBe("open");
   });
 
+  it("floors this week's numbers on the organisations whose week has them, not every one seen in the 28 days", () => {
+    const earlier = brandWeekReport(input({ window: [words("next_up", { made: 2 }), undefined, undefined, undefined] }));
+    expect(earlier.orgCells).toContain("next_up/orgs");
+    expect(earlier.orgCells).not.toContain("next_up/week/orgs");
+    expect(earlier.things).toEqual({});
+    const now = brandWeekReport(input({ window: [undefined, undefined, undefined, words("next_up", { made: 2 })] }));
+    expect(now.orgCells).toEqual(expect.arrayContaining(["next_up/orgs", "next_up/week/orgs", "next_up/st/stamped/all"]));
+  });
+
+  it("counts organisations per image style, and each refusal reason once for the copy however many kinds refused it", () => {
+    const week = {
+      c: { [NATURAL]: { post_image: { v1: { learned: { made: 2, voted: 1 } } } } },
+      r: { edit_mode: { plan: 1 }, content_write: { plan: 1 } },
+    };
+    const r = brandWeekReport(input({ window: [undefined, undefined, undefined, week] }));
+    expect(r.orgCells).toEqual(expect.arrayContaining(["image_style/styles/natural_photo", "edit_mode/refused/plan", "content_write/refused/plan", "_orgs/refused/plan"]));
+    expect(r.orgCells.filter((k) => k === "_orgs/refused/plan")).toHaveLength(1);
+  });
+
+  it("counts posts that went out with no AI draft kept, and names it where a brand is stuck at Stamped", () => {
+    const week = words("content_write", { made: 3, no_draft: 3 });
+    const r = brandWeekReport(input({ window: [week, week, week, week] }));
+    expect(r.stuck).toEqual(["content_write:stamped"]);
+    expect(r.orgCells).toEqual(expect.arrayContaining(["content_write/stuck/stamped/p/pro", "content_write/stuck/stamped/nodraft"]));
+    expect(r.things["content_write/nodraft"]).toBe(3);
+  });
+
   it("builds cell keys only from parts that can be counter keys", () => {
     expect(cellKey("next_up", "out", "none", "made")).toBe("next_up/out/none/made");
     expect(cellKey("next_up", "a/b")).toBeNull();
@@ -113,14 +140,15 @@ describe("a brand's week", () => {
 describe("an organisation's mark", () => {
   const report = (cells: string[], things: Record<string, number>, week = W) => ({ week, orgCells: cells, things });
 
-  it("counts an organisation with two brands once in a cell, and caps its outputs at 20 a cell", () => {
+  it("counts an organisation with two brands once in a cell, and caps its outputs at 20 a signal", () => {
     const a = creditMark(null, report(["next_up/st/stamped/p/pro", "_orgs/orgs"], { "next_up/out/none/made": 15 }), "t1");
     expect(a).toMatchObject({ late: false, orgCells: ["next_up/st/stamped/p/pro", "_orgs/orgs"], things: { "next_up/out/none/made": 15 } });
     if (a.late) throw new Error("late");
     const b = creditMark(a.mark, report(["next_up/st/stamped/p/pro", "next_up/st/signalled/p/pro"], { "next_up/out/none/made": 15 }), "t2");
     expect(b).toMatchObject({ late: false, orgCells: ["next_up/st/signalled/p/pro"], things: { "next_up/out/none/made": 5 } });
     if (b.late) throw new Error("late");
-    expect(b.mark.outputs["next_up/out/none/made"]).toBe(LOOP_RULES.orgOutputsCap);
+    // The budget is kept on the mark only, for every arm at once.
+    expect(b.mark.outputs["next_up/out/*/made"]).toBe(LOOP_RULES.orgOutputsCap);
     const c = creditMark(b.mark, report(["next_up/st/stamped/p/pro"], { "next_up/out/none/made": 3 }), "t3");
     expect(c).toMatchObject({ late: false, orgCells: [], things: {} });
   });
@@ -129,9 +157,43 @@ describe("an organisation's mark", () => {
     const old = creditMark(null, report(["_orgs/orgs"], { "next_up/out/none/made": 20 }, weekBefore(W)), "t1");
     if (old.late) throw new Error("late");
     const next = creditMark(old.mark, report(["_orgs/orgs"], { "next_up/out/none/made": 4 }), "t2");
-    expect(next).toMatchObject({ late: false, orgCells: ["_orgs/orgs"], things: { "next_up/out/none/made": 4 }, mark: { week: W, cells: ["_orgs/orgs"], outputs: { "next_up/out/none/made": 4 } } });
+    expect(next).toMatchObject({ late: false, orgCells: ["_orgs/orgs"], things: { "next_up/out/none/made": 4 }, mark: { week: W, cells: ["_orgs/orgs"], outputs: { "next_up/out/*/made": 4 } } });
     if (next.late) throw new Error("late");
     expect(creditMark(next.mark, report(["_orgs/orgs"], {}, weekBefore(W)), "t3")).toEqual({ late: true });
+  });
+
+  it("counts at most 20 made a kind however it was made, with its arms' shares kept", () => {
+    const c = creditMark(null, report([], { "post_image/out/learned/made": 100, "post_image/out/holdback/made": 10, "post_image/out/none/made": 30 }), "t");
+    if (c.late) throw new Error("late");
+    const made = Object.values(c.things).reduce((a, b) => a + b, 0);
+    expect(made).toBeLessThanOrEqual(LOOP_RULES.orgOutputsCap);
+    expect(c.things).toEqual({ "post_image/out/learned/made": 14, "post_image/out/holdback/made": 1, "post_image/out/none/made": 4 });
+    // A second brand of the organisation adds nothing once the budget is spent.
+    const d = creditMark(c.mark, report([], { "post_image/out/holdback/made": 5 }), "t2");
+    expect(d).toMatchObject({ late: false, things: { "post_image/out/holdback/made": 1 } });
+  });
+
+  it("scales signals that go together by one factor, so liked against voted reads the same capped as not", () => {
+    const c = creditMark(
+      null,
+      report([], {
+        "image_style/out/learned/made": 60,
+        "image_style/out/learned/voted": 50,
+        "image_style/out/learned/liked": 25,
+        "image_style/scope/natural_photo/learned/voted": 50,
+        "image_style/scope/natural_photo/learned/liked": 25,
+      }),
+      "t",
+    );
+    if (c.late) throw new Error("late");
+    expect(c.things["image_style/out/learned/liked"]! / c.things["image_style/out/learned/voted"]!).toBe(0.5);
+    expect(c.things).toMatchObject({ "image_style/out/learned/made": 20, "image_style/out/learned/voted": 16, "image_style/out/learned/liked": 8 });
+    // Each style has its own budget, scaled the same way.
+    expect(c.things).toMatchObject({ "image_style/scope/natural_photo/learned/voted": 20, "image_style/scope/natural_photo/learned/liked": 10 });
+    // Coverage shares one budget in all.
+    const cov = creditMark(null, report([], { "next_up/cov/stamped": 18, "next_up/cov/unstamped": 2 }), "t");
+    const cov2 = cov.late ? null : creditMark(cov.mark, report([], { "next_up/cov/stamped": 10, "next_up/cov/unstamped": 10 }), "t2");
+    expect(cov2).toMatchObject({ late: false, things: {} });
   });
 
   it("never grows past its bounds", () => {
@@ -244,7 +306,8 @@ describe("a brand's heartbeat", () => {
     const buffer = new FleetBuffer();
     const r = await heartbeat(lumen, row("ten_lumen"), state({ pointers: { scopes: {}, fleetOptOut: { at: "2026-12-01T00:00:00.000Z" } } }), buffer, { db, controlDb: db, now: NOW });
     expect(r).toEqual({ weeks: 0, late: 0, optedOut: true });
-    expect(buffer.size).toBe(0);
+    // Only the visit is counted, against brands listed, as listed counts every brand: nothing of the brand's.
+    expect(buffer.cells()).toEqual([{ id: fleetCellId.orgs(W), n: { visited: 1 } }]);
     expect(db.dump(LOOP_LANE)).toEqual([]);
     expect((await readLaneState(lumen, db)).heartbeatWeek).toBe(W);
   });
@@ -256,7 +319,8 @@ describe("a brand's heartbeat", () => {
     vi.spyOn(fails, "runTransaction").mockRejectedValue(new Error("unavailable"));
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(await heartbeat(lumen, row("ten_lumen"), state(), buffer, { db, controlDb: fails, now: NOW })).toEqual({ weeks: 1, late: 0 });
-    expect(buffer.size).toBe(0);
+    // The brand was visited for the week; nothing it reported was credited.
+    expect(buffer.cells()).toEqual([{ id: fleetCellId.orgs(W), n: { visited: 1 } }]);
     const lane = await readLaneState(lumen, db);
     expect(lane.heartbeatWeek).toBe(W);
     expect(lane.beat).toMatchObject({ week: W, reached: ["next_up:stamped"], stuck: [] });
@@ -271,9 +335,9 @@ describe("a brand's heartbeat", () => {
     expect(await heartbeat(lumen, lumenRow, state(), buffer, { db, controlDb: db, now: NOW })).toEqual({ weeks: 1, late: 0 });
     const mark = (db.raw(LOOP_LANE, laneMarkId({ tenantId: "ten_lumen", organisationId: "org_lumen" })) as { d: LaneMark }).d;
     expect(mark.week).toBe(W);
-    expect(mark.outputs["next_up/out/none/made"]).toBe(20);
+    expect(mark.outputs["next_up/out/*/made"]).toBe(20);
     const cells = Object.fromEntries(buffer.cells().map((c) => [c.id, c.n]));
-    expect(cells[fleetCellId.kind("next_up", W)]).toMatchObject({ orgs: 1, out: { none: { made: 20 } }, st: { stamped: { p: { open: 1 }, i: { unknown: 1 } } } });
-    expect(cells[fleetCellId.orgs(W)]).toEqual({ orgs: 1, p: { open: 1 }, i: { unknown: 1 }, reported: 1 });
+    expect(cells[fleetCellId.kind("next_up", W)]).toMatchObject({ orgs: 1, week: { orgs: 1 }, out: { none: { made: 20 } }, st: { stamped: { all: 1, p: { open: 1 }, i: { unknown: 1 } } } });
+    expect(cells[fleetCellId.orgs(W)]).toEqual({ orgs: 1, p: { open: 1 }, i: { unknown: 1 }, reported: 1, visited: 1 });
   });
 });

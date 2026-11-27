@@ -31,8 +31,9 @@ import { tallyByKind, unusedForWeek } from "./tally";
  * 2. Its lane state (`ls:`) records W first: a run cut off after this undercounts, and a rerun
  *    never reports W again.
  * 3. One transaction on its organisation's mark in `loop_lane` (creditMark): a report for the
- *    mark's week adds only cells not yet credited and outputs up to LOOP_RULES.orgOutputsCap a
- *    cell; one for a newer week replaces the mark; one for an older week is dropped and counted
+ *    mark's week adds only cells not yet credited and outputs up to LOOP_RULES.orgOutputsCap for
+ *    each kind and signal across arms (and each image style), scaled together so their shares
+ *    hold; one for a newer week replaces the mark; one for an older week is dropped and counted
  *    late. So an organisation with two brands counts once, and nothing counts twice.
  * 4. Its credited increments go to the run's FleetBuffer, which the lane writes in one batched
  *    write at the end of the run: a run cut off before then undercounts.
@@ -110,17 +111,28 @@ export interface WeekReport {
 /** Things with any count in a week. */
 function hasCounts(w: RowWeek | undefined): boolean {
   if (!w) return false;
-  return w.made !== 0 || w.signals !== 0 || w.learned !== 0 || [w.refused, w.own, w.liked, w.disliked, w.declinedWhy, w.unstamped, w.cards].some((c) => Object.keys(c).length > 0);
+  return (
+    w.made !== 0 ||
+    w.signals !== 0 ||
+    w.learned !== 0 ||
+    w.noDraft !== 0 ||
+    [w.refused, w.own, w.liked, w.disliked, w.declinedWhy, w.unstamped, w.cards].some((c) => Object.keys(c).length > 0)
+  );
 }
 
-/** Scale a kind's coverage to at most the cap in all, so its share holds while one busy organisation can't outweigh the rest. */
+/**
+ * Scale a kind's coverage to at most the cap in all, so its share holds while one busy organisation
+ * can't outweigh the rest. A save with no stamp, or a lost stamp, never scales away to nothing, and
+ * the three together stay within the cap, so the mark adds them as they are.
+ */
 function scaledCoverage(stamped: number, unstamped: number, lost: number, cap: number): Counts {
   const all = stamped + unstamped + lost;
   if (all <= cap) return { stamped, unstamped, lost };
   const f = cap / all;
-  // A save with no stamp, or a lost stamp, never scales away to nothing.
   const keep = (n: number) => (n > 0 ? Math.max(1, Math.round(n * f)) : 0);
-  return { stamped: Math.round(stamped * f), unstamped: keep(unstamped), lost: keep(lost) };
+  const u = keep(unstamped);
+  const l = keep(lost);
+  return { stamped: Math.max(0, Math.min(Math.round(stamped * f), cap - u - l)), unstamped: u, lost: l };
 }
 
 /** The brand's report for one closed week. */
@@ -140,9 +152,13 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     const k = cellKey(row, ...path);
     if (k) orgCells.add(k);
   };
+  /** Rows this report adds a number of things to: their organisations this week (`<row>/week/orgs`) floor those numbers. */
+  const withThings = new Set<string>();
   const thing = (n: number, row: string, ...path: string[]) => {
     const k = n > 0 ? cellKey(row, ...path) : null;
-    if (k) things[k] = (things[k] ?? 0) + Math.floor(n);
+    if (!k) return;
+    things[k] = (things[k] ?? 0) + Math.floor(n);
+    withThings.add(row);
   };
   const flat = (n: number, row: string, ...path: string[]) => {
     const k = n > 0 ? cellKey(row, ...path) : null;
@@ -186,9 +202,12 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     const w = current.get(row);
     if (!st.reached && !hasCounts(w) && Object.keys(st.refused).length === 0 && !st.card && st.waitDays === null) continue;
 
-    // Counts of organisations: the window's.
+    // Counts of organisations: the window's. Each step counts the organisation once (`all`), and
+    // once under its brand's plan and industry, so a plan row can hold an organisation two of
+    // whose brands are on different plans without the kind's total counting it twice.
     org(row, "orgs");
     for (const s of stagesThrough(st.reached)) {
+      org(row, "st", s, "all");
       org(row, "st", s, "p", input.plan);
       org(row, "st", s, "i", input.industry);
     }
@@ -196,9 +215,16 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     if (st.stuck) {
       org(row, "stuck", st.stuck, "p", input.plan);
       if (st.topReason) org(row, "stuck", st.stuck, "why", input.plan, st.topReason);
+      // Stuck at Stamped with posts that went out with no AI draft kept: nothing could count as kept or edited (4.4).
+      if (st.stuck === "stamped" && st.noDraft > 0) org(row, "stuck", st.stuck, "nodraft");
       stuck.push(`${row}:${st.stuck}`);
     }
-    for (const [reason, n] of Object.entries(st.refused)) if (n > 0) org(row, "refused", reason);
+    for (const [reason, n] of Object.entries(st.refused)) {
+      if (n <= 0) continue;
+      org(row, "refused", reason);
+      // And once for the copy, however many kinds refused it for that reason.
+      org(FLEET_ROWS.orgs, "refused", reason);
+    }
     if (st.card) org(row, "cards", "orgs");
     if (st.waitDays !== null) {
       org(row, "wait", "orgs");
@@ -208,7 +234,18 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     // Counts of things: the week's own.
     if (w) {
       for (const [arm, signals] of Object.entries(w.out)) for (const [s, n] of Object.entries(signals)) thing(n, row, "out", arm, s);
-      for (const [style, byArm] of Object.entries(w.scope)) for (const [arm, signals] of Object.entries(byArm)) for (const [s, n] of Object.entries(signals)) thing(n, row, "scope", style, arm, s);
+      for (const [style, byArm] of Object.entries(w.scope)) {
+        let used = false;
+        for (const [arm, signals] of Object.entries(byArm)) {
+          for (const [s, n] of Object.entries(signals)) {
+            thing(n, row, "scope", style, arm, s);
+            if (n > 0) used = true;
+          }
+        }
+        // The organisations behind each style's numbers, so a style shows only from 10 of them.
+        if (used) org(row, "styles", style);
+      }
+      thing(w.noDraft, row, "nodraft");
       for (const [s, n] of Object.entries(w.own)) thing(n, row, "own", s);
       for (const [r, n] of Object.entries(w.liked)) thing(n, row, "why", "liked", r);
       for (const [r, n] of Object.entries(w.disliked)) thing(n, row, "why", "disliked", r);
@@ -219,6 +256,8 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     const c = coverage.get(row);
     if (c && c.s + c.u + c.l > 0) for (const [k, n] of Object.entries(scaledCoverage(c.s, c.u, c.l, cap))) thing(n, row, "cov", k);
     thing(unused.get(row) ?? 0, row, "unused");
+    // The organisations whose week has numbers of things in this row: the floor for those numbers.
+    if (withThings.has(row)) org(row, "week", "orgs");
   }
 
   // Made per ontology type, with organisations.
@@ -244,10 +283,28 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
 export type MarkCredit = { late: true } | { late: false; mark: LaneMark; orgCells: string[]; things: Counts };
 
 /**
+ * The budget an output counts against, and the group whose outputs scale together (4.6, the cap
+ * of LOOP_RULES.orgOutputsCap): a kind's outputs by arm (`<row>/out/<arm>/<signal>`) share one
+ * budget for each signal across the arms, so its made counts at most the cap however it was made;
+ * an image style's (`<row>/scope/<style>/<arm>/<signal>`) the same for each style; coverage
+ * (`<row>/cov/<k>`) one budget in all; any other output is its own. Budgets are kept on the mark
+ * only, never sent: a `*` in their keys, which no cell has, keeps them apart.
+ */
+export function budgetOf(key: string): { group: string; budget: string } {
+  const p = key.split("/");
+  if (p.length === 4 && p[1] === "out") return { group: `${p[0]}/out`, budget: `${p[0]}/out/*/${p[3]}` };
+  if (p.length === 5 && p[1] === "scope") return { group: `${p[0]}/scope/${p[2]}`, budget: `${p[0]}/scope/${p[2]}/*/${p[4]}` };
+  if (p.length === 3 && p[1] === "cov") return { group: `${p[0]}/cov`, budget: `${p[0]}/cov/*` };
+  return { group: key, budget: key };
+}
+
+/**
  * Credit one brand's report to its organisation's mark: a mark for a newer week drops the report
- * (late); one for the same week adds only cells not yet credited and outputs up to `cap` a cell;
- * an older mark, or none, starts the week afresh. A mark never grows past its bounds: a cell or
- * output past them is left out, which can only undercount.
+ * (late); one for the same week adds only cells not yet credited and outputs up to `cap` against
+ * each budget (budgetOf); an older mark, or none, starts the week afresh. A group's outputs scale
+ * by one factor, from the budget with least room against what the report brings it, so liked
+ * against voted, or kept against made, reads the same capped as uncapped. A mark never grows past
+ * its bounds: a cell or output past them is left out, which can only undercount.
  */
 export function creditMark(mark: LaneMark | null, report: Pick<WeekReport, "week" | "orgCells" | "things">, at: string, cap: number = LOOP_RULES.orgOutputsCap): MarkCredit {
   if (mark && mark.week > report.week) return { late: true };
@@ -262,16 +319,33 @@ export function creditMark(mark: LaneMark | null, report: Pick<WeekReport, "week
     cells.add(k);
     orgCells.push(k);
   }
-  for (const [k, raw] of Object.entries(report.things)) {
-    if (k.length > MARK_KEY_CHARS) continue;
-    const has = Object.prototype.hasOwnProperty.call(outputs, k);
-    if (!has && outputKeys >= MARK_OUTPUTS_MAX) continue;
-    const was = outputs[k] ?? 0;
-    const add = Math.min(Math.floor(raw), cap - was);
-    if (!(add > 0)) continue;
-    if (!has) outputKeys += 1;
-    outputs[k] = was + add;
-    things[k] = add;
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(outputs, k);
+  const groups = new Map<string, Array<{ key: string; n: number; budget: string }>>();
+  for (const [key, raw] of Object.entries(report.things)) {
+    const n = Math.floor(raw);
+    if (key.length > MARK_KEY_CHARS || !(n > 0)) continue;
+    const { group, budget } = budgetOf(key);
+    const items = groups.get(group) ?? groups.set(group, []).get(group)!;
+    items.push({ key, n, budget });
+  }
+  for (const items of groups.values()) {
+    const want = new Map<string, number>();
+    for (const { n, budget } of items) want.set(budget, (want.get(budget) ?? 0) + n);
+    let f = 1;
+    let fresh = 0;
+    for (const [budget, n] of want) {
+      if (!has(budget)) fresh += 1;
+      f = Math.min(f, Math.max(0, cap - (outputs[budget] ?? 0)) / n);
+    }
+    // A group whose budgets the mark can't hold is left out whole, so its shares never skew.
+    if (!(f > 0) || outputKeys + fresh > MARK_OUTPUTS_MAX) continue;
+    for (const { key, n, budget } of items) {
+      const add = Math.floor(n * f);
+      if (!(add > 0)) continue;
+      if (!has(budget)) outputKeys += 1;
+      outputs[budget] = (outputs[budget] ?? 0) + add;
+      things[key] = (things[key] ?? 0) + add;
+    }
   }
   return { late: false, mark: { week: report.week, cells: [...cells], outputs, at }, orgCells, things };
 }
@@ -431,9 +505,17 @@ export async function heartbeat(
   if (!last) return none;
   const warn = (what: string, err: unknown) => console.warn(`[loops] ${what} failed`, err instanceof Error ? err.message.slice(0, 200) : "error");
 
-  // Opted out: nothing is sent, and the weeks are marked done.
+  // Opted out: nothing of the brand's is sent, and the weeks are marked done. The visit itself
+  // counts, as brands listed count every brand, so coverage compares like with like.
   if (state.pointers.fleetOptOut) {
-    await mergeLaneState(ctx, { heartbeatWeek: last }, deps.db).catch((err) => warn("keeping the heartbeat's week", err));
+    const kept = await mergeLaneState(ctx, { heartbeatWeek: last }, deps.db).then(
+      () => true,
+      (err: unknown) => {
+        warn("keeping the heartbeat's week", err);
+        return false;
+      },
+    );
+    if (kept) for (const week of weeks) buffer.add(week, `${FLEET_ROWS.orgs}/visited`, 1);
     return { ...none, optedOut: true };
   }
 
@@ -508,6 +590,8 @@ export async function heartbeat(
     warn("keeping the heartbeat's week", err);
     return none;
   }
+  // Each week the brand claimed, counted once: reported or late, against brands listed.
+  for (const week of weeks) buffer.add(week, `${FLEET_ROWS.orgs}/visited`, 1);
 
   // 3. The organisation's mark, one transaction a week.
   let late = 0;

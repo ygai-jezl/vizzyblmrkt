@@ -13,6 +13,7 @@ import { VersionTotalsSchema, type BrandPointers } from "@/lib/types/loopDay";
 import { goBackOf, openGoBackCards, supersedeGoBackCards } from "./cards";
 import { clearOldCopy } from "./oldCopy";
 import { countCard, countVersionSignal } from "./count";
+import { isLoopsEnabled } from "./flags";
 import { BRAND_SCOPE } from "./read";
 import { IMAGE_STYLE_SCOPES, type ImageStyleScope } from "./registry";
 import { LOOK_REFUSED_MESSAGE } from "./textCheck";
@@ -428,10 +429,12 @@ export async function forgetUndone(ctx: TenantContext, scope: unknown, deps: Act
 /**
  * The learning setting, Help check that learning works (screen 5): off puts `fleetOptOut` on the
  * brand's pointers, so no image of the brand is held back (and, from step 5, the brand is left out
- * of counts across brands); on takes it away. The brand's own learning carries on either way.
+ * of counts across brands); on takes it away. The brand's own learning carries on either way. It
+ * works while image style versions or the learning loops are on, so a brand can always leave the
+ * counts across brands while they run (decision 4).
  */
 export async function setHelpCheck(ctx: TenantContext, on: boolean, deps: ActionDeps = {}): Promise<ActionResult> {
-  if (!isImageStyleVersionsOn()) return fail("switch");
+  if (!isImageStyleVersionsOn() && !isLoopsEnabled()) return fail("switch");
   const at = (deps.now ?? new Date()).toISOString();
   return inTransaction(ctx, deps, async (txn) => {
     const pointers = await readBrandPointersTx(txn, ctx, deps.db);

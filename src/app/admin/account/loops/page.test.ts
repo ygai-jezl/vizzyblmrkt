@@ -61,9 +61,14 @@ describe("Settings › Loops", () => {
   it("renders every block of a closed week: the Memory Bank stall in amber, thumbs down, coverage and the lines that don't learn", async () => {
     const [week, before] = loopsWeeks(new Date());
     const db = new FakeFirestore();
-    db.seed(FLEET_CELLS, fleetCellId.orgs(week!), { n: { orgs: 3, p: { pro: 3 }, i: { unknown: 3 }, reported: 3, listed: 3 } });
+    db.seed(FLEET_CELLS, fleetCellId.orgs(week!), { n: { orgs: 3, p: { pro: 3 }, i: { unknown: 3 }, visited: 3, reported: 3, listed: 3, refused: { plan: 3 } } });
     db.seed(FLEET_CELLS, fleetCellId.kind("edit_mode", week!), {
-      n: { orgs: 3, st: { stamped: { p: { pro: 3 } }, signalled: { p: { pro: 3 } } }, stuck: { signalled: { p: { pro: 3 }, why: { pro: { plan: 3 } } } }, refused: { plan: 3 } },
+      n: {
+        orgs: 3,
+        st: { stamped: { all: 3, p: { pro: 3 } }, signalled: { all: 3, p: { pro: 3 } } },
+        stuck: { signalled: { p: { pro: 3 }, why: { pro: { plan: 3 } } } },
+        refused: { plan: 3 },
+      },
     });
     store.db = db;
     const html = await open();
@@ -87,6 +92,10 @@ describe("Settings › Loops", () => {
     expect(html).toContain("Edit mode, Pro: all 3 organisations that reached Signalled are stuck there, none Learning for 28 days. Top reason: not in the brand&#x27;s plan (3).");
     expect(html).toContain("Not in the brand&#x27;s plan");
     expect(html).toContain("What each line means and why");
+    // Each group shows whether it is open: its own chevron, turned while open, for the marker a flex summary loses.
+    expect(html).toContain("group-open:rotate-90");
+    expect(html).toContain("[&amp;::-webkit-details-marker]:hidden");
+    expect(html).not.toContain("Learning runs are behind");
     // The other week has no counts yet, so it is shown but isn't a link.
     expect(html).not.toContain(`href="/admin/account/loops?week=${before}"`);
     expect(html).toContain('aria-disabled="true"');

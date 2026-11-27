@@ -30,9 +30,10 @@ const ImageSchema = z.object({
 
 /**
  * Agent 3: generate a hero image (Gemini Nano Banana) and store it for the email. With image style
- * versions on (learning loops step 4) it reads what was learned for the hero's style, counts the
- * image made once stored, and hands its stamp back as a signed token (`stampToken`), which the
- * email's save brings back. With them off the image and the response are exactly as before.
+ * versions on (learning loops step 4) it reads what was learned for the hero's style and counts the
+ * image made once stored; no save of the email checks a stamp token yet, so none is handed back
+ * (TOKEN_SAVES in src/lib/loops/handBack.ts). With them off the image and the response are
+ * exactly as before.
  */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
@@ -81,8 +82,8 @@ export async function POST(req: Request) {
     usage: aiUsage(ctx, "email_hero"),
   });
   if (result.reason === "image_limit") return NextResponse.json({ ...result, error: "image_limit", message: IMAGE_LIMIT_MESSAGE }, { status: 429 });
-  // Counted once handed back, with its stamp signed for the save (decision 20); email heroes never
-  // count a remake (decision 12).
+  // Counted once handed back (decision 20; a token only for a save that checks one); email heroes
+  // never count a remake (decision 12).
   const stampToken = result.imageUrl
     ? await handBack(ctx, "email_hero", settleStamp(learned.stamp, { lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0 }))
     : null;

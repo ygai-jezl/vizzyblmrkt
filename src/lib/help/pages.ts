@@ -7,6 +7,7 @@ import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/con
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 
 /**
@@ -30,7 +31,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "image_versions" | "settings_history";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "learning" | "settings_history";
 }
 
 /**
@@ -97,6 +98,8 @@ export interface HelpBodyProps {
   nextActionCard?: boolean;
   /** The learning loops count what YouGrow makes, across brands too (isLoopsEnabled(), a server switch: the drawer gets it from the admin shell). */
   loops?: boolean;
+  /** Image style versions, the image looks YouGrow learns (isImageStyleVersionsOn(), a server switch: the drawer gets it from the admin shell). */
+  imageVersions?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -170,7 +173,7 @@ export const HELP_PAGES: HelpPage[] = [
     "What YouGrow learned",
     "grow",
     "See the look each image style learned from your votes, how each new look is checked, and how to undo, pause or forget it.",
-    "image_versions",
+    "learning",
   ),
   page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
@@ -222,7 +225,8 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // As /login decides: the switch on and a way to deliver the code, so the page never describes
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
-  if (p.onlyWhen === "image_versions") return isImageStyleVersionsOn();
+  // Image style versions, or the learning loops, whose counts across brands a brand can leave here.
+  if (p.onlyWhen === "learning") return isImageStyleVersionsOn() || isLoopsEnabled();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   return true;
 }

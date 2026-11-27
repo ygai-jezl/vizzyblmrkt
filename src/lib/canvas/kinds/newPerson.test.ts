@@ -147,7 +147,8 @@ describe("the new_person kind", () => {
   it("points at the person already holding the address, and drafts nothing", async () => {
     db.seed("contacts", SAM, { tenantId: "ten_A", contactKey: "sam.okoro@example.com", email: "sam.okoro@example.com" });
     const r = await author({ email: "sam.okoro@example.com", firstName: "Samuel" });
-    expect(r).toMatchObject({ ok: true, status: "existing", url: `/admin/crm/people/${SAM}`, card: { title: "Already in People" } });
+    // Nothing new was drafted, so the canvas route counts nothing made (decision 20).
+    expect(r).toMatchObject({ ok: true, status: "existing", url: `/admin/crm/people/${SAM}`, card: { title: "Already in People" }, saved: "none" });
     expect(db.dump("agent_actions")).toEqual([]);
   });
 
@@ -162,9 +163,12 @@ describe("the new_person kind", () => {
     const again = await author({ phone: "+44 7700 900456", firstName: "Kim" });
     if (!first.ok || !again.ok) throw new Error("not saved");
     expect(again.id).toBe(first.id);
+    // The draft already waiting is nothing new to count made (decision 20); one in its place is.
+    expect([first.saved, again.saved]).toEqual(["created", "none"]);
     const newer = await author({ phone: "+44 7700 900456", firstName: "Kim", lastName: "Lee" });
     if (!newer.ok) throw new Error("not saved");
     expect(newer.id).not.toBe(first.id);
+    expect(newer.saved).toBe("created");
     expect(await getAgentAction(admin, first.id as AgentActionId, { db })).toMatchObject({ state: "declined", declined: { reason: "superseded" }, proposal: null });
   });
 

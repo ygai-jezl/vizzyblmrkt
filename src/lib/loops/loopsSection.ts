@@ -50,7 +50,7 @@ export const LOOPS_COPY = {
   noReasonGiven: "No reason given",
   downsFoot: "Only image thumbs ask why. The notes people add stay with their brand and are never counted.",
   stampsTitle: "Stamp coverage this week",
-  stampsNote: `Outputs count at most ${LOOP_RULES.orgOutputsCap} per organisation per kind, rounded to 2 figures`,
+  stampsNote: `Outputs count at most ${LOOP_RULES.orgOutputsCap} per organisation per kind, however they were made, rounded to 2 figures`,
   stampsHead: ["Kind", "Organisations", "Made", "Stamped", "Not stamped, top reason", "Lost"],
   fewer: "fewer than 10 organisations",
   fewerShort: "fewer than 10",
@@ -424,6 +424,11 @@ function stallLines(views: ReadonlyMap<string, KindView>): Array<{ text: string;
           : `${label}: ${orgsWords(atSignalled)} stuck at Signalled (${breakdown(byStep.signalled)}). None stuck at Stamped.${why}`;
     rest.push({ amber: false, text });
   }
+  // Stuck at Stamped because nothing could count: the posts went out with no AI draft kept to compare.
+  for (const row of TOP_ROWS) {
+    const n = views.get(row)!.stuckNoDraft;
+    if (n > 0) rest.push({ amber: false, text: `${kindLabel(row)}: ${orgsWords(n)} stuck at Stamped kept no AI draft to compare, so nothing could count as kept or edited.` });
+  }
   return [...out, ...rest];
 }
 
@@ -462,7 +467,7 @@ function downRows(views: ReadonlyMap<string, KindView>): DownRow[] {
     const none = roundTwo(Math.max(0, downs - given.reduce((n, [, k]) => n + k, 0)));
     const reasons: Chip[] = given.map(([k, n]) => ({ k: voteReasonLabel("image", "down", k) ?? keyWords(k), v: String(n) }));
     if (none > 0) reasons.push({ k: LOOPS_COPY.noReasonGiven, v: String(none), none: true });
-    return { kind, pool: row === IMAGE_POOL, orgs: String(kv.orgs), reasons };
+    return { kind, pool: row === IMAGE_POOL, orgs: String(kv.weekOrgs), reasons };
   });
 }
 
@@ -481,7 +486,7 @@ function stampRows(views: ReadonlyMap<string, KindView>): StampRow[] {
     return {
       kind: kindLabel(row),
       cells: {
-        orgs: String(kv.orgs),
+        orgs: String(kv.weekOrgs),
         made: m > 0 ? `about ${m}` : "0",
         pct: t.coverage === null ? "none saved" : `${Math.floor(t.coverage * 100)}%`,
         not: top ? `${unstampedWords(top[0])} ${top[1]}` : "none",
@@ -503,10 +508,15 @@ function cardLines(views: ReadonlyMap<string, KindView>): string[] {
   const declined: Record<string, number> = {};
   let shown = false;
   let cardsShown = false;
+  /** A row with numbers this week from fewer than 10 organisations, whose declines can't show. */
+  let hidden = false;
   for (const row of ROW_KINDS) {
     const kv = views.get(row)!;
     orgs += kv.cardOrgs;
-    if (!kv.things) continue;
+    if (!kv.things) {
+      if (kv.weekOrgs > 0) hidden = true;
+      continue;
+    }
     shown = true;
     addCounts(declined, kv.things.declined);
     if (kv.cardOrgs > 0 || Object.keys(kv.things.cards).length) {
@@ -521,12 +531,16 @@ function cardLines(views: ReadonlyMap<string, KindView>): string[] {
     else if (what.length) out.push(`What happened to them this week: ${what.map(([k, n]) => `${keyWords(k).toLowerCase()} ${n}`).join(", ")}.`);
   }
   const why = Object.entries(declined).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  // A kind below the floor may have declines too, so "none" is said only when no kind was left out.
+  const rest = hidden ? `; other kinds have ${LOOPS_COPY.fewer}` : "";
   out.push(
     !shown
       ? `Declines by reason: ${LOOPS_COPY.fewer}.`
       : why.length
-        ? `Declines by reason: ${why.map(([k, n]) => `${keyWords(k)} ${n}`).join(", ")}.`
-        : "Declines by reason: none this week.",
+        ? `Declines by reason: ${why.map(([k, n]) => `${keyWords(k)} ${n}`).join(", ")}${rest}.`
+        : hidden
+          ? `Declines by reason: none from kinds with 10 or more organisations; other kinds have ${LOOPS_COPY.fewer}.`
+          : "Declines by reason: none this week.",
   );
   return out;
 }
@@ -537,7 +551,7 @@ const WEEKS_A_MONTH = 52 / 12;
 /**
  * When the holdback could read, per image style, from this week's counts across the copy: the
  * check (liked, from votes) and the guard (remade, from images made), whichever needs longer,
- * at the votes learner's band. Per style organisations aren't counted, so the pool's floor applies.
+ * at the votes learner's band. A style shows only from 10 organisations behind its own numbers.
  */
 function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
   const kv = views.get(IMAGE_POOL);
@@ -552,7 +566,12 @@ function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
     .filter((s) => s.voted > 0 || s.made > 0)
     .sort((a, b) => b.voted - a.voted || b.made - a.made || a.style.localeCompare(b.style));
   const out: string[] = [];
+  let few = 0;
   for (const s of styles) {
+    if (!showsThings(kv.styleOrgs[s.style] ?? 0)) {
+      few += 1;
+      continue;
+    }
     const name = lookName(`image_style.${s.style}`);
     const votes = s.voted * WEEKS_A_MONTH;
     const images = s.made * WEEKS_A_MONTH;
@@ -564,8 +583,9 @@ function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
       out.push(`${name}: ${monthsWords(guard)} for the remake check at ${roundTwo(images)} images a month${check !== null ? ` (the likes check alone: ${monthsWords(check)})` : " (no votes this week)"}.`);
     }
   }
-  if (!out.length) out.push("No image votes this week.");
-  else out.push(`From this week's counts across ${kv.orgs} organisations, at their pace; nothing shows below 10.`);
+  if (!styles.length) return ["No image votes this week."];
+  if (few) out.push(out.length ? "Other styles: fewer than 10 organisations each." : "Every style: fewer than 10 organisations each.");
+  out.push(`From this week's counts across ${kv.weekOrgs} organisations, at their pace; a style shows only from 10 of them.`);
   return out;
 }
 
@@ -615,13 +635,14 @@ function differLines(ov: OrgsView, views: ReadonlyMap<string, KindView>): string
 }
 
 function coverageRows(ov: OrgsView, meterOn: boolean): { rows: LoopsData["coverage"]; behind: boolean } {
-  const short = ov.listed > 0 && ov.reported < ov.listed;
+  // Brands the lane visited for the week, opted out and late ones included, against brands listed.
+  const short = ov.listed > 0 && ov.visited < ov.listed;
   const fold = ov.foldBehindWeeks;
   const plans = orderPlans(Object.keys(ov.plans)).map((p) => [p, ov.plans[p]!] as [string, number]);
   return {
     behind: short || fold !== null,
     rows: [
-      { k: "Brands visited", v: ov.listed > 0 ? `${ov.reported} of ${ov.listed} this week` : `${ov.reported} this week`, amber: short },
+      { k: "Brands visited", v: ov.listed > 0 ? `${ov.visited} of ${ov.listed} this week` : `${ov.visited} this week`, amber: short },
       { k: "Oldest week not yet added up", v: fold === null ? "None" : fold >= 10 ? "10 weeks or more behind" : `${plural(fold, "week", "weeks")} behind`, amber: fold !== null },
       { k: "Usage meter", v: meterOn ? "On" : "Off: calls by purpose aren't counted", amber: false },
       { k: "Organisations", v: plans.length ? `${ov.orgs}: ${breakdown(plans)}` : String(ov.orgs), amber: false },
@@ -633,8 +654,8 @@ function coverageRows(ov: OrgsView, meterOn: boolean): { rows: LoopsData["covera
 export function loopsData(week: LoopsWeekRows, opts: { meterOn: boolean; today: Date; docsUrl: string }): LoopsData {
   const ov = orgsView(week.orgs);
   const views = new Map(ROW_KINDS.map((r) => [r, kindView(week.rows.get(r))]));
-  const reasons: Record<string, number> = {};
-  for (const kv of views.values()) addCounts(reasons, kv.refused);
+  // Organisations by refusal reason from the copy's own row: each once, however many kinds refused it.
+  const reasons = ov.refused;
   const cov = coverageRows(ov, opts.meterOn);
   return {
     behind: cov.behind,

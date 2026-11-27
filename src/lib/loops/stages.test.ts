@@ -118,6 +118,15 @@ describe("stuck", () => {
     expect(rowStage("edit_mode", weeksOf("edit_mode", undefined, refusedPlan(1, 4), made(4), made(1)), [], END).stuck).toBeNull();
   });
 
+  it("counts posts that went out with no AI draft kept, never as a person signal, so the row stays stuck at Stamped and says why", () => {
+    const noDraft = words("content_write", { made: 3, no_draft: 3 });
+    const w = rowsOfWeek(noDraft).get("content_write")!;
+    expect(w).toMatchObject({ made: 3, signals: 0, noDraft: 3 });
+    expect(w.out).toEqual({ none: { made: 3 } });
+    const st = rowStage("content_write", weeksOf("content_write", noDraft, noDraft, undefined, noDraft), [], END);
+    expect(st).toMatchObject({ reached: "stamped", stuck: "stamped", noDraft: 9 });
+  });
+
   it("is never stuck at Declared or at Learning", () => {
     expect(rowStage("edit_mode", weeksOf("edit_mode", undefined, undefined, undefined, undefined), [], END)).toMatchObject({ reached: null, stuck: null });
     const learning = rowStage("edit_mode", weeksOf("edit_mode", refusedPlan(3, 12), undefined, undefined, { r: { edit_mode: { learned: 1 } } }), [], END);

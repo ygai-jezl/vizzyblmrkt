@@ -15,7 +15,7 @@ import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { imageScopeOf, learnedFor, notLearningStamp } from "@/lib/loops/read";
-import { countMade } from "@/lib/loops/count";
+import { countLostStamp, countMade } from "@/lib/loops/count";
 import { readRemake, recordRemake, remakeUsage } from "@/lib/loops/remake";
 
 import { deleteImageAsset, newImageAssetId } from "@/lib/admin/brandKit";
@@ -165,7 +165,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         parentAssetId: null,
         byteSize: drawn.png.length,
       },
-    ).catch(() => null);
+    ).catch(async () => {
+      // The cover goes in the eBook anyway, so its stamp is lost with the row (4.1).
+      await countLostStamp(ctx, made);
+      return null;
+    });
     const coverRef = stored.filename;
     const savedCover = await mutateContentPlanEbookDraft(ctx, workspaceId, planId, (draft) =>
       applyGeneratedImage(draft, target, {

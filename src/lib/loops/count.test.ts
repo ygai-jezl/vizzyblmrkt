@@ -9,6 +9,7 @@ import {
   countKindSignals,
   countLearnedSignal,
   countLearnOutcome,
+  countLostStamp,
   countMade,
   countRefusedToken,
   countSignal,
@@ -167,6 +168,14 @@ describe("with versions on", () => {
     });
   });
 
+  it("counts a lost stamp under the stamp's own kind, and nothing for a thing with no stamp", async () => {
+    const db = new FakeFirestore();
+    await countLostStamp(hearth, { ...stamp, kind: "ebook_image" }, { db, now: NOW, random: () => 0 });
+    await countLostStamp(hearth, { unstamped: "own_image" }, { db, now: NOW, random: () => 0 });
+    await countLostStamp(hearth, null, { db, now: NOW, random: () => 0 });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({ u: { ebook_image: { stamp_lost: 1 } } });
+  });
+
   it("counts what a learner did and what happened to its cards", async () => {
     const db = new FakeFirestore();
     await countLearnOutcome(hearth, "loop_learn", "learned", { db, now: NOW, random: () => 0 });
@@ -212,7 +221,7 @@ describe("what people did with made things (step 5, 4.4)", () => {
     expect(draftOutcome("  ", DRAFT)).toBeNull();
   });
 
-  it("counts kept or edited against the stamp, and neither with no draft or no stamp", async () => {
+  it("counts kept or edited against the stamp; with no draft, no_draft instead (the heartbeat says so); with no stamp, nothing", async () => {
     vi.stubEnv("LOOPS_ENABLED", "true");
     const db = new FakeFirestore();
     const deps = { db, now: NOW, random: () => 0 };
@@ -223,7 +232,7 @@ describe("what people did with made things (step 5, 4.4)", () => {
     expect(await countDraftOutcome(hearth, post, { draft: null, final: DRAFT }, deps)).toBeNull();
     expect(await countDraftOutcome(hearth, { unstamped: "person_wrote" }, { draft: DRAFT, final: DRAFT }, deps)).toBeNull();
     expect(await countDraftOutcome(hearth, undefined, { draft: DRAFT, final: DRAFT }, deps)).toBeNull();
-    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual(cell({ kept: 2, edited: 2 }));
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual(cell({ kept: 2, edited: 2, no_draft: 1 }));
   });
 
   it("compares and counts nothing with LOOPS_ENABLED off (decision 22)", async () => {

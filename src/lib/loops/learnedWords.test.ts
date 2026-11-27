@@ -169,6 +169,7 @@ describe("the post image panel and the image details' words", () => {
 
   it("words the learning setting for step 4", () => {
     say(W.LEARNING_SETTING.words);
+    say(W.LEARNING_SETTING.countsOnlyWords);
     expect(say(W.learningOffLine("2027-06-03T09:00:00.000Z"))).toBe("Off since 3 Jun. Every image is made with what YouGrow learned.");
   });
 });

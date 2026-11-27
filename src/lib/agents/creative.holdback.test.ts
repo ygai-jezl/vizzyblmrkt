@@ -38,11 +38,16 @@ vi.mock("./imageStore", () => ({ storeEmailImage: vi.fn(async () => ({ ok: true,
 vi.mock("@/lib/admin/brandKit", () => ({
   recordImageAsset: vi.fn(async (_scope: unknown, input: { id?: string }) => ({ id: input.id ?? "minted", ...input })),
 }));
+vi.mock("@/lib/loops/count", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/loops/count")>()),
+  countLostStamp: vi.fn(async () => {}),
+}));
 
 const { generateSocialPostImage, generateEbookSlotImage, generateHeroImage } = await import("./creative");
 const { generateBlockImage, generateEbookImage, generateText, NO_USAGE } = await import("./gemini");
 const { generateBestOfN } = await import("@/lib/content/create/bestOfN");
 const { recordImageAsset } = await import("@/lib/admin/brandKit");
+const { countLostStamp } = await import("@/lib/loops/count");
 
 const stampOn = (arm: "learned" | "holdback"): LoopStamp => ({
   made: `m1.image_style.natural_photo.2.${arm === "learned" ? "l" : "h"}`,
@@ -150,6 +155,40 @@ describe("an eBook image", () => {
     await generateEbookSlotImage(ebook({ priorImageRef: "prior.png", brief: "make the background navy" }));
     expect(vi.mocked(generateEbookImage).mock.calls[0]![0].styleRefImages).toEqual([]);
     expect(recorded().made).toMatchObject({ arm: "none", made: "m1.image_style.natural_photo.2.n" });
+  });
+});
+
+describe("an image whose library row can't be written (4.1)", () => {
+  it("a post image still goes out, and its stamp counts stamp_lost", async () => {
+    vi.mocked(recordImageAsset).mockRejectedValueOnce(new Error("firestore down"));
+    const r = await generateSocialPostImage(social(false));
+    expect(r.imageAssetRef).toBe("img.png");
+    expect(countLostStamp).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_hearth", region: "us" }), r.made);
+  });
+
+  it("an eBook image too, under its own kind", async () => {
+    vi.mocked(recordImageAsset).mockRejectedValueOnce(new Error("firestore down"));
+    const r = await generateSocialPostImage(social(false));
+    expect(r.imageAssetRef).toBe("img.png");
+    vi.mocked(countLostStamp).mockClear();
+    vi.mocked(recordImageAsset).mockRejectedValueOnce(new Error("firestore down"));
+    await generateEbookSlotImage({
+      tenantId: "ten_hearth",
+      workspaceId: "ws_hearth",
+      brief: "A loaf scored in a wheat pattern",
+      aspect: "1:1" as const,
+      style: "natural_photo",
+      brandContext: "Brand context",
+      region: "us" as const,
+      usage: NO_USAGE,
+      learning: { made: { ...stampOn("learned"), kind: "ebook_image" as const }, lookUsed: true, holdback: false },
+    });
+    expect(countLostStamp).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: "ebook_image" }));
+  });
+
+  it("counts nothing lost when the row is written", async () => {
+    await generateSocialPostImage(social(false));
+    expect(countLostStamp).not.toHaveBeenCalled();
   });
 });
 

@@ -84,6 +84,7 @@ function world(over: Record<string, unknown> = {}): FakeFirestore {
 const PINNED_BRAND_KIT = {
   answer: {
     ok: true,
+    saved: "created",
     id: "email_style",
     status: "suggested",
     url: "/admin/brand-kit/email-style",
@@ -120,6 +121,7 @@ const PINNED_BRAND_KIT = {
 const PINNED_EDIT = {
   answer: {
     ok: true,
+    saved: "created",
     id: "email_style",
     status: "suggested",
     url: "/admin/brand-kit/email-style",
@@ -492,6 +494,7 @@ describe("email_style canvas kind: header options", () => {
     );
     expect(r).toEqual({
       ok: true,
+      saved: "created",
       id: "email_style",
       status: "suggested",
       url: "/admin/brand-kit/email-style",
@@ -690,6 +693,7 @@ describe("email_style canvas kind: header images", () => {
     const r = await spring(db);
     expect(r).toEqual({
       ok: true,
+      saved: "created",
       id: "email_style",
       status: "suggested",
       url: "/admin/brand-kit/email-style",
@@ -982,6 +986,7 @@ describe("email_style canvas kind: themes", () => {
     const db = world({ emailStyle: SAVED });
     expect(await author(db, { mode: "edit", theme: "modern" }, admin, "Make my emails feel more modern")).toEqual({
       ok: true,
+      saved: "created",
       id: "email_style",
       status: "suggested",
       url: "/admin/brand-kit/email-style",

@@ -62,7 +62,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     usage: aiUsage(ctx, "email_layout", { tenant }),
   });
   if (!layout) return NextResponse.json({ error: "generation_failed" }, { status: 502 });
-  // Handed to the browser to save later: counted made once and its stamp signed for the save (learning loops step 5, decision 20).
+  // Handed to the browser to save later: counted made once; the layout's save checks no token yet, so none is signed (learning loops step 5, decision 20).
   const stampToken = await handBack(ctx, "email_layout", (await learnedFor(ctx, "email_layout")).stamp);
   return NextResponse.json(withStampToken({ layout }, stampToken));
 }

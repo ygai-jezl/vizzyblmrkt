@@ -3,7 +3,7 @@ import { changedWords } from "@/lib/content/editMeasures";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { addToLoopDay, loopDayId, loopDayTtlAt } from "@/lib/tenant/loops";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import { LOOP_SIGNALS, type CounterTree, type LoopSignal } from "@/lib/types/loopDay";
+import { LOOP_SIGNALS, NO_DRAFT, type CounterTree, type LoopSignal } from "@/lib/types/loopDay";
 import { LoopStampSchema, SCOPE_MAX_CHARS, SCOPE_RE, UNSTAMPED_REASONS, type LoopStamp, type Made, type UnstampedReason } from "@/lib/types/loopStamp";
 import { isLoopsEnabled } from "./flags";
 import { isImageKind } from "./imageKinds";
@@ -21,7 +21,8 @@ import { STAMP_REFUSALS, type StampRefusal } from "./stamp";
  *
  * Under the shard's `d`:
  * - `c.<scope>.<kind>.v<v>.<arm>.<signal>`: a made thing's signals, by its stamp. The signals are
- *   LOOP_SIGNALS, plus `liked.<reason>` and `disliked.<reason>` for the why behind a vote (3.11),
+ *   LOOP_SIGNALS, plus NO_DRAFT for a thing that went out with no draft kept to compare (4.4),
+ *   `liked.<reason>` and `disliked.<reason>` for the why behind a vote (3.11),
  *   keyed by VOTE_REASONS (./reasons.ts), and `declined.<why>` for the why a person gave for
  *   dismissing a suggestion (Work's shared list on agent actions, counted as given). A changed vote
  *   adds a negative amount, so each thing counts once whatever week it moved in.
@@ -49,8 +50,11 @@ export function countsFor(kind: LoopKind): boolean {
   return isLoopsEnabled();
 }
 
-/** A made thing's signal, the why behind a vote (`liked.<reason>`, `disliked.<reason>`), or the why behind a dismissal (`declined.<why>`). */
-export type CountedSignal = LoopSignal | `liked.${string}` | `disliked.${string}` | `declined.${string}`;
+/**
+ * A made thing's signal, the why behind a vote (`liked.<reason>`, `disliked.<reason>`), the why
+ * behind a dismissal (`declined.<why>`), or that it went out with no draft kept (NO_DRAFT).
+ */
+export type CountedSignal = LoopSignal | typeof NO_DRAFT | `liked.${string}` | `disliked.${string}` | `declined.${string}`;
 
 const REASON_SIGNAL = /^(liked|disliked)\.([a-z_]+)$/;
 
@@ -64,7 +68,7 @@ const DECLINE_WHY_SIGNAL = /^declined\.[a-z_]{1,24}$/;
 /** Whether a signal can be counted for this kind: a LOOP_SIGNALS key, the why behind a dismissal, or a reason this kind's votes can carry in that direction. */
 export function isCountedSignal(kind: LoopKind, signal: string): signal is CountedSignal {
   if ((LOOP_SIGNALS as readonly string[]).includes(signal)) return true;
-  if (DECLINE_WHY_SIGNAL.test(signal)) return true;
+  if (signal === NO_DRAFT || DECLINE_WHY_SIGNAL.test(signal)) return true;
   const m = REASON_SIGNAL.exec(signal);
   // Only image votes carry reasons until step 7 adds them for posts and drafts.
   return Boolean(m && isImageKind(kind) && isVoteReason("image", m[1] === "liked" ? "up" : "down", m[2]!));
@@ -174,9 +178,10 @@ export function draftOutcome(draft: string | null | undefined, final: string): D
 /**
  * Count what a person did with a made thing's words before it went out (4.4): kept when no word
  * changed, edited otherwise. Given the draft and the final copy, or the words changed when the
- * caller has measured them (an approval's AI original). Nothing without a stamp, and nothing
- * without a kept draft (the heartbeat says "no draft kept"); with the kind's switch off nothing is
- * compared or counted. Never throws. Returns what was counted, or null.
+ * caller has measured them (an approval's AI original). Nothing without a stamp; without a kept
+ * draft, neither kept nor edited but NO_DRAFT, so the heartbeat can say "no draft kept"; with the
+ * kind's switch off nothing is compared or counted. Never throws. Returns what was counted
+ * (kept or edited), or null.
  */
 export async function countDraftOutcome(
   ctx: TenantContext,
@@ -198,7 +203,11 @@ export async function countDraftOutcome(
     console.warn("[loops] comparing a draft failed", err instanceof Error ? err.message.slice(0, 200) : "error");
     return null;
   }
-  if (!outcome) return null;
+  if (!outcome) {
+    // A stamped thing went out with no draft to compare it to: counted as such, never as kept or edited.
+    await countSignal(ctx, made, NO_DRAFT, deps);
+    return null;
+  }
   await countSignal(ctx, made, outcome.signal, deps);
   return outcome;
 }
@@ -258,6 +267,16 @@ export async function countOwnImage(ctx: TenantContext, deltas: Partial<Record<C
 export async function countUnstamped(ctx: TenantContext, kind: LoopKind, reason: UnstampedCount, deps: CountDeps = {}): Promise<void> {
   if (!(UNSTAMPED_COUNTS as readonly string[]).includes(reason)) return;
   await addToWeek(ctx, kind, { u: { [kind]: { [reason]: 1 } } }, "unstamped", deps);
+}
+
+/**
+ * Count a record lost after its output was used (4.1): an image whose image library row couldn't
+ * be written goes on the post anyway, and its stamp goes with the row. `stamp_lost` under the
+ * stamp's own kind; nothing for a thing with no stamp. Never throws.
+ */
+export async function countLostStamp(ctx: TenantContext, made: Made | null | undefined, deps: CountDeps = {}): Promise<void> {
+  if (!made || "unstamped" in made || !isLoopKind(made.kind)) return;
+  await countUnstamped(ctx, made.kind, "stamp_lost", deps);
 }
 
 /** Count a stamp token a save brought back and stamp.ts refused, by its reason. */

@@ -228,6 +228,8 @@ function outcome(
   ].join(", ");
   return {
     ok: true,
+    // A new suggestion, in place of any waiting.
+    saved: "created",
     id: "email_style",
     status: "suggested",
     url,

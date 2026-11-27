@@ -10,10 +10,21 @@ import { learnedAction } from "@/components/admin/brand-kit/learnedClient";
  * Help check that learning works, on by default. Off, no image of the brand is made without what
  * YouGrow learned, and the brand's own learning carries on. Admins change it; members read it.
  * With `counts` (LOOPS_ENABLED, step 5, worked out on the server) its words say that off also
- * leaves the brand out of the counts across brands. /help/what-yougrow-learned#holdback explains it,
- * and #counts-across-brands once the counts are on.
+ * leaves the brand out of the counts across brands, and with `holdback` false (image style
+ * versions off) that leaving the counts is all it does. /help/what-yougrow-learned#holdback
+ * explains it, and #counts-across-brands once the counts are on.
  */
-export function LearningSettingCard({ isAdmin, offSince: initial, counts = false }: { isAdmin: boolean; offSince: string | null; counts?: boolean }) {
+export function LearningSettingCard({
+  isAdmin,
+  offSince: initial,
+  counts = false,
+  holdback = true,
+}: {
+  isAdmin: boolean;
+  offSince: string | null;
+  counts?: boolean;
+  holdback?: boolean;
+}) {
   const [offSince, setOffSince] = useState<string | null>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +57,9 @@ export function LearningSettingCard({ isAdmin, offSince: initial, counts = false
           <input type="checkbox" checked={on} disabled={!isAdmin || busy} onChange={(e) => void toggle(e.target.checked)} className="mt-1" />
           <span>
             <span className="block text-sm font-medium">{LEARNING_SETTING.toggle}</span>
-            <span className="block text-sm text-neutral-600 dark:text-neutral-400">{counts ? LEARNING_SETTING.countsWords : LEARNING_SETTING.words}</span>
+            <span className="block text-sm text-neutral-600 dark:text-neutral-400">
+              {counts ? (holdback ? LEARNING_SETTING.countsWords : LEARNING_SETTING.countsOnlyWords) : LEARNING_SETTING.words}
+            </span>
           </span>
         </label>
         {offSince ? (

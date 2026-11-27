@@ -72,6 +72,8 @@ function seedWeek(db: FakeFirestore, week: string, orgs: Org[], listed = orgs.le
     for (const k of c.orgCells) buffer.add(week, k, 1);
     for (const [k, n] of Object.entries(c.things)) buffer.add(week, k, n);
     for (const [k, n] of Object.entries(report.plain)) buffer.add(week, k, n);
+    // The heartbeat counts each brand it visited for the week.
+    buffer.add(week, "_orgs/visited", 1);
   }
   buffer.add(week, "_orgs/listed", listed);
   for (const cell of buffer.cells()) db.seed(FLEET_CELLS, cell.id, { n: cell.n });
@@ -189,6 +191,12 @@ describe("a closed week, every block of screen 6", () => {
     expect(d2.coverage[2]).toEqual({ k: "Usage meter", v: "Off: calls by purpose aren't counted", amber: false });
   });
 
+  it("compares brands visited with brands listed, so an opted out brand, visited but not reported, never reads behind", () => {
+    const d = loopsData({ week: W, orgs: { orgs: 1, p: { open: 1 }, reported: 1, visited: 2, listed: 2 }, rows: new Map() }, { meterOn: true, today: NOW, docsUrl: "" });
+    expect(d.behind).toBe(false);
+    expect(d.coverage[0]).toEqual({ k: "Brands visited", v: "2 of 2 this week", amber: false });
+  });
+
   it("shows how far each kind gets by plan, the Memory Bank stall in amber, and Free with no Vizzy in Edit mode", async () => {
     const fake = new FakeFirestore();
     seedWeek(fake, W, copy());
@@ -293,9 +301,13 @@ describe("a closed week, every block of screen 6", () => {
     const fake = new FakeFirestore();
     seedWeek(fake, W, copy());
     const d = dataOf(await open(fake));
-    expect(d.cards).toEqual(["Organisations with a Go back card in the last 28 days: none.", "Declines by reason: none this week."]);
+    // Edit mode's 5 organisations are below the floor, so their declines can't show and "none" isn't said of them.
+    expect(d.cards).toEqual([
+      "Organisations with a Go back card in the last 28 days: none.",
+      "Declines by reason: none from kinds with 10 or more organisations; other kinds have fewer than 10 organisations.",
+    ]);
     expect(d.holdback[0]).toMatch(/^Natural photo: about \d+ months at 260 votes a month \(the remake check alone: (?:about \d+ months?|under a month)\)\.$/);
-    expect(d.holdback[1]).toBe("From this week's counts across 12 organisations, at their pace; nothing shows below 10.");
+    expect(d.holdback[1]).toBe("From this week's counts across 12 organisations, at their pace; a style shows only from 10 of them.");
     expect(d.industries).toEqual([{ k: "Unknown", v: "17", faint: false }]);
     expect(d.differs).toEqual([LOOPS_COPY.differsNone]);
     expect(d.cleanup).toBe("Brands still holding a look in the old place: 2. Clear it once versions have been on for 30 days; the self-host guide says how.");
@@ -337,7 +349,7 @@ describe("a closed week, every block of screen 6", () => {
   });
 
   it("says where an industry differs once an industry and the rest each have 10 organisations", () => {
-    const n = { orgs: 24, st: { stamped: { p: { free: 24 }, i: { food_and_drink: 12, software: 12 } }, learning: { p: { free: 11 }, i: { food_and_drink: 9, software: 2 } } } };
+    const n = { orgs: 24, st: { stamped: { all: 24, p: { free: 24 }, i: { food_and_drink: 12, software: 12 } }, learning: { all: 11, p: { free: 11 }, i: { food_and_drink: 9, software: 2 } } } };
     const d = loopsData(
       { week: W, orgs: { orgs: 24, p: { free: 24 }, i: { food_and_drink: 12, software: 12 } }, rows: new Map([["image_style", n]]) },
       { meterOn: true, today: NOW, docsUrl: "" },
@@ -347,6 +359,32 @@ describe("a closed week, every block of screen 6", () => {
       { k: "Software", v: "12", faint: false },
     ]);
     expect(d.differs[0]).toBe("Where an industry differs: Food and drink, Image style, Learning in 9 of 12 organisations, against 2 of 12 for the rest.");
+  });
+
+  it("counts an organisation once per refusal reason, however many kinds refused it", async () => {
+    const fake = new FakeFirestore();
+    const both: Org = { plan: "pro", window: fourWeeks({ c: { edit_mode: { edit_mode: { v0: { none: { made: 2 } } } } }, r: { edit_mode: { plan: 1 }, content_write: { plan: 1 } } }) };
+    seedWeek(fake, W, [both]);
+    expect(dataOf(await open(fake)).reasons).toEqual([{ k: "Not in the brand's plan", v: "1" }]);
+  });
+
+  it("shows when the holdback could read only for a style with 10 organisations behind it", async () => {
+    const fake = new FakeFirestore();
+    const collage: Org = {
+      plan: "free",
+      window: fourWeeks({ c: { "image_style.paper_collage": { post_image: { v1: { learned: { made: 6, voted: 4, liked: 2 } } } } } }),
+    };
+    seedWeek(fake, W, [...Array.from({ length: 11 }, () => bakery(false)), collage]);
+    const d = dataOf(await open(fake));
+    expect(d.holdback[0]).toMatch(/^Natural photo: /);
+    expect(d.holdback.some((l) => l.startsWith("Paper collage"))).toBe(false);
+    expect(d.holdback).toContain("Other styles: fewer than 10 organisations each.");
+  });
+
+  it("names a stall at Stamped that comes from posts with no AI draft kept to compare", () => {
+    const posts = { orgs: 4, st: { stamped: { all: 4, p: { pro: 4 } } }, stuck: { stamped: { p: { pro: 4 }, nodraft: 4 } } };
+    const d = loopsData({ week: W, orgs: { orgs: 4, p: { pro: 4 } }, rows: new Map([["content_write", posts]]) }, { meterOn: true, today: NOW, docsUrl: "" });
+    expect(d.stalls).toContainEqual({ amber: false, text: "Writing posts: 4 organisations stuck at Stamped kept no AI draft to compare, so nothing could count as kept or edited." });
   });
 
   it("names plans as the catalogue does", () => {

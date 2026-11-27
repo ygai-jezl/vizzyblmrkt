@@ -157,6 +157,8 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
     const url = `/admin/launches/${campaignId}/journey`;
     return {
       ok: true,
+      // One journey per launch: Vizzy's new draft of one it already counted is not a new journey.
+      saved: saved.created ? "created" : "rewritten",
       id: saved.journey.id,
       status: saved.journey.status,
       url,
@@ -196,6 +198,7 @@ async function saveMovedLaunchDraft(
   const url = `/admin/lifecycle/${journey.id}`;
   return {
     ok: true,
+    saved: existing ? "rewritten" : "created",
     id: journey.id,
     status: journey.status,
     url,

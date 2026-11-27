@@ -22,7 +22,7 @@ import { effectiveBasis } from "@/lib/connect/profile";
 import type { ProductContext } from "@/lib/connect/protocol";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressedFor } from "@/lib/email/suppression";
-import { sendMetadata } from "@/lib/email/sends";
+import { countSendUnrecorded, sendMetadata } from "@/lib/email/sends";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { enrolmentSendMetadata } from "@/lib/email/mandrillWebhook";
@@ -721,7 +721,12 @@ async function deliver(
     : {};
   if (result.sent || result.provider === "log") {
     // Counted once per email, in the run's buffer; shadow mail goes to the operator, not a person.
-    if (mode !== "shadow") s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
+    if (mode !== "shadow") {
+      s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
+      // An email that names its enrolment writes no send record, so no record keeps its stamp:
+      // counted `records_off` beside made, so coverage shows it (4.2 row 4).
+      if (recorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts });
+    }
     if (result.sent && mode !== "shadow") {
       await recordEmailEvent(
         ctx,

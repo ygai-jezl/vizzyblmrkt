@@ -4,8 +4,9 @@ import type { CanvasAuthorArgs } from "@/lib/canvas/types";
 
 /**
  * The canvas route stamps every Vizzy draft (learning loops step 5, 4.1 of the plan for steps 4
- * and 5): `canvas.<kind>`, made by Vizzy, handed to the kind to keep and counted made once the
- * draft is saved. Off, the kind is told `loops_off` and nothing is counted. Acme is made up.
+ * and 5): `canvas.<kind>`, made by Vizzy, handed to the kind to keep and counted made once a new
+ * draft is saved, never for a rewrite or a draft already waiting (decision 20). Off, the kind is
+ * told `loops_off` and nothing is counted. Acme is made up.
  */
 
 const authorDraft = vi.fn(async (_args: CanvasAuthorArgs) => ({
@@ -16,6 +17,7 @@ const authorDraft = vi.fn(async (_args: CanvasAuthorArgs) => ({
   summary: "Drafted an invite wave.",
   warnings: [],
   card: { kind: "invite_wave", id: "wave_1", title: "Invite wave", url: "/admin/launches/c1", stats: [], warnings: 0 },
+  saved: "created" as "created" | "rewritten" | "none",
 }));
 const countMade = vi.fn(async () => {});
 
@@ -62,6 +64,19 @@ describe("POST /api/agent/canvas stamps every Vizzy draft", () => {
     expect(authorDraft.mock.calls[0]![0].ctx.tenantId).toBe("ten_acme");
     expect(countMade).toHaveBeenCalledTimes(1);
     expect(countMade).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_acme" }), "canvas.invite_wave", made);
+  });
+
+  it("counts made once per saved draft: never for Vizzy's new words on one it counted, or for nothing new", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const base = await authorDraft({} as CanvasAuthorArgs);
+    authorDraft.mockClear();
+    for (const saved of ["rewritten", "none"] as const) {
+      authorDraft.mockResolvedValueOnce({ ...base, saved });
+      const res = await post({ kind: "invite_wave", action: "save_draft", scope: { campaignId: "c1", waveId: "wave_1" } });
+      expect(res.status).toBe(200);
+    }
+    expect(authorDraft).toHaveBeenCalledTimes(2);
+    expect(countMade).not.toHaveBeenCalled();
   });
 
   it("counts nothing when the kind refuses the draft", async () => {

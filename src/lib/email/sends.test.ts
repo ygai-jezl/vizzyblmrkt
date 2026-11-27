@@ -4,6 +4,8 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { METADATA_LIMIT_BYTES, fitMetadata, metadataBytes, type MandrillEvent } from "./mandrillWebhook";
 import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, sendMetadata, transactionalTag } from "./sends";
 import { personIdForAddress } from "@/lib/ontology/personRef";
+import type { CountBuffer } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 
 /** What made the email, as every sender must say (learning loops step 5): words a person wrote. */
 const SENT_BY_PERSON = { made: { unstamped: "person_wrote" }, kind: "journeys" } as const;
@@ -86,6 +88,20 @@ describe("sendMetadata", () => {
     const a = await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, ...SENT_BY_PERSON });
     expect(await attributionOfSend({ tenantId: "ten_other", region: "us", source: "system" }, a.s!, { db })).toBeNull();
     expect(await attributionOfSend({ ...ctx, source: "system" }, sendIdOf(LONGEST_TENANT, "evt:nothing"), { db })).toBeNull();
+  });
+
+  it("counts records_off for a stamped email with no record to keep its stamp, and nothing for one with no stamp", async () => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const unstamped = vi.fn();
+    const counts = { unstamped } as unknown as CountBuffer;
+    const db = new FakeFirestore() as unknown as FirestoreLike;
+    const stamp = (await learnedFor({ ...ctx, source: "system" }, "send_time")).stamp;
+    expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, made: stamp, kind: "send_time", counts })).toBe(longWaitlist);
+    expect(unstamped).toHaveBeenCalledWith(expect.objectContaining({ tenantId: LONGEST_TENANT }), "send_time", "records_off");
+    unstamped.mockClear();
+    await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, ...SENT_BY_PERSON, counts });
+    expect(unstamped).not.toHaveBeenCalled();
   });
 
   it("falls back to the long form when the record can't be written", async () => {

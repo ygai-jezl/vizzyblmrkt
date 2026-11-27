@@ -148,6 +148,7 @@ describe("journey_style canvas kind: what it writes", () => {
     const r = await author(db, { journeyId: journey.id, mode: "custom", headerColor: "#000080" });
     expect(r).toEqual({
       ok: true,
+      saved: "created",
       id: journey.id,
       status: "active",
       url: `/admin/lifecycle/${journey.id}`,

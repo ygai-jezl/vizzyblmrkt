@@ -33,7 +33,7 @@ import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
 import { newImageAssetId, recordImageAsset } from "@/lib/admin/brandKit";
 import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { imageScopeOf, learnedFor, notLearningStamp } from "@/lib/loops/read";
-import { countMade } from "@/lib/loops/count";
+import { countLostStamp, countMade } from "@/lib/loops/count";
 import { readRemake, recordRemake, remakeUsage } from "@/lib/loops/remake";
 
 export const runtime = "nodejs";
@@ -197,7 +197,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         parentAssetId: null,
         byteSize: drawn.png.length,
       },
-    ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+    ).catch(async (e) => {
+      console.warn("[brandKit] record social image failed:", e);
+      // The image goes on the post anyway, so its stamp is lost with the row (4.1).
+      await countLostStamp(ctx, made);
+    });
     const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
       made,
       imageAssetRef: stored.filename,

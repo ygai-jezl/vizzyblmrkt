@@ -108,36 +108,35 @@ export function parseOps(raw: readonly unknown[]): { ok: true; ops: ReviseOp[] }
 export const onlyRefresh = (ops: readonly unknown[]) =>
   ops.length > 0 && ops.every((o) => typeof o === "object" && o !== null && (o as { change?: unknown }).change === "refresh_numbers");
 
-/**
- * The values one number in someone's words can mean. A lone comma or dot followed by exactly three
- * digits is always a thousands mark ("12,000" and "6.200" are 12000 and 6200, never 12 or 6.2).
- * Otherwise a comma or a dot before the last digits is the decimal mark, the English way
- * (1,234.5), the way much of Europe writes it (1.234,5, 1 234,5, 1'234,5) or in lakh (1,00,000).
- * A run with a leading zero, such as "007" or the "05" in a date, is no number. Pure.
- */
-function readingsOf(token: string): number[] {
-  const t = token.replace(/[\s\u00a0\u202f'\u2019]/g, "");
-  if (/^0\d/.test(t)) return [];
-  const out = new Set<number>();
-  const thousands = (sep: string) => new RegExp(`^\\d{1,3}(?:\\${sep}\\d{3})+$`).test(t);
-  if (/^\d+$/.test(t)) out.add(Number(t));
-  else if (thousands(",")) out.add(Number(t.replace(/,/g, "")));
-  else if (thousands(".")) out.add(Number(t.replace(/\./g, "")));
-  else if (/^\d{1,3}(?:,\d{3})*\.\d+$/.test(t) || /^\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d+)?$/.test(t) || /^\d+\.\d+$/.test(t)) out.add(Number(t.replace(/,/g, "")));
-  else if (/^\d{1,3}(?:\.\d{3})*,\d+$/.test(t) || /^\d+,\d+$/.test(t)) out.add(Number(t.replace(/\./g, "").replace(",", ".")));
-  return [...out].filter(Number.isFinite);
+/** The decimal mark a locale writes: "." in English, "," in French or German. "." when unknown. */
+export function decimalMark(locale: string): "." | "," {
+  try {
+    return new Intl.NumberFormat(locale).formatToParts(1.5).find((p) => p.type === "decimal")?.value === "," ? "," : ".";
+  } catch {
+    return ".";
+  }
 }
 
 /**
- * Whether the person's own words hold this number, and not as part of a longer number: "$6,200 a
- * month", "6.200 €" and "14 200 €" hold 6200, "12,5 %" holds 12.5, "$12,000" never holds 12, and
- * "about 6k" doesn't hold 6000, so Vizzy asks for the figure rather than turning words into one.
+ * Whether the person's own words hold this number, read with the decimal mark of the brand's
+ * language (`locale`): the other of "." and ",", and a space or an apostrophe between groups of
+ * three digits, are thousands marks, and it is never part of a longer number. In English "$6,200 a
+ * month" holds 6200 and "0.125%" holds 0.125; in French or German "12,5 %" holds 12.5 and
+ * "6.200 €" or "14 200 €" holds 6200. "about 6k" doesn't hold 6000, so Vizzy asks for the figure
+ * rather than turning words into a number.
  */
-export function quoteHas(value: number, quote: string): boolean {
-  const want = Math.abs(value);
-  if (!Number.isFinite(want)) return false;
-  const tokens = quote.match(/\d(?:[\d.,]|[\s\u00a0\u202f'\u2019](?=\d{3}(?!\d)))*\d|\d/g) ?? [];
-  return tokens.some((tok) => readingsOf(tok).some((v) => Math.abs(v - want) < 1e-9));
+export function quoteHas(value: number, quote: string, locale = "en"): boolean {
+  const dec = decimalMark(locale);
+  const group = dec === "," ? "." : ",";
+  let said = quote
+    .replace(/(\d)[\s\u00a0\u202f'\u2019](?=\d{3}(?!\d))/g, "$1")
+    .replace(new RegExp(`(\\d)\\${group}(?=\\d)`, "g"), "$1");
+  if (dec === ",") said = said.replace(/(\d),(?=\d)/g, "$1.");
+  const digits = String(Math.abs(value));
+  if (!/^\d+(?:\.\d+)?$/.test(digits)) return false;
+  const [whole, frac] = digits.split(".");
+  const pattern = frac ? `${whole}\\.${frac}0*` : `${whole}(?:\\.0+)?`;
+  return new RegExp(`(?<![\\d.])${pattern}(?!\\d)`).test(said);
 }
 
 // ----- Helpers ---------------------------------------------------------------------------------
@@ -369,6 +368,9 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
   const tasks: Task[] = [];
   const removed = new Set<string>();
   let refresh = false;
+  // The brand, read once: its language sets how a typed number is read, and the pack needs it.
+  let tenantRead: Promise<Tenant | null> | null = null;
+  const tenantOnce = () => (tenantRead ??= (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null));
 
   const idAt = (pos: number, i: number): string | null => {
     const s = read[pos - 1];
@@ -445,7 +447,7 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
           break;
         }
         if (op.change === "typed_number") {
-          if (!quoteHas(op.value, op.quote)) return fail(422, "quote_mismatch", { issues: [`ops.${i}.quote: ${OP_ISSUES.notInQuote(String(Math.abs(op.value)))}`] });
+          if (!quoteHas(op.value, op.quote, (await tenantOnce())?.defaultLocale ?? "en")) return fail(422, "quote_mismatch", { issues: [`ops.${i}.quote: ${OP_ISSUES.notInQuote(String(Math.abs(op.value)))}`] });
           const b = typedBlock(
             { name: op.name, value: op.value, unit: op.unit, currency: op.currency, per: op.per ?? null, from: op.from },
             { typedBy: ctx.userId ?? "vizzy", saidInChat: true, quote: op.quote },
@@ -500,7 +502,7 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
   // Text changes: one model call for all of them.
   let sources: PackLine[] | undefined;
   if (tasks.length) {
-    const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
+    const tenant = await tenantOnce();
     const fresh = await raiseContext(ctx, { audience: doc.audience, stage: doc.stage }, { db: deps.db, loadTenant: async () => tenant, ...deps.pack, reader });
     const merged = mergeLines(doc.sources, fresh.lines);
     if (merged.sources.length > doc.sources.length) sources = merged.sources;

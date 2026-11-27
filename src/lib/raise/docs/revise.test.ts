@@ -283,29 +283,39 @@ describe("helpers", () => {
     expect(quoteHas(-300, "we lost 300 last month")).toBe(true);
   });
 
-  it("reads a number written the European way too, and never a different number", () => {
-    // French and German: a comma for the decimals, a dot or a space between thousands.
-    expect(quoteHas(12.5, "notre croissance est de 12,5 %")).toBe(true);
-    expect(quoteHas(125, "notre croissance est de 12,5 %")).toBe(false);
-    expect(quoteHas(6200, "unser Umsatz liegt bei 6.200 €")).toBe(true);
-    expect(quoteHas(14200, "14 200 € par mois")).toBe(true);
-    expect(quoteHas(1234567.89, "1.234.567,89 €")).toBe(true);
-    // A lone mark before three digits is always thousands, so a figure 1,000 times smaller never passes.
-    expect(quoteHas(6.2, "6.200 €")).toBe(false);
+  it("reads a number with the decimal mark of the brand's language, and never a different number", () => {
+    // English, as before: a comma between thousands, a dot before the decimals.
+    expect(quoteHas(0.125, "churn is 0.125% a month")).toBe(true);
+    expect(quoteHas(125, "churn is 0.125% a month")).toBe(false);
     expect(quoteHas(12, "our MRR is $12,000")).toBe(false);
     expect(quoteHas(1.5, "$1,500 a month")).toBe(false);
-    expect(quoteHas(250, "raising £250,000")).toBe(false);
-    expect(quoteHas(12500, "12,500 €")).toBe(true);
-    // A decimal mark before one, two or four digits, Swiss and lakh grouping, and leading zeros.
-    expect(quoteHas(1.5, "1,5 kg")).toBe(true);
-    expect(quoteHas(1.25, "1,25 €")).toBe(true);
-    expect(quoteHas(1234, "CHF 1\u2019234")).toBe(true);
-    expect(quoteHas(100000, "\u20b91,00,000")).toBe(true);
+    expect(quoteHas(0.002, "we charge $0.002 per API call")).toBe(true);
+    expect(quoteHas(2, "we charge $0.002 per API call")).toBe(false);
     expect(quoteHas(7, "agent 007")).toBe(false);
-    expect(quoteHas(5, "on 05/03")).toBe(false);
-    expect(quoteHas(1000000001, "\u00a31,000,000,000")).toBe(false);
-    // Two numbers apart stay two numbers.
     expect(quoteHas(1215, "up 12 15 times")).toBe(false);
+    // French and German: a comma before the decimals, a dot or a space between thousands.
+    expect(quoteHas(12.5, "notre croissance est de 12,5 %", "fr")).toBe(true);
+    expect(quoteHas(125, "notre croissance est de 12,5 %", "fr")).toBe(false);
+    expect(quoteHas(6200, "unser Umsatz liegt bei 6.200 €", "de")).toBe(true);
+    expect(quoteHas(6.2, "unser Umsatz liegt bei 6.200 €", "de")).toBe(false);
+    expect(quoteHas(14200, "14 200 € par mois", "fr")).toBe(true);
+    expect(quoteHas(14200, "14\u202f200 € par mois", "fr")).toBe(true);
+    expect(quoteHas(1234567.89, "1.234.567,89 €", "de")).toBe(true);
+    expect(quoteHas(0.125, "0,125 € par appel", "fr")).toBe(true);
+    expect(quoteHas(125, "0,125 € par appel", "fr")).toBe(false);
+    // Swiss: an apostrophe between thousands and a dot before the decimals.
+    expect(quoteHas(1234.5, "CHF 1\u2019234.50", "de-CH")).toBe(true);
+    // An unknown language reads the English way.
+    expect(quoteHas(6200, "$6,200", "xx-nope")).toBe(true);
+  });
+
+  it("reads a typed number in the brand's own language", async () => {
+    const doc = await deck();
+    const typed = { change: "typed_number", slide: 10, name: "Monthly sales", value: 6200, unit: "money", currency: "EUR", quote: "unser Umsatz liegt bei 6.200 € im Monat" } as const;
+    const brand = (defaultLocale: string) => deps({ loadTenant: async () => ({ id: "ten_acme", defaultLocale }) as never });
+    expect((await revise(doc, [typed], {}, brand("de"))).ok).toBe(true);
+    // Read the English way, those words hold 6.2, not 6200.
+    expect(await revise(doc, [typed], {}, brand("en"))).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
   });
 
   it("keeps the deck's own ids for lines it holds and adds new ones after them", () => {

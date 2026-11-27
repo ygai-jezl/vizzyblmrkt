@@ -878,6 +878,17 @@ export const MEANINGS = {
     caveat:
       "A view reads at most 5,000 people, the most recently active of the group it starts from (Everyone when it has none): when `capped` is true there are at least this many.",
   },
+  // A brand's win, in its own word, for a Work measure (ADR-0020). Nothing counts it yet.
+  conversions: {
+    name: "Conversions",
+    definition: "Times a person did what the brand counts as its win, such as a sign up, an order or a booking.",
+    grain: "one time a person did the brand's win",
+    unit: "count",
+    source: "the brand's own product or site, once something counts it",
+    caveat: "Shown in the brand's own word, such as sign ups, orders or bookings. Nothing counts it yet.",
+    better: "higher",
+    family: "result",
+  },
   // The investor and funding board on People (RAISE_PIPELINE_ENABLED), for Vizzy's get_raise_pipeline.
   pipelinePeople: {
     name: "People on the board",

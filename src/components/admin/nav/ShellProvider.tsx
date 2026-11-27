@@ -72,6 +72,10 @@ interface Shell {
   sharing: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server), for the How to drawer. */
   join: boolean;
+  /** Work is on (isWorkEnabled(), from the server), for the How to drawer. */
+  work: boolean;
+  /** Vizzy has its Work tools (isWorkVizzyEnabled(), from the server): the Ask Vizzy panel offers Work's starters there. */
+  workVizzy: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), from the server), for the How to drawer. */
   onboarding: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server), for the How to drawer. */
@@ -82,6 +86,8 @@ interface Shell {
   nextActionCard: boolean;
   /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server), for the How to drawer. */
   agentRecord: boolean;
+  /** Readers per language and one language list (isLanguageReadersEnabled(), from the server), for the How to drawer. */
+  languageReaders: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server), for the How to drawer. */
   raiseFollowUps: boolean;
   /** The Raise kit is on, so brand search finds decks (isRaiseKitEnabled(), from the server), for the How to drawer. */
@@ -146,11 +152,14 @@ export function ShellProvider({
   ideaWords = false,
   sharing = false,
   join = false,
+  work = false,
+  workVizzy = false,
   onboarding = false,
   onboardingVoice = false,
   settingsHistory = false,
   nextActionCard = false,
   agentRecord = false,
+  languageReaders = false,
   raiseFollowUps = false,
   raiseKit = false,
   children,
@@ -210,6 +219,10 @@ export function ShellProvider({
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server): the How to drawer says so. */
   join?: boolean;
+  /** Work is on (isWorkEnabled(), from the server): the How to drawer can show its help. */
+  work?: boolean;
+  /** Vizzy has its Work tools (isWorkVizzyEnabled(), from the server): the panel offers Work's starters on Work. */
+  workVizzy?: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), from the server): the How to drawer says so. */
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server): the How to drawer says so. */
@@ -220,6 +233,8 @@ export function ShellProvider({
   nextActionCard?: boolean;
   /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server): the How to drawer says so. */
   agentRecord?: boolean;
+  /** Readers per language and one language list (isLanguageReadersEnabled(), from the server): the How to drawer says so. */
+  languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server): the How to drawer says so. */
   raiseFollowUps?: boolean;
   /** The Raise kit is on, so brand search finds decks (isRaiseKitEnabled(), from the server): the How to drawer says so. */
@@ -317,16 +332,19 @@ export function ShellProvider({
       ideaWords,
       sharing,
       join,
+      work,
+      workVizzy,
       onboarding,
       onboardingVoice,
       settingsHistory,
       nextActionCard,
       agentRecord,
+      languageReaders,
       raiseFollowUps,
       raiseKit,
       onCanvasSaved: journeyInContext || personInContext || raiseInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, raiseFollowUps, raiseKit, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, raiseKit, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

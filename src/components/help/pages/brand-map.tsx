@@ -248,7 +248,9 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             writes on most. Stats, asks and how many name you count only the articles read from their own pages, and the line says
             so. <strong>Against your competitors</strong> puts your focus situations beside their articles on each, how many of its
             questions you have answered and how many of their articles are new since you approved. With no focus yet, it shows the
-            situations they write on most. It also counts the subjects only they write on, and names the alternatives on your brand
+            situations they write on most. A situation with no questions on your map yet reads <strong>You: no questions yet</strong>:
+            Next up and the content plan pick from questions, so an admin presses <strong>Find what they ask</strong> beside it,
+            which opens it on Buying situations to find them. It also counts the subjects only they write on, and names the alternatives on your brand
             map they mention that you don&apos;t watch, each with <strong>Monitor</strong>. When a month had more articles read
             than the card counts, it says its numbers may be a little low. Propose with Vizzy reads the same, so a claim about a
             competitor can stand on the article that makes it.

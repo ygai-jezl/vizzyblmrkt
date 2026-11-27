@@ -50,7 +50,7 @@ const TRIGGER_LABEL: Record<PathTrigger, string> = {
 const HOME_LABEL: Record<OntologyType["home"], string> = {
   control: "the control plane",
   brand: "the brand's region",
-  organisation: "the region of the brand it was connected from, serving the organisation's brands in any region",
+  organisation: "the region of the brand it was connected or added from (or that it names), serving the organisation's brands in any region",
   undecided: "undecided",
 };
 

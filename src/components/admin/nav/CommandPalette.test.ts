@@ -31,6 +31,8 @@ describe("⌘K keywords", () => {
     expect(areaKeywords("launches", false)).toEqual(["waitlists", "campaigns"]);
     expect(launchWords(false)).toEqual(["launch", "waitlist"]);
     for (const words of Object.values(KEYWORDS)) expect(words.join(" ")).not.toMatch(/idea/);
+    // Work is found by the words a backlog goes by.
+    expect(KEYWORDS.work).toEqual(expect.arrayContaining(["tasks", "backlog", "log"]));
     // Other areas are the same either way.
     expect(areaKeywords("audience", true)).toEqual(areaKeywords("audience", false));
   });

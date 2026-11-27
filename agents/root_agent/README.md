@@ -39,8 +39,9 @@ writes is a draft or a suggestion that a person accepts in the app.
 
 - **Root tools:** knowledge search, Insights summary, Email style, journey
   style, brand map, brand notes ("What we've seen"), setup status and help pages,
-  and the business profile (read it, read a kept conversation, suggest a fact
-  for an admin to keep).
+  the business profile (read it, read a kept conversation, suggest a fact
+  for an admin to keep), and Work (read the tasks and Log, suggest a task for
+  Review, draft a Log note or a decision that a person saves).
 - **Sub-agents:** `campaign_ops` (launch journeys and invite waves),
   `lifecycle_ops` (product lifecycle journeys, learning a product from its repo,
   one person's plan), `content_ops` (content plans) and `raise_ops` (decks for

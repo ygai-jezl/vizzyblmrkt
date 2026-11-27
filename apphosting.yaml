@@ -95,6 +95,8 @@ env:
   #     GRANTED_ONLY_FEATURES                                       features only for brands granted them
   #     FEATURE_MONTHLY_LIMITS                                      next_up=100,competitor_articles=200
   #     PLANS_NEW_ORGANISATION_PLAN                                 free (unset: self_hosted, everything open)
+  #     LOOPS_OPERATOR_EMAILS                                       who sees this copy's own learning loop
+  #     LOOPS_SOURCE_REPO                                           this copy's own repo, as owner/name
   #     DATAFORSEO_USERNAME, DATAFORSEO_PASSWORD                    secrets, with SIGNALS_DATAFORSEO_ENABLED
   #   Connections
   #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
@@ -345,6 +347,23 @@ env:
     availability:
       - RUNTIME
 
+  # == Work ==
+  # Work (ADR-0020): one list of tasks across the organisation's brands and regions, and a daily
+  # log, at /admin/work. Needs the work_tasks and work_log indexes READY. Off: no Work in the
+  # sidebar, ⌘K or Review, and its pages and routes answer 404. A brand move and an organisation id
+  # taken up again keep Work tidy whatever this says.
+  - variable: WORK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy's Work tools (get_work, suggest_work_task, draft_work_log, draft_work_decision, through
+  # /api/agent/work) and the Work starters in Ask Vizzy. Needs WORK_ENABLED and a Vizzy deploy with
+  # the tools; before that deploy the tools aren't there, and off they answer that Work isn't on.
+  - variable: WORK_VIZZY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
   # == Waitlists and invites ==
   # Invite your waitlist.
   - variable: INVITES_ENABLED
@@ -376,6 +395,11 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+  # A picked email test winner reaches the journey a launch sends from, on either engine.
+  - variable: WAITLIST_AB_WINNER_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
   # Sign-ups from a brand's own site: a launch's site key and POST /api/v2/signups
   # (needs CONNECT_SECRET_ENC_KEY, which seals the key's secret).
@@ -1155,6 +1179,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Each person's language, readers counted per language and the 10 reader threshold in
+  # Settings › General › Languages; launches offer the brand's one list (needs
+  # CONTENT_LANGUAGE_ENABLED and AUDIENCE_PERSON_LINKS_ENABLED).
+  - variable: LANGUAGE_READERS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Researched blog hubs, cite sources, articles written from the brand map, the
   # editorial writer (each needs the first), and Suggest an angle.
   - variable: CREATE_BLOG_CITABLE_ENABLED
@@ -1250,6 +1281,12 @@ env:
   # made it, and how a person changed it before approving it, shown as the AI draft card on the
   # article and a line on each post.
   - variable: CONTENT_AI_ORIGINALS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Keep each workflow email and hub piece a person approves as an example of the brand's own
+  # writing, and let the email and hub writers follow the nearest ones.
+  - variable: CONTENT_APPROVED_EXAMPLES_ENABLED
     value: "false"
     availability:
       - RUNTIME

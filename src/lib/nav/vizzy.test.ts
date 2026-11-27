@@ -44,6 +44,12 @@ describe("vizzySuggestions", () => {
     expect(homePrompts("grow", { ideas: true })).toEqual(homePrompts("grow"));
   });
 
+  it("offers Work's starters on Work only while Vizzy has its Work tools, else Home's", () => {
+    expect(vizzySuggestions("work", { workVizzy: true })).toEqual(["What should I check today?", "Suggest next tasks"]);
+    expect(vizzySuggestions("work")).toEqual(vizzySuggestions("home"));
+    expect(vizzySuggestions("home", { workVizzy: true })).toEqual(vizzySuggestions("home"));
+  });
+
   it("asks about Settings › Connections by its tab's name, not Integrations", () => {
     expect(vizzySuggestions("settings")[0]).toBe("Which accounts are connected?");
     expect(vizzySuggestions("settings").join(" ")).not.toMatch(/integrations/i);

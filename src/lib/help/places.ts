@@ -41,6 +41,11 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/workspace\/[^/]+\/(create|templatize|curate)/, "/help/write-and-schedule#write"],
   [/^\/admin\/workspace\/[^/]+/, "/help/write-and-schedule"],
   [/^\/admin\/workspace/, "/help/programmes-and-knowledge#start"],
+  // Work's pages exist only while WORK_ENABLED (a server switch) is on, so these rules are only
+  // ever reached then. Each ends at a slash or the end, so /admin/workspace keeps its own.
+  [/^\/admin\/work\/log(\/|$)/, "/help/work#log"],
+  [/^\/admin\/work\/new(\/|$)/, "/help/work#tasks"],
+  [/^\/admin\/work(\/|$)/, "/help/work"],
   [/^\/admin\/brand-kit\/images/, "/help/write-and-schedule"],
   [/^\/admin\/products/, "/help/connect-your-product"],
   [/^\/admin\/lifecycle/, "/help/onboarding-journeys"],

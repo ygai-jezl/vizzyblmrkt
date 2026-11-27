@@ -12,6 +12,11 @@ import { SAMPLE_ARTICLE } from "./testing/sampleArticle";
 
 const keepApprovedSeen = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("./hubActions", async (importOriginal) => ({ ...(await importOriginal<typeof import("./hubActions")>()), keepApprovedSeen }));
+// An embedding for the approved example store (CONTENT_APPROVED_EXAMPLES_ENABLED); nothing else here embeds a document.
+vi.mock("@/lib/agents/embeddings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agents/embeddings")>()),
+  embedDocument: vi.fn(async () => [0.1, 0.2, 0.3]),
+}));
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const PLANS = "workspaces/ws1/content_plans";
@@ -108,6 +113,33 @@ describe("found live approves the article", () => {
     const plan = seed(db, samplePlan({ autopilot: { runId: run.id, state: "done", at: "" } }));
     await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: onSite });
     expect(await getRun(ctx, run.id, { db })).toMatchObject({ askedIds: [], answersIn: false });
+  });
+
+  it("keeps the article it approved as an example for the hub writer, once", async () => {
+    vi.stubEnv("CONTENT_APPROVED_EXAMPLES_ENABLED", "true");
+    const db = new FakeFirestore();
+    const plan = seed(db, samplePlan());
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: onSite });
+    expect(db.raw("performance_exemplars", "pex:ten_A:approved:ws1:plan_1:hub")).toMatchObject({
+      tenantId: "ten_A",
+      channel: "blog",
+      tags: ["piece:hub"],
+      metric: { name: "approved", value: 1 },
+    });
+    // Found again later, or already approved by a person: nothing more is kept here.
+    await setArticleLive(ctx, { workspaceId: "ws1", plan: await stored(db), nodeId: "hub", action: "check" }, { db, now, fetchPage: onSite });
+    expect(db.dump("performance_exemplars")).toHaveLength(1);
+    const db2 = new FakeFirestore();
+    const approved = seed(db2, samplePlan({}, sampleHub({ status: "approved" })));
+    await setArticleLive(ctx, { workspaceId: "ws1", plan: approved, nodeId: "hub", action: "check" }, { db: db2, now, fetchPage: onSite });
+    expect(db2.dump("performance_exemplars")).toEqual([]);
+  });
+
+  it("keeps no example with that switch off", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db, samplePlan());
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: onSite });
+    expect(db.dump("performance_exemplars")).toEqual([]);
   });
 
   it("with the switch off, a person's word marks it live and approves nothing", async () => {

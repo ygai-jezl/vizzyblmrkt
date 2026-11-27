@@ -55,6 +55,9 @@ export const RULE_DECISIONS = {
   auto_plug: { label: "Auto plug comment", file: "src/lib/distribute/autoPlug.ts" },
   next_action_order: { label: "Your next action order", file: "src/lib/onboarding/homeOrder.ts" },
   sidebar_fit: { label: "Sidebar sections that wait", file: "src/lib/onboarding/sidebarFit.ts" },
+  work_check_due: { label: "Work check due", file: "src/lib/work/service.ts" },
+  work_ready: { label: "Ready to start", file: "src/lib/work/service.ts" },
+  work_measure_kind: { label: "Suggested kind of win", file: "src/lib/work/measureKind.ts" },
   investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
   deck_outline: { label: "Deck sections by kind and stage", file: "src/lib/raise/docs/outlines.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
@@ -92,7 +95,7 @@ export type LoopKind =
  */
 export const LEARNED_STORES = {
   learned: "The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.",
-  post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.",
+  post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.",
   vizzy_memory: "Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.",
   brand_kit: "Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.",
   brand_map: "The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.",
@@ -103,6 +106,7 @@ export const LEARNED_STORES = {
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
   brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
+  lifecycle_journey: "A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;
@@ -174,6 +178,12 @@ const IMAGES_BY = "2027-01-31";
 const POSTS_BY = "2027-03-31";
 const LATER = "2027-05-01";
 
+/**
+ * A meaning named after one provider (ga4, cf, linkedin, google). A loop's slow outcome and a Work
+ * measure's number must hold whatever source a brand connects, so neither names one.
+ */
+export const VENDOR = /^(?:ga4|cf|linkedin|google)[A-Z]/;
+
 export const LOOPS = {
   // ----- AI purposes (src/lib/plans/resources.ts), in the order the meter lists them -----
   brand_map_research: own("brand_map", "A name, subject or group your team dismissed on the brand map is kept there and not proposed again."),
@@ -193,8 +203,8 @@ export const LOOPS = {
   seen_notes: own("content_plan", "A note your team took out of an article is kept with the last 50 on its brief and not matched back into it."),
   architect: gap("Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.", LATER),
   content_write: own("post_learning", "Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet."),
-  content_email: gap("Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.", LATER),
-  content_hub: gap("Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.", LATER),
+  content_email: own("post_learning", "Where turned on, a workflow email follows the emails your team approved, kept as examples of the brand's own writing, though how your team edited each draft teaches it nothing yet."),
+  content_hub: own("post_learning", "Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet."),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
   edit_mode: own("vizzy_memory", "Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
@@ -213,7 +223,10 @@ export const LOOPS = {
   judge: own("learned", "Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays."),
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
   images: none("This is the image style learner itself, and it is judged by the images its learned look shapes."),
-  vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
+  vizzy_chat: gap(
+    "Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.",
+    LATER,
+  ),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
   next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
@@ -252,7 +265,7 @@ export const LOOPS = {
   // ----- Rule decisions (RULE_DECISIONS above) -----
   send_time: gap("Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.", LATER),
   ab_split: none("The split between versions has to stay a fair, stable coin toss per person, or the test can no longer say which email did better."),
-  ab_winner: gap("A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.", LATER),
+  ab_winner: own("lifecycle_journey", "Where turned on, the winner a person picks for an email test after 50 sends reaches the journey the launch sends from on either engine, so everyone who gets that email from then on gets the winner."),
   journey_next_step: none("The next step is the path a person drew on the journey, and the walk follows it rather than picking a branch of its own."),
   journey_shape: gap("The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.", LATER),
   insight_pick: gap("Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.", LATER),
@@ -279,6 +292,9 @@ export const LOOPS = {
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
   next_action_order: gap("When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.", "2027-02-26"),
   sidebar_fit: none("A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept."),
+  work_check_due: none("A person sets the date, the task to wait for or the measure; the rule only shows the check once it is due."),
+  work_ready: gap("Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.", LATER),
+  work_measure_kind: gap("The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.", LATER),
   investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
   deck_outline: gap("Every new deck starts from YouGrow's shipped outline for its kind and stage, and which outlines led to meetings is not counted yet.", LATER),
 

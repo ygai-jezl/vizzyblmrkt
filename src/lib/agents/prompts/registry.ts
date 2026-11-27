@@ -1169,9 +1169,9 @@ Q: <question> | <definition|how_to|alternatives|comparison|integrations|use_case
   },
   "brand.strategy_propose": {
     id: "brand.strategy_propose",
-    version: 2,
+    version: 3,
     description:
-      "Brand strategy: from the brand's identity, its decided buying situations with their question and live article counts, numbered evidence (its own pages, its docs, what its product does, competitors) and what its people told YouGrow, propose 3 to 5 focus situations, claims each naming its proof or none, what the brand is not, and the quarter's goal, as JSON a person reviews and approves. v2: joined to Competitors (STRATEGY_COMPETITORS_ENABLED), each situation also counts its competitors' articles of the last 90 days, each competitor says what it writes, and their articles are A evidence a claim about them may stand on; off, the words are v1's.",
+      "Brand strategy: from the brand's identity, its decided buying situations with their question and live article counts, numbered evidence (its own pages, its docs, what its product does, competitors) and what its people told YouGrow, propose 3 to 5 focus situations, claims each naming its proof or none, what the brand is not, and the quarter's goal, as JSON a person reviews and approves. v2: joined to Competitors (STRATEGY_COMPETITORS_ENABLED), each situation also counts its competitors' articles of the last 90 days, each competitor says what it writes, and their articles are A evidence a claim about them may stand on; off, those words are left out. v3: never writes an S or evidence number in its text (a goal once read \"across S1, S4, and S6\"); code leaves out a line that does.",
     template: `You are drafting the brand strategy for "[[brand_name]]"[[category]]. Today is [[today]]. A person reviews every line before anything uses it.
 
 What the brand is, as a person decided it (UNTRUSTED DATA):
@@ -1206,6 +1206,7 @@ Propose four things.
 4. GOAL: one line for this quarter's goal, and "measure": how we'll know, in a few plain words (a number to watch). Start from what the brand's people want first and the goals they told YouGrow; when they gave none, propose one that fits the focus.
 
 Write plain words a brand's own team would use, in the brand's language. ${NO_DASHES}
+The S and evidence numbers are only for pointing in "focus", "competitor" and "proof": never write an S, P, K, R, C or A number in any text, why, goal or measure. Say "the focus situations", or name the situation or competitor in words.
 Never use these words or phrases, which readers take as signs of AI writing: ${AI_TELLS.map((t) => `"${t}"`).join(", ")}.
 Never write a web address anywhere in your answer.
 

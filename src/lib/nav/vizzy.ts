@@ -8,8 +8,12 @@ import { raiseDocInView } from "@/lib/raise/docs/paths";
  * Starter questions for the Ask Vizzy panel, by the area in view. Written as the
  * admin would ask them; each one works on its own (Vizzy also knows the page).
  */
+const HOME_SUGGESTIONS = ["What should I do next?", "How are signups this week?"];
+
 const SUGGESTIONS: Record<NavKey, string[]> = {
-  home: ["What should I do next?", "How are signups this week?"],
+  home: HOME_SUGGESTIONS,
+  // Work's own starters need Vizzy's Work tools (WORK_VIZZY_ENABLED): until then, Home's.
+  work: HOME_SUGGESTIONS,
   review: ["What needs me first?", "What happens if I don't decide in time?"],
   launches: ["Draft a broadcast for this launch", "Write a referral nudge for people who haven't shared"],
   content: ["Plan next week's posts", "Draft this week's newsletter"],
@@ -23,6 +27,9 @@ const SUGGESTIONS: Record<NavKey, string[]> = {
 
 /** The Ideas area's starters while launches are called ideas (isIdeaWordsEnabled(), from the server). */
 const IDEA_SUGGESTIONS = ["Draft a broadcast to this idea's waitlist", "Write a referral nudge for people who haven't shared"];
+
+/** Work's starters while Vizzy has its Work tools (isWorkVizzyEnabled(), from the server). */
+export const WORK_SUGGESTIONS = ["What should I check today?", "Suggest next tasks"];
 
 /** Nav v2 phase 4: extra starters that only make sense while their feature is on. */
 const INVITE_SUGGESTION = "Draft an invite wave for my top 100";
@@ -41,11 +48,13 @@ export const PERSON_FIELD_SUGGESTIONS = ["What do their fields say?", "Which of 
 /**
  * The starters for the area in view. On a person's page: `person` when Vizzy can read their
  * situation (the brief), else `personFields` when it can read only their fields. `ideas` (from the
- * server) says idea where the launches area would say launch.
+ * server) says idea where the launches area would say launch. On Work, `workVizzy` (from the
+ * server: Vizzy has its Work tools) gives Work's own starters, else Home's.
  */
-export function vizzySuggestions(key: NavKey | null, opts: { person?: boolean; personFields?: boolean; ideas?: boolean } = {}): string[] {
+export function vizzySuggestions(key: NavKey | null, opts: { person?: boolean; personFields?: boolean; ideas?: boolean; workVizzy?: boolean } = {}): string[] {
   if (opts.person) return PERSON_SUGGESTIONS;
   if (opts.personFields) return PERSON_FIELD_SUGGESTIONS;
+  if (key === "work") return opts.workVizzy ? WORK_SUGGESTIONS : SUGGESTIONS.work;
   const base = key === "launches" && opts.ideas ? IDEA_SUGGESTIONS : SUGGESTIONS[key ?? "home"];
   if (key === "launches" && isInvitesUiEnabled()) return [...base, INVITE_SUGGESTION];
   if (key === "insights" && isInsightsHubEnabled()) return [...base, INSIGHTS_SUGGESTION];

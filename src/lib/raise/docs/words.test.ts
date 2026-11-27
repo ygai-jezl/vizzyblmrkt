@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { docToMarkdown } from "@/lib/developers/markdown";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import RaiseKitHelp from "@/components/help/pages/raise-kit";
 import * as words from "./words";
 
 /** Every string in words.ts, with each function called on sample values. */
@@ -29,5 +31,15 @@ describe("the Raise kit's words", () => {
     expect(words.UK_PROMOTION_REMINDER).toBe(
       "Sending this deck to invite investment is a financial promotion in the UK. Send it only to people an exemption covers. Ask your lawyer which one applies.",
     );
+  });
+
+  it("are quoted by the help page: the UK reminder, the check messages and the list's messages", () => {
+    const md = docToMarkdown(RaiseKitHelp(), "https://app.example.com");
+    expect(md).toContain(words.UK_PROMOTION_REMINDER);
+    for (const m of [words.CHECK_WORDS.headline_label, words.CHECK_WORDS.missing_ask, words.RAISE_MESSAGES.notIncluded, words.RAISE_MESSAGES.stale]) expect(md).toContain(m);
+    for (const line of md.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 });

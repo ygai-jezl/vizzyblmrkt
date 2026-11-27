@@ -8,6 +8,7 @@ import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -30,7 +31,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "raise_kit";
 }
 
 /**
@@ -166,6 +167,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("programmes-and-knowledge", "Programmes and knowledge", "grow", "Start a content programme and give it your website and documents to write from."),
   page("brand-map", "Brand map", "grow", "Set the names and subjects every blog article is written from."),
   page("write-and-schedule", "Write and schedule", "grow", "Write posts, articles and newsletters with Vizzy, then schedule and send them."),
+  page(
+    "raise-kit",
+    "Raise kit",
+    "grow",
+    "Draft a deck for investors or a pack for lenders from what YouGrow knows, rehearse its talk track, present it and save it as a PDF.",
+    "raise_kit",
+  ),
   page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
   page(
@@ -218,6 +226,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
+  if (p.onlyWhen === "raise_kit") return isRaiseKitEnabled();
   return true;
 }
 

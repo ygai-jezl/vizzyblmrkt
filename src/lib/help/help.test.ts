@@ -113,6 +113,8 @@ vi.hoisted(() => {
   process.env.NEXT_ACTION_CARD_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
+  // Content › Raise kit, with its help page.
+  process.env.RAISE_KIT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

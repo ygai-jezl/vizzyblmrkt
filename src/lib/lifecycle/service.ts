@@ -27,6 +27,8 @@ import type { Campaign } from "@/lib/types/campaign";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
 import { isEmailJourneyStyleEnabled } from "@/lib/email/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
+import { markTranslationsQueued } from "@/lib/tenant/translations";
 import { NO_CATALOG, validateLifecycleDraft, type GraphIssue } from "./graph";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { buildFollowOnDraft, followOnSettings, startingAfter } from "./templates/followOn";
@@ -485,6 +487,7 @@ export async function publishLifecycleJourney(
   const liveTracking = isLifecycleSendTrackingEnabled() && !waitlist;
   const journeyStyle = isEmailJourneyStyleEnabled();
   const style = journeyStyle ? (draft.data.settings.emailStyle ?? null) : null;
+  const translations = isAssetTranslationsEnabled();
   let version: LifecycleVersion;
   try {
     version = await repo.lifecycleVersions.create(versionDocId(journey.id, number), {
@@ -516,8 +519,16 @@ export async function publishLifecycleJourney(
     ...(liveTracking ? { tracking: { opens: draft.data.settings.tracking.opens, clicks: draft.data.settings.tracking.clicks } } : {}),
     // The version now says where its draft came from, so the stamp is done with.
     ...(journey.draftRestoredFrom ? { draftRestoredFrom: null } : {}),
+    // Its emails in other languages (ASSET_TRANSLATIONS_ENABLED): the translations lane checks them
+    // against the brand's languages on its next run. Publishing itself translates nothing.
+    ...(translations ? { translationsDue: true, translationsDueAt: now } : {}),
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
+  if (translations) {
+    await markTranslationsQueued(ctx.tenantId, now, deps.db).catch((err) =>
+      console.warn(`[lifecycle] translations mark ${ctx.tenantId}/${journey.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`),
+    );
+  }
   const published = { ...journey, ...patch };
   if (backfillCampaign) {
     const backfill = { status: "running" as const, cursor: null, enrolled: 0, updatedAt: now };

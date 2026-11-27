@@ -92,8 +92,12 @@ describe("launch journey emails in each reader's language", () => {
   });
 
   it("is byte for byte today's email while the switch is off", async () => {
+    // The unsubscribe link is signed with the real time: hold it still so both sends match.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
     const withTranslation = await world({ locale: "fr" });
     const without = await world({ locale: "fr" }, null);
+    vi.useRealTimers();
     expect(withTranslation.html).toBe(without.html);
     expect(withTranslation.subject).toBe("Welcome to Fernlight");
   });

@@ -155,8 +155,12 @@ describe("product journey emails in each reader's language", () => {
   });
 
   it("is byte for byte today's email while the switch is off", async () => {
+    // The unsubscribe link is signed with the real time: hold it still so both sends match.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
     const withTranslation = await welcome(await world({ locale: "fr" }));
     const without = await welcome(await world({ locale: "fr" }, null));
+    vi.useRealTimers();
     expect(withTranslation.subject).toBe(without.subject);
     expect(withTranslation.html).toBe(without.html);
   });

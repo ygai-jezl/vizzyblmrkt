@@ -139,7 +139,8 @@ export function PoolsEditor({
   const setItems = (pool: ContentPool, items: PoolItem[]) => setPool(pool.id, { items });
 
   const addPool = () => {
-    const id = uniqueId("pool", new Set(pools.map((p) => p.id)));
+    // Random like a new email's id, so a pool added after one was deleted never inherits its translations.
+    const id = uniqueId(`pool_${Math.random().toString(36).slice(2, 6)}`, new Set(pools.map((p) => p.id)));
     onChange([...pools, { id, label: "New content", items: [waitlist ? waitlistItem("control", "Email") : blankItem("email_1")] }]);
     onFocusPool(id);
   };
@@ -269,7 +270,9 @@ export function PoolsEditor({
           {!readOnly && !waitlist && current.items.length < 10 ? (
             <Button
               onClick={() => {
-                const id = uniqueId(`email_${current.items.length + 1}`, new Set(current.items.map((x) => x.id)));
+                // A short random part, so a new email never takes the id of one deleted before: a
+                // translation kept for that one (ASSET_TRANSLATIONS_ENABLED) can't fit this one.
+                const id = uniqueId(`email_${current.items.length + 1}_${Math.random().toString(36).slice(2, 6)}`, new Set(current.items.map((x) => x.id)));
                 setItems(current, [...current.items, blankItem(id)]);
               }}
             >

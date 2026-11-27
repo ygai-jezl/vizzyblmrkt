@@ -81,13 +81,7 @@ const appendToken = (text: string, id: string) => `${text.replace(/\s+$/, "")}${
 /** Layouts that show a slide's numbers as big figures or a chart, so a new number needs no token. */
 const SHOWS_BLOCKS = new Set<Slide["layout"]>(["big_number", "chart", "ask"]);
 
-/**
- * The slide with a number added. On a layout that shows numbers itself it is only added; elsewhere
- * its token also goes at the end of the field the person was in (the headline by default), so the
- * figure always reads from its block. Null when the slide already holds 3.
- */
-export function insertBlock(slide: Slide, block: MetricBlock, field?: TextField): Slide | null {
-  if (slide.blocks.length >= L.blocks) return null;
+function withBlock(slide: Slide, block: MetricBlock, field?: TextField): Slide {
   const next: Slide = { ...slide, blocks: [...slide.blocks, block] };
   const target: TextField | null = field ?? (SHOWS_BLOCKS.has(slide.layout) ? null : { kind: "headline" });
   if (!target) return next;
@@ -97,6 +91,28 @@ export function insertBlock(slide: Slide, block: MetricBlock, field?: TextField)
   if (target.i >= points.length) points.push(token(block.id));
   else points[target.i] = appendToken(points[target.i] ?? "", block.id);
   return { ...next, points };
+}
+
+/** Whether every field the token can go in still fits the length the save accepts. */
+const fits = (s: Slide) => s.headline.length <= L.headline && s.notes.length <= L.notes && s.points.length <= L.points && s.points.every((p) => p.length <= L.point);
+
+/**
+ * Why a number can't go in: the slide already holds 3 ("full"), or its token would make the field
+ * longer than the save accepts ("no_room"). Null when it can.
+ */
+export function insertRefusal(slide: Slide, block: MetricBlock, field?: TextField): "full" | "no_room" | null {
+  if (slide.blocks.length >= L.blocks) return "full";
+  return fits(withBlock(slide, block, field)) ? null : "no_room";
+}
+
+/**
+ * The slide with a number added. On a layout that shows numbers itself it is only added; elsewhere
+ * its token also goes at the end of the field the person was in (the headline by default), so the
+ * figure always reads from its block. Null when the slide already holds 3, or when the token would
+ * make the field too long to save (insertRefusal says which).
+ */
+export function insertBlock(slide: Slide, block: MetricBlock, field?: TextField): Slide | null {
+  return insertRefusal(slide, block, field) ? null : withBlock(slide, block, field);
 }
 
 /** The slide without a number, and without every token that showed it. */

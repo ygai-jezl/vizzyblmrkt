@@ -5,6 +5,7 @@ import {
   dismissNeed,
   editSegments,
   insertBlock,
+  insertRefusal,
   isChanged,
   isPending,
   moveSlide,
@@ -18,7 +19,7 @@ import {
   withSegmentText,
 } from "./edit";
 import { block, slide } from "./testing/fixtures";
-import { BLOCK_ID, NEED_ID, SLIDE_ID } from "./types";
+import { BLOCK_ID, NEED_ID, RAISE_DOC_LIMITS as L, SLIDE_ID } from "./types";
 
 describe("numbers inserted in the studio", () => {
   it("ask the server for YouGrow's own numbers, filled on save", () => {
@@ -49,6 +50,23 @@ describe("numbers inserted in the studio", () => {
     expect(insertBlock({ ...s, layout: "big_number" }, b)!.headline).toBe("People want it");
     const full = { ...s, blocks: [block({ id: "mb_a0000001" }), block({ id: "mb_a0000002" }), block({ id: "mb_a0000003" })] };
     expect(insertBlock(full, b)).toBeNull();
+    expect(insertRefusal(full, b)).toBe("full");
+  });
+
+  it("never make a field longer than the save accepts", () => {
+    const b = block({ id: "mb_new00001" });
+    const nearlyFull = slide({ layout: "statement", headline: "a".repeat(L.headline - 5) });
+    expect(insertBlock(nearlyFull, b)).toBeNull();
+    expect(insertRefusal(nearlyFull, b)).toBe("no_room");
+    // The notes still have room, so the number can go there instead.
+    expect(insertBlock(nearlyFull, b, { kind: "notes" })!.notes).toBe("{{mb_new00001}}");
+    expect(insertRefusal(slide({ notes: "n".repeat(L.notes - 3) }), b, { kind: "notes" })).toBe("no_room");
+    expect(insertRefusal(slide({ points: ["p".repeat(L.point)] }), b, { kind: "point", i: 0 })).toBe("no_room");
+    // A layout that shows numbers itself needs no token, so a full headline is fine.
+    expect(insertBlock({ ...nearlyFull, layout: "big_number" }, b)).not.toBeNull();
+    // One that just fits goes in.
+    const room = L.headline - " {{mb_new00001}}".length;
+    expect(insertBlock(slide({ layout: "statement", headline: "a".repeat(room) }), b)!.headline).toHaveLength(L.headline);
   });
 
   it("take their tokens with them when removed", () => {

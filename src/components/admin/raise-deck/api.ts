@@ -59,6 +59,11 @@ export const restoreVersion = (id: string, n: number, baseVersion: number) => ca
 /** Download data: the export route sends the deck as a file. */
 export const exportHref = (id: string) => `${one(id)}/export`;
 
+/** The words for an error Save changes got back: a field the save refused is too long or empty. */
+export function saveMessageFor(error: string | undefined): string {
+  return error === "invalid_input" ? RAISE_MESSAGES.tooLong : messageFor(error);
+}
+
 /** The words for an error the API answered with. */
 export function messageFor(error: string | undefined): string {
   switch (error) {

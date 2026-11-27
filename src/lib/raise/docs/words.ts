@@ -257,6 +257,7 @@ export const RAISE_MESSAGES = {
   outlineOnly: "Vizzy couldn't write the deck just now, so each slide shows what goes there. Try Make the first draft again later.",
   stale: "Someone saved a newer version. Reload to see it, then make your change again.",
   failed: "Something went wrong. Try again.",
+  tooLong: "Something on a slide is too long to save. Shorten it and try again.",
   versionNotKept: "This version isn't kept any more. Its note stays in the list.",
 } as const;
 
@@ -336,6 +337,7 @@ export const EDITOR_WORDS = {
   section: "Section",
   readOnly: "Only an admin can change this deck.",
   full: "A slide holds 3 numbers at most.",
+  noRoom: "No room for a number here. Shorten the text first.",
   typedMissing: "Say what it is and type the number.",
   rowLabel: "Label",
   rowValue: "Number",

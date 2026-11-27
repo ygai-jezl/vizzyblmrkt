@@ -7,12 +7,12 @@ import { Modal } from "@/components/admin/email/Modal";
 import { useShell } from "@/components/admin/nav/ShellProvider";
 import type { DeckView } from "@/lib/raise/docs/adminApi";
 import { deckChecks } from "@/lib/raise/docs/checks";
-import { addSlide, dismissNeed, insertBlock, isChanged, moveSlide, needsCount, removeBlock, removeSlide, saveBody, type TextField } from "@/lib/raise/docs/edit";
+import { addSlide, dismissNeed, insertBlock, insertRefusal, isChanged, moveSlide, needsCount, removeBlock, removeSlide, saveBody, type TextField } from "@/lib/raise/docs/edit";
 import { RAISE_KIT_HREF } from "@/lib/raise/docs/paths";
 import { talkSeconds, wordsOf } from "@/lib/raise/docs/text";
 import { RAISE_DOC_LIMITS as L, type MetricBlock, type SectionKey, type Slide } from "@/lib/raise/docs/types";
 import { EDITOR_WORDS, LIST_WORDS, RAISE_MESSAGES, STUDIO_WORDS } from "@/lib/raise/docs/words";
-import { deleteDeck, exportHref, messageFor, readDeck, refreshNumbers, saveDeck } from "./api";
+import { deleteDeck, exportHref, messageFor, readDeck, refreshNumbers, saveDeck, saveMessageFor } from "./api";
 import { DeckFonts } from "./DeckFonts";
 import { InsertNumberDialog } from "./InsertNumberDialog";
 import { PresentView } from "./PresentView";
@@ -142,7 +142,7 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
       setMessage({ tone: "ok", text: r.data.saved === false ? EDITOR_WORDS.noteSaved : STUDIO_WORDS.saved(r.data.doc.version) });
       return;
     }
-    setMessage({ tone: "error", text: messageFor(r.data.error) });
+    setMessage({ tone: "error", text: saveMessageFor(r.data.error) });
   }
 
   async function refresh() {
@@ -173,9 +173,14 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
   }
 
   function insert(block: MetricBlock) {
-    const next = insertBlock(slide, block, field ?? undefined);
+    const at = field ?? undefined;
+    const next = insertBlock(slide, block, at);
     setPanel(null);
-    if (next) changeSlide(next);
+    if (next) {
+      changeSlide(next);
+      return;
+    }
+    setMessage({ tone: "error", text: insertRefusal(slide, block, at) === "no_room" ? EDITOR_WORDS.noRoom : EDITOR_WORDS.full });
   }
 
   function add(section: SectionKey) {

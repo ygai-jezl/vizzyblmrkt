@@ -50,7 +50,10 @@ import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isLoopsEnabled } from "@/lib/loops/flags";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
+import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -161,6 +164,9 @@ export default async function AdminLayout({
     // Undefined: today's sidebar.
     const reveal =
       phase2 && isOnboardingEnabled() ? sidebarRevealFor(tenant, { hasProgramme: workspaces.length > 0 }) : undefined;
+    // Work is a server switch too: the sidebar, ⌘K and the shell take the answer as a prop, so
+    // changing it needs no new build.
+    const work = isWorkEnabled();
     const shell = (
       <>
         <SessionKeeper />
@@ -174,6 +180,7 @@ export default async function AdminLayout({
           email={ctx.email}
           people={people}
           ideas={ideaWords}
+          work={work}
           reveal={reveal}
         />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -199,6 +206,7 @@ export default async function AdminLayout({
             people={people}
             ideas={ideaWords}
             canAddPerson={canAddPeople(ctx.role)}
+            work={work}
           />
         ) : null}
       </>
@@ -237,6 +245,8 @@ export default async function AdminLayout({
             ideaWords={ideaWords}
             sharing={isConnectorsSharingEnabled()}
             join={isOrganisationJoinEnabled()}
+            work={work}
+            workVizzy={isWorkVizzyEnabled()}
             onboarding={isOnboardingEnabled()}
             onboardingVoice={isOnboardingVoiceEnabled()}
             settingsHistory={isSettingsHistoryEnabled()}
@@ -244,6 +254,8 @@ export default async function AdminLayout({
             loops={isLoopsEnabled()}
             imageVersions={isImageStyleVersionsOn()}
             agentRecord={isAgentRecordEnabled()}
+            languageReaders={isLanguageReadersEnabled()}
+            raiseFollowUps={isRaiseFollowupsEnabled()}
           >
             {shell}
           </ShellProvider>

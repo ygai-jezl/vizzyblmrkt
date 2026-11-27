@@ -141,9 +141,9 @@ export interface OntologyType {
   /** Planned types only: the piece that builds it. */
   plannedIn?: PlannedIn;
   /**
-   * Control plane, the brand's region, or (an organisation's own record, Connectors 3) the region of
-   * the brand it was connected from, serving the organisation's brands in any region. "undecided"
-   * only on planned types.
+   * Control plane, the brand's region, or (an organisation's own record: Connectors 3, Work) the
+   * region of the brand it was connected or added from, or that it names, serving the organisation's
+   * brands in any region. "undecided" only on planned types.
    */
   home: "control" | "brand" | "organisation" | "undecided";
   /** "undecided" only on planned types. */

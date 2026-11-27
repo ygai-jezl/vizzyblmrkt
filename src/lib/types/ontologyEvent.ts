@@ -22,7 +22,7 @@ import {
 } from "@/lib/ontology/events";
 import { ConsentRecordedPropertiesSchema } from "@/lib/ontology/consent";
 import { ContactPersonIdSchema, type ContactPersonId } from "@/lib/ontology/person";
-import { AGENT_ACTION_STATES, AgentActionIdSchema, DECLINE_REASONS, EventActorSchema, type AgentActionId } from "./agentAction";
+import { AGENT_ACTION_STATES, AgentActionIdSchema, DECLINE_REASONS, DECLINE_WHY, EventActorSchema, type AgentActionId } from "./agentAction";
 
 /**
  * The event history (ontology_events, the brand's regional database): one row per thing that
@@ -126,6 +126,7 @@ const AgentPropertiesSchema = z.object({
   action: z.string().max(60),
   state: z.enum(AGENT_ACTION_STATES),
   reason: z.enum(DECLINE_REASONS).optional(),
+  why: z.enum(DECLINE_WHY).optional(),
 });
 
 const writeShape = {

@@ -43,6 +43,7 @@ import {
 } from "../enrolmentRun";
 import { isWaitlistEngineEnabled } from "./flags";
 import { pickWaitlistItem } from "./pick";
+import { liveWinners } from "./winners";
 import { personIdForSignup } from "@/lib/ontology/personRef";
 
 /**
@@ -220,6 +221,8 @@ async function processWaitlistWith(
     const anchorMs = Date.parse(leased.anchorAt);
     const person = { signup, campaign, rank: ranks.get(signup.id) };
     const excluded = new Set<string>();
+    // A/B picks that hold for this version's pools (a restarted test runs again).
+    const winners = liveWinners(journey, version.pools);
     const env = (state: WalkState): WalkEnv => ({
       graph: version.graph,
       pools: version.pools,
@@ -237,7 +240,7 @@ async function processWaitlistWith(
         waitlist: person,
       }),
       pickItem: (p) =>
-        pickWaitlistItem({ ...p, signupId: signup.id, winners: journey.abWinners, excluded: p.excluded }),
+        pickWaitlistItem({ ...p, signupId: signup.id, winners, excluded: p.excluded }),
     });
 
     const mode = lowestMode(leased.mode, journey.deliveryMode);

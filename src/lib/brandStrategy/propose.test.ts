@@ -105,6 +105,45 @@ describe("checking a proposed strategy", () => {
     expect(dropped.isNot).toBe(3);
     expect(proposal.goal).toMatchObject({ text: "200 waitlist sign-ups from organic search by March", measure: "sign-ups", from: "onboarding", measureKey: null });
   });
+
+  it("leaves out a line that writes the prompt's own labels, and keeps a goal whose measure only had them", () => {
+    const { proposal, dropped } = checkStrategy(
+      {
+        claims: [
+          { side: "you", text: "Owns S2 better than anyone", proof: [] },
+          { side: "you", text: "Answers what the board asks, per K1", proof: ["K1"] },
+          { side: "you", text: "Answers what the board asks", proof: ["K1"] },
+        ],
+        isNot: [
+          { text: "Not a suite like C1", competitor: "C1" },
+          { text: "Not an SEO suite", why: "C1 sells one", competitor: "C1" },
+        ],
+        goal: { text: "18 live articles on your focus situations", measure: "live articles across S1, S4, and S3" },
+      },
+      INPUT,
+      "2026-11-25T10:00:00.000Z",
+    );
+    expect(proposal.claims.map((c) => c.text)).toEqual(["Answers what the board asks"]);
+    expect(dropped.claims).toBe(2);
+    // The line itself goes; a reason that only explains it is left blank.
+    expect(proposal.isNotProposals).toEqual([{ text: "Not an SEO suite", why: "", competitor: "Rivalco", state: "proposed" }]);
+    expect(dropped.isNot).toBe(1);
+    expect(proposal.goal).toMatchObject({ text: "18 live articles on your focus situations", measure: "" });
+
+    const goalLeaks = checkStrategy({ goal: { text: "Win P1 traffic by March", measure: "sign-ups" } }, INPUT, "").proposal.goal;
+    expect(goalLeaks).toBeNull();
+  });
+
+  it("keeps a brand's own words that only look like a label the prompt didn't hand over", () => {
+    // INPUT hands S1 to S4 and P1, K1, R1, C1: S9 and P2 were never labels in this call.
+    const { proposal } = checkStrategy(
+      { claims: [{ side: "you", text: "Backs up to S9 storage and P2 relays", proof: [] }], goal: { text: "Launch the A4 print range", measure: "orders" } },
+      INPUT,
+      "",
+    );
+    expect(proposal.claims.map((c) => c.text)).toEqual(["Backs up to S9 storage and P2 relays"]);
+    expect(proposal.goal).toMatchObject({ text: "Launch the A4 print range", measure: "orders" });
+  });
 });
 
 describe("what competitors write, in Propose", () => {
@@ -164,16 +203,17 @@ describe("what competitors write, in Propose", () => {
     ]);
   });
 
-  it("off, the prompt is v1's word for word", () => {
-    // The v1 prompt for this input, pinned before v2 was written: v2's words show only while joined.
+  it("off, the prompt leaves the joined words out, and says never to write its own labels", () => {
+    // Pinned at v3: the joined words show only while joined to Competitors.
     const V1: StrategyInput = {
       ...INPUT,
       situations: INPUT.situations.slice(0, 2),
       evidence: [INPUT.evidence[0]!, INPUT.evidence[3]!],
     };
     const prompt = strategyPrompt(V1, "2026-11-25");
-    expect(createHash("sha256").update(prompt).digest("hex").slice(0, 16)).toBe("4e635b0dfc985cbf");
+    expect(createHash("sha256").update(prompt).digest("hex").slice(0, 16)).toBe("643b89ba11f82922");
     expect(prompt).not.toContain("A: an article");
+    expect(prompt).toContain("never write an S, P, K, R, C or A number in any text, why, goal or measure");
   });
 
   it("keeps what competitors write within its character cap, however much they write", () => {
@@ -262,7 +302,7 @@ describe("Propose with Vizzy", () => {
       focusSituationIds: ["sit_aaaaaa02", "sit_aaaaaa01"],
       audiences: ["Marketing teams"],
       claims: [{ text: "Built for agencies", proof: { kind: "site", url: "https://acme.example/agencies" } }],
-      made: { promptId: "brand.strategy_propose", version: 1 },
+      made: { promptId: "brand.strategy_propose", version: 3 },
     });
     expect(doc?.draft?.sources).toEqual(expect.arrayContaining(["identity", "situations", "site_pages"]));
     expect(doc?.approved).toBeNull();
@@ -307,7 +347,7 @@ describe("Propose with Vizzy", () => {
       return JSON.stringify({ focus: ["S1", "S2"], claims: [{ side: "them", competitor: "C1", text: "Writes case studies for agencies", proof: ["A1"] }], isNot: [], goal: null });
     });
     const deps = { db, now: () => new Date(T0), generate, modelReady: () => true, usage: NO_USAGE, coverage: async () => null, facts: async () => [], loadTenant: async () => null, search: async () => ({ ok: false as const, error: "search_disabled" as const }), recent };
-    // Off first: v1's prompt, and the watched ones copied in as before.
+    // Off first: no joined words, and the watched ones copied in as before.
     const off = await proposeStrategy(A, deps);
     expect(off.ok && off.doc.draft?.competitorGroups[0]?.competitors).toHaveLength(10);
     for (const k of ["COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
@@ -324,11 +364,11 @@ describe("Propose with Vizzy", () => {
     const doc = await readBrandStrategyDoc(A, { db });
     expect(doc?.draft?.competitorGroups).toEqual([]);
     expect(doc?.draft?.sources).toContain("competitor_articles");
-    expect(doc?.draft?.made).toMatchObject({ version: 2 });
+    expect(doc?.draft?.made).toMatchObject({ version: 3 });
     expect(doc?.draft?.claims[0]).toMatchObject({ side: "them", competitor: "Rival 0", proof: { kind: "competitor", url: expect.stringMatching(/^https:\/\/rival0\.example\/blog\//) } });
   });
 
-  it("joined, adds nothing from competitors when none of their articles was read, or the read failed, and records v1", async () => {
+  it("joined, adds nothing from competitors when none of their articles was read, or the read failed, and says so in its sources", async () => {
     const db = await brand();
     await monitorCompetitor(A, { website: "rival0.example", name: "Rival 0" }, { db });
     for (const k of ["COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
@@ -344,7 +384,7 @@ describe("Propose with Vizzy", () => {
       const r = await proposeStrategy(A, { ...base, recent });
       expect(r.ok).toBe(true);
       const doc = await readBrandStrategyDoc(A, { db });
-      expect(doc?.draft?.made).toMatchObject({ version: 1 });
+      expect(doc?.draft?.made).toMatchObject({ version: 3 });
       expect(doc?.draft?.sources).not.toContain("competitor_articles");
     }
     for (const p of prompts) {

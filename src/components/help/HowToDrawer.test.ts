@@ -39,6 +39,22 @@ describe("the How to drawer's help bodies", () => {
     expect(drawerBodyProps({ ideas: true, ideaWords: true } as never)).toMatchObject({ ideas: true, ideaWords: true });
   });
 
+  it("passes on Work and Vizzy's Work tools from the shell, so Work's help says what /help says", async () => {
+    vi.stubEnv("WORK_ENABLED", "");
+    vi.stubEnv("WORK_VIZZY_ENABLED", "");
+    const { drawerBodyProps } = await import("./HowToDrawer");
+    expect(drawerBodyProps(null)).toMatchObject({ work: false, workVizzy: false });
+    const props = drawerBodyProps({ work: true, workVizzy: true } as never);
+    expect(props).toMatchObject({ work: true, workVizzy: true });
+    const Work = (await import("./pages/work")).default as ComponentType<HelpBodyProps>;
+    const Review = (await import("./pages/review-and-approvals")).default as ComponentType<HelpBodyProps>;
+    expect(renderToStaticMarkup(createElement(Work, props))).toContain("Tasks Vizzy suggests");
+    expect(renderToStaticMarkup(createElement(Review, props))).toContain("Checks due today");
+    const off = drawerBodyProps(null);
+    expect(renderToStaticMarkup(createElement(Work, off))).not.toContain("Tasks Vizzy suggests");
+    expect(renderToStaticMarkup(createElement(Review, off))).not.toContain("Checks due today");
+  });
+
   it("shows the shared connection sections of Connected data and Brands in your organisation with the shell's values on", async () => {
     // As in the browser: the server switches read off.
     vi.stubEnv("CONNECTORS_SHARING_ENABLED", "");

@@ -16,6 +16,12 @@
  * (everyone in two launches already has a contact) and LAUNCH_IDEAS_ENABLED=true in this shell:
  * a run without it works the tag out as off and takes it away again.
  *
+ * Readers per language (LANGUAGE_READERS_ENABLED) need each person's language. After turning that
+ * switch on, run it once more with --contacts-only and LANGUAGE_READERS_ENABLED=true,
+ * CONTENT_LANGUAGE_ENABLED=true and AUDIENCE_PERSON_LINKS_ENABLED=true in this shell: it adds the
+ * language of each sign-up to its link and the person. A run without them takes the languages off the
+ * links again. Product users catch up by themselves within a day, in the daily people check.
+ *
  * DRY RUN by default: it says how many people it would create, update, leave alone and
  * remove. Pass --apply to write. Safe to re-run: a person already right is left alone.
  * It prints counts only, never an address.

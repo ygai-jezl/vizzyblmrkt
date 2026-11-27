@@ -15,6 +15,7 @@ import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled } 
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { isSettingsEraseEnabled } from "@/lib/settings/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isLoopsEnabled } from "@/lib/loops/flags";
@@ -59,6 +60,10 @@ export const dynamic = "force-dynamic";
  * The agent record's catch-up (AGENT_RECORD_ENABLED, ADR-0026) rides it as well: each brand once a
  * day, in the 2 minute slot its id falls in, closing what Vizzy, research and the autopilot drafted
  * that moved on another way.
+ *
+ * Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED) run about hourly, at a
+ * tick of their own (every 30th, at offset 13), within their own budget: open ones put in step with
+ * their people at any hour, new ones raised 6 to 9 in each brand's morning.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -88,6 +93,8 @@ const LOOPS_BUDGET_MS = 20_000;
 const FIELD_ERASE_BUDGET_MS = 20_000;
 /** The agent record's catch-up (AGENT_RECORD_ENABLED): the brands in this tick's slot, a few reads each. */
 const AGENT_RECORD_BUDGET_MS = 15_000;
+/** Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED): every 30th tick, at offset 13. */
+const RAISE_FOLLOWUPS_BUDGET_MS = 15_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -107,8 +114,9 @@ export async function POST(req: Request) {
   const loops = isImageStyleVersionsOn() || isLoopsEnabled();
   const fieldErase = isSettingsEraseEnabled();
   const agentRecord = isAgentRecordEnabled();
+  const raiseFollowups = isRaiseFollowupsEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase || agentRecord))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase || agentRecord || raiseFollowups))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -241,6 +249,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const raiseFollowupsRun = raiseFollowups
+        ? timedTickJob("raise-followups", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + RAISE_FOLLOWUPS_BUDGET_MS);
+            const { runRaiseFollowups } = await import("@/lib/raise/pipeline/followupsTick");
+            return runRaiseFollowups({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[raise] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       if (competitors) {
         // The checks, the article reads and the strategy check run side by side, each within its own budget.
         const [checks, reads, strategy] = await Promise.all([
@@ -288,6 +306,7 @@ export async function POST(req: Request) {
       const loopsResult = await loopsRun;
       const fieldEraseResult = await fieldEraseRun;
       const agentRecordResult = await agentRecordRun;
+      const raiseFollowupsResult = await raiseFollowupsRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -308,6 +327,7 @@ export async function POST(req: Request) {
           : {}),
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
         ...(agentRecordResult?.brands ? { agentRecord: agentRecordResult } : {}),
+        ...(raiseFollowupsResult?.brands ? { raiseFollowups: raiseFollowupsResult } : {}),
       });
     } finally {
       logTickMemory();

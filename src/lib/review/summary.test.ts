@@ -23,6 +23,7 @@ import {
   REVIEW_ORDER,
   REVIEW_SECTIONS,
   strategyCheckItem,
+  type ReviewItem,
 } from "./summary";
 import { freshCheck } from "@/lib/brandStrategy/checkRules";
 import type { StrategyCheck } from "@/lib/types/brandStrategy";
@@ -736,6 +737,15 @@ describe("the choices each Review section shows", () => {
     expect(REVIEW_SECTIONS.brand_map.from).toEqual(["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge", "rising_search"]);
     expect(REVIEW_SECTIONS.content_hub.from).toEqual(["content_hub", "blog_write", "ebook", "blog_refresh"]);
   });
+
+  it("names Work's three sections by the rule or the chat behind them, checks and Ready to start after AI lines and Vizzy's tasks before its drafts", () => {
+    expect(REVIEW_SECTIONS.work_check.from).toEqual(["work_check_due"]);
+    expect(REVIEW_SECTIONS.work_ready.from).toEqual(["work_ready"]);
+    expect(REVIEW_SECTIONS.work_suggestion.from).toEqual(["vizzy_chat"]);
+    expect(REVIEW_ORDER.slice(0, 3)).toEqual(["ai_line", "work_check", "work_ready"]);
+    expect(REVIEW_ORDER.indexOf("work_suggestion")).toBe(REVIEW_ORDER.indexOf("agent_draft") - 1);
+    expect(new Set(REVIEW_ORDER).size).toBe(Object.keys(REVIEW_SECTIONS).length);
+  });
 });
 
 describe("articles due a refresh, in Review", () => {
@@ -805,6 +815,100 @@ describe("articles due a refresh, in Review", () => {
   });
 });
 
+describe("Work in Review (WORK_ENABLED)", () => {
+  // Made-up Acme with two brands, A and B, in one organisation that Nina owns; Sam is an admin of A
+  // who doesn't own it. One fake database stands for the control plane and every region.
+  const nina: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "uid_nina", role: "admin" };
+  const sam: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "uid_sam", role: "admin" };
+  const T = "2026-11-20T09:00:00.000Z";
+  const brand = (db: FakeFirestore, id: string, name: string) =>
+    db.seed("tenants", id, { tenantName: name, rootDomain: `${id}.example`, ownerId: "uid_nina", status: "active", region: "us", allowedOrigins: [], createdAt: T, updatedAt: T, organisationId: "org_acme", orgPlan: "self_hosted" });
+  let n = 0;
+  const task = (db: FakeFirestore, over: Record<string, unknown>) => {
+    n += 1;
+    db.seed("work_tasks", `wt_${"abcdefghijklmnopqrstuvwxyz"[n]!.padStart(20, "a")}`, {
+      organisationId: "org_acme",
+      brandId: "ten_A",
+      addedFrom: "ten_A",
+      region: "us",
+      ref: n,
+      title: `Task ${n}`,
+      description: "",
+      notes: "",
+      status: "todo",
+      open: true,
+      stage: null,
+      mustHave: false,
+      links: [],
+      blockedBy: [],
+      waitingOn: null,
+      ideaId: null,
+      ideaBrandId: null,
+      clipping: null,
+      typedLinks: [],
+      measure: null,
+      origin: { kind: "person", by: "uid_nina" },
+      check: null,
+      hasCheck: false,
+      recent: [],
+      closedAt: null,
+      createdAt: T,
+      updatedAt: T,
+      ...over,
+    });
+  };
+  function world() {
+    const db = new FakeFirestore();
+    brand(db, "ten_A", "Acme");
+    brand(db, "ten_B", "Acme Labs");
+    db.seed("organisations", "org_acme", { name: "Acme", plan: "self_hosted", planSince: T, brandIds: ["ten_A", "ten_B"], ownerIds: ["uid_nina"], createdBy: "uid_nina", createdAt: T, updatedAt: T });
+    task(db, { title: "Register for VAT" });
+    task(db, { title: "Look at the sign up page again", status: "in_progress", check: { kind: "date", at: "2026-11-20T08:00:00.000Z", taskId: null, note: "", setBy: "uid_nina", setAt: T, which: null, counted: null }, hasCheck: true });
+    task(db, { title: "Acme Labs pricing", brandId: "ten_B", addedFrom: "ten_B" });
+    return db;
+  }
+  beforeEach(() => {
+    resetReviewCountCache();
+    n = 0;
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("adds checks due and tasks ready to start, as Work's view shows them, only while Work is on", async () => {
+    const db = world();
+    const work = async (ctx: TenantContext) => (await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind.startsWith("work_")).map((i) => `${i.kind} ${i.title}`);
+    expect(await work(nina)).toEqual([]);
+    vi.stubEnv("WORK_ENABLED", "true");
+    expect(await work(nina)).toEqual(["work_check #2 Look at the sign up page again", "work_ready #1 Register for VAT", "work_ready #3 Acme Labs pricing"]);
+    // Sam doesn't own the organisation, so in a two brand organisation he sees his brand's only.
+    expect(await work(sam)).toEqual(["work_check #2 Look at the sign up page again", "work_ready #1 Register for VAT"]);
+    // A system context with no person sees no Work.
+    expect(await work(ctx)).toEqual([]);
+  });
+
+  it("keys the count by the owner flag too, so an owner's count never reaches an admin who isn't one", async () => {
+    vi.stubEnv("WORK_ENABLED", "true");
+    const db = world();
+    expect(await countReview(nina, { lifecycle: false, now: 1_000 }, db)).toBe(3);
+    expect(await countReview(sam, { lifecycle: false, now: 2_000 }, db)).toBe(2);
+    task(db, { title: "Another one" });
+    // Cached for each, apart.
+    expect(await countReview(nina, { lifecycle: false, now: 3_000 }, db)).toBe(3);
+    expect(await countReview(sam, { lifecycle: false, now: 3_000 }, db)).toBe(2);
+    // A decision forgets every variant for the brand.
+    forgetReviewCount("ten_A");
+    expect(await countReview(nina, { lifecycle: false, now: 4_000 }, db)).toBe(4);
+    expect(await countReview(sam, { lifecycle: false, now: 4_000 }, db)).toBe(3);
+  });
+
+  it("names each key: brand, role and, while Work is on, the owner flag", async () => {
+    const { countKey } = await import("./summary");
+    expect(countKey("ten_A", "admin")).toBe("ten_A|admin");
+    expect(countKey("ten_A", "member", true)).toBe("ten_A|member|owner");
+    expect(countKey("ten_A", "admin", false)).toBe("ten_A|admin|not_owner");
+    expect(countKey("ten_AB", "admin", false).startsWith("ten_A|")).toBe(false);
+  });
+});
+
 describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
   afterEach(() => vi.unstubAllEnvs());
   const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };
@@ -832,7 +936,9 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
         action: "Check",
       },
     ]);
-    expect(REVIEW_ORDER.indexOf("business_fact")).toBe(REVIEW_ORDER.indexOf("person_suggestion") + 1);
+    // Beside the people suggestions, after the board's follow-ups (S2a).
+    const at = REVIEW_ORDER.indexOf("person_suggestion");
+    expect(REVIEW_ORDER.slice(at, at + 3)).toEqual(["person_suggestion", "raise_followup", "business_fact"]);
     expect(REVIEW_SECTIONS.business_fact.title).toBe("About your business");
   });
 
@@ -842,5 +948,164 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
     expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
     vi.stubEnv("ONBOARDING_ENABLED", "false");
     expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});
+
+describe("follow-ups from the investor board (RAISE_FOLLOWUPS_ENABLED)", () => {
+  const FIELDS = ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "RAISE_PIPELINE_ENABLED", "RAISE_FOLLOWUPS_ENABLED"];
+  beforeEach(() => resetReviewCountCache());
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function world() {
+    const { boardWorld } = await import("@/lib/raise/pipeline/testing/world");
+    const { followUpProposal } = await import("@/lib/raise/pipeline/followups");
+    const { proposeAgentAction } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };
+    const w = await boardWorld(db, { ctx: admin });
+    const sam = await w.add({ email: "sam@example.test", first: "Sam", stage: "contacted", lastTouch: "2026-11-01" });
+    const at = new Date().toISOString();
+    await proposeAgentAction(admin, followUpProposal({ personId: sam, due: "quiet", day: "2026-11-01", stageOptionId: w.stage("contacted"), stageField: w.ids.stage, dateField: w.ids.lastTouch, at }), { db });
+    return { db, admin, sam };
+  }
+
+  it("have their own section, right after the suggestions about people, from YouGrow's rule", () => {
+    expect(REVIEW_SECTIONS.raise_followup).toEqual({
+      title: "Follow-ups from your board",
+      description:
+        "People on your board who have been quiet for 14 days, or whose next step date has passed. YouGrow checks each morning. Following up, or moving them on the board, clears one.",
+      from: ["investor_quiet"],
+    });
+    expect(REVIEW_ORDER[REVIEW_ORDER.indexOf("person_suggestion") + 1]).toBe("raise_followup");
+  });
+
+  it("are listed for everyone on the team only while follow-ups are on, and count", async () => {
+    for (const k of FIELDS) vi.stubEnv(k, "true");
+    const { db, admin, sam } = await world();
+    const r = await loadReview(admin, { lifecycle: false, includeContent: false }, db);
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({ kind: "raise_followup", href: `/admin/crm/people/${sam}`, action: "Open", detail: "In Contacted. Open their page to follow up.", followUp: { quiet: true, rev: 1 } });
+    expect(r.items[0]!.title).toMatch(/^Quiet for \d+ days$/);
+    expect(JSON.stringify(r.items)).not.toMatch(/Sam|example\.test/);
+    const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toHaveLength(1);
+    expect(await countReview(admin, { lifecycle: false, now: 1_000 }, db)).toBe(1);
+
+    vi.stubEnv("RAISE_FOLLOWUPS_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});
+
+describe("Work and the board's follow-ups together (WORK_ENABLED and RAISE_FOLLOWUPS_ENABLED)", () => {
+  // Made-up Acme, one brand in an organisation Nina owns; Theo is a member. One fake database
+  // stands for the control plane and the region. Made-up people at example.test only.
+  const ON = ["WORK_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "RAISE_PIPELINE_ENABLED", "RAISE_FOLLOWUPS_ENABLED"];
+  const nina: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "uid_nina", role: "admin" };
+  const theo: TenantContext = { ...nina, userId: "uid_theo", role: "member" };
+  const T = "2026-11-20T09:00:00.000Z";
+  beforeEach(() => resetReviewCountCache());
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function world() {
+    for (const k of ON) vi.stubEnv(k, "true");
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", { tenantName: "Acme", rootDomain: "acme.example", ownerId: "uid_nina", status: "active", region: "us", allowedOrigins: [], createdAt: T, updatedAt: T, organisationId: "org_acme", orgPlan: "self_hosted" });
+    db.seed("organisations", "org_acme", { name: "Acme", plan: "self_hosted", planSince: T, brandIds: ["ten_A"], ownerIds: ["uid_nina"], createdBy: "uid_nina", createdAt: T, updatedAt: T });
+    const deps = { controlDb: db, regionDb: () => db };
+    const { workScopeFor } = await import("@/lib/work/scope");
+    const scope = async (who: TenantContext) => {
+      const r = await workScopeFor(who, deps);
+      if (!r.ok) throw new Error(r.why);
+      return r.scope;
+    };
+    // A To do task, and one in progress whose date check is due, as Work keeps them.
+    const task = (n: number, over: Record<string, unknown>) =>
+      db.seed("work_tasks", `wt_${"abcdefghijklmnopqrstuvwxyz"[n]!.padStart(20, "a")}`, {
+        organisationId: "org_acme",
+        brandId: "ten_A",
+        addedFrom: "ten_A",
+        region: "us",
+        ref: n,
+        title: `Task ${n}`,
+        description: "",
+        notes: "",
+        status: "todo",
+        open: true,
+        stage: null,
+        mustHave: false,
+        links: [],
+        blockedBy: [],
+        waitingOn: null,
+        ideaId: null,
+        ideaBrandId: null,
+        clipping: null,
+        typedLinks: [],
+        measure: null,
+        origin: { kind: "person", by: "uid_nina" },
+        check: null,
+        hasCheck: false,
+        recent: [],
+        closedAt: null,
+        createdAt: T,
+        updatedAt: T,
+        ...over,
+      });
+    task(1, { title: "Register for VAT" });
+    task(2, { title: "Look at the sign up page again", status: "in_progress", check: { kind: "date", at: "2026-11-20T08:00:00.000Z", taskId: null, note: "", setBy: "uid_nina", setAt: T, which: null, counted: null }, hasCheck: true });
+    const { proposeWorkSuggestion } = await import("@/lib/work/suggestions");
+    const suggested = await proposeWorkSuggestion(
+      await scope(nina),
+      { task: { title: "Ask the first investors for an intro", description: "", stage: null, brandId: "ten_A", typedLinks: [], measure: null, proposed: null, from: "from today's log", why: "Two meetings this week ended with an offer to introduce you." } },
+      deps,
+    );
+    if (!suggested.ok || suggested.value.outcome !== "created") throw new Error("no suggestion");
+    const { boardWorld } = await import("@/lib/raise/pipeline/testing/world");
+    const { followUpProposal } = await import("@/lib/raise/pipeline/followups");
+    const { proposeAgentAction } = await import("@/lib/tenant");
+    const w = await boardWorld(db, { ctx: nina });
+    const sam = await w.add({ email: "sam@example.test", first: "Sam", stage: "contacted", lastTouch: "2026-11-01" });
+    await proposeAgentAction(nina, followUpProposal({ personId: sam, due: "quiet", day: "2026-11-01", stageOptionId: w.stage("contacted"), stageField: w.ids.stage, dateField: w.ids.lastTouch, at: new Date().toISOString() }), { db });
+    return { db, deps, scope, suggestionId: suggested.value.action.id, suggestionRev: suggested.value.action.rev };
+  }
+
+  /** Each section as Review draws it: REVIEW_ORDER, and each kind's rows. */
+  const drawn = (items: ReviewItem[]) => REVIEW_ORDER.flatMap((kind) => items.filter((i) => i.kind === kind));
+  const kinds = (items: ReviewItem[]) => items.map((i) => i.kind);
+
+  it("shows each row once, in its own section, and counts each once", async () => {
+    const { db } = await world();
+    for (const who of [nina, theo]) {
+      const { items } = await loadReview(who, { lifecycle: false, includeContent: false }, db);
+      expect(kinds(items).sort(), who.role).toEqual(["raise_followup", "work_check", "work_ready", "work_suggestion"]);
+      expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
+      // Review draws REVIEW_ORDER's sections: each kind is in it once, so each row draws once.
+      for (const kind of new Set(kinds(items))) expect(REVIEW_ORDER.filter((k) => k === kind), kind).toHaveLength(1);
+      expect(drawn(items)).toHaveLength(items.length);
+      // A follow-up draws as a follow-up and a Work row as Work's: never both on one row.
+      expect(items.filter((i) => i.followUp).map((i) => i.kind)).toEqual(["raise_followup"]);
+      expect(items.filter((i) => i.work).map((i) => i.kind).sort()).toEqual(["work_check", "work_ready", "work_suggestion"]);
+    }
+    expect(REVIEW_ORDER.filter((k) => k === "raise_followup" || k.startsWith("work_"))).toEqual(["work_check", "work_ready", "work_suggestion", "raise_followup"]);
+    expect(await countReview(nina, { lifecycle: false, now: 1_000 }, db)).toBe(4);
+    expect(await countReview(theo, { lifecycle: false, now: 1_000 }, db)).toBe(4);
+  });
+
+  it("drops one row from the count when one is decided, and a suggestion added to Work moves to Ready to start", async () => {
+    const { db, deps, scope, suggestionId, suggestionRev } = await world();
+    expect(await countReview(nina, { lifecycle: false, now: 1_000 }, db)).toBe(4);
+    const followUp = (await loadReview(nina, { lifecycle: false, includeContent: false }, db)).items.find((i) => i.kind === "raise_followup")!.followUp!;
+    const { decideFollowUp } = await import("@/lib/raise/pipeline/followups");
+    expect((await decideFollowUp(nina, followUp.id, { op: "dismiss", rev: followUp.rev }, { db })).status).toBe(200);
+    // Dismissing forgets the cached count, so the next read is fresh.
+    expect(await countReview(nina, { lifecycle: false, now: 2_000 }, db)).toBe(3);
+
+    const { addSuggestion } = await import("@/lib/work/suggestions");
+    const added = await addSuggestion(await scope(nina), { actionId: suggestionId, rev: suggestionRev }, deps);
+    expect(added.ok).toBe(true);
+    const { items } = await loadReview(nina, { lifecycle: false, includeContent: false }, db);
+    expect(kinds(items).sort()).toEqual(["work_check", "work_ready", "work_ready"]);
+    expect(items.filter((i) => i.title.endsWith("Ask the first investors for an intro")).map((i) => i.kind)).toEqual(["work_ready"]);
+    forgetReviewCount("ten_A");
+    expect(await countReview(nina, { lifecycle: false, now: 3_000 }, db)).toBe(3);
   });
 });

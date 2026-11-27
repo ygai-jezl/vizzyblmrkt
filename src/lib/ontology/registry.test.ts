@@ -15,7 +15,9 @@ const ROOT = process.cwd();
  * Meanings no tool returns yet, each with its reason. The list only shrinks: a meaning leaves it
  * once a type claims it with the tool that returns it.
  */
-const NOT_SERVED_YET: Record<string, string> = {};
+const NOT_SERVED_YET: Record<string, string> = {
+  conversions: "Nothing counts it yet; a Work measure shows it in the brand's own word.",
+};
 
 /**
  * Choices in the learning registry that no type's madeBy names, each with its reason. Every other
@@ -24,6 +26,7 @@ const NOT_SERVED_YET: Record<string, string> = {};
 const HELD_NOWHERE: Record<string, string> = {
   other: "no code spends under it, and every new call names its real purpose",
   next_action_order: "Home works the order out on each visit from the brand's answers and where it is, and keeps none of it",
+  work_ready: "It only orders Review's Ready to start, and the person's Start is a change row.",
 };
 
 /**

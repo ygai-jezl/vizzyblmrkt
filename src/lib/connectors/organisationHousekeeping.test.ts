@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { changeOrganisationConnection, forTenant, getOrganisationConnection, listOrganisationConnections, type SourceRef, type TenantContext } from "@/lib/tenant";
+import { allocateWorkRefs, changeOrganisationConnection, createWorkTask, forTenant, getOrganisationConnection, listOrganisationConnections, peekWorkRefs, type SourceRef, type TenantContext } from "@/lib/tenant";
+import { aTask, aWrite } from "@/lib/work/testing/fixtures";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { Region, Tenant } from "@/lib/types/tenant";
@@ -156,6 +157,34 @@ describe("moves never leave a sign in behind", () => {
     expect(await disconnectEmptiedOrganisation(ORG, "script:ops", deps({ transport }))).toBe(2);
     expect(transport).not.toHaveBeenCalled();
     expect((await orgRecord(G))!.secrets).toEqual({});
+  });
+
+  it("keeps the Work of an organisation a move empties, and erases it, in every region, when the id is taken up again", async () => {
+    const stores = { regionDb: w.regionDb, controlDb: w.us };
+    const wholeBusiness = await createWorkTask(aTask({ organisationId: ORG, brandId: null, addedFrom: EU_BRAND.tenantId, region: "eu", ref: 1 }), aWrite(), stores);
+    const usTask = await createWorkTask(aTask({ organisationId: ORG, brandId: US_BRAND.tenantId, addedFrom: US_BRAND.tenantId, region: "us", ref: 2 }), aWrite(), stores);
+    const theirs = await createWorkTask(aTask({ organisationId: OTHER_ORG, brandId: null, addedFrom: US_BRAND.tenantId, region: "us", ref: 1 }), aWrite(), stores);
+    await allocateWorkRefs(ORG, 2, w.us);
+    seedOrganisation(w, ORG, []);
+    // A move that empties it disconnects its connections only: what the team wrote stays.
+    await disconnectEmptiedOrganisation(ORG, "script:ops", deps());
+    expect(w.eu.raw("work_tasks", wholeBusiness.task.id)).toBeDefined();
+    expect(w.us.raw("work_tasks", usTask.task.id)).toBeDefined();
+    // Taken up again: its tasks, log and counter go, in every region, and nobody else's.
+    await clearOrganisationIdForReuse(ORG, "script:ops", deps());
+    expect(w.eu.raw("work_tasks", wholeBusiness.task.id)).toBeUndefined();
+    expect(w.us.raw("work_tasks", usTask.task.id)).toBeUndefined();
+    expect([...w.eu.dump("work_log"), ...w.us.dump("work_log")].every((r) => r.organisationId === OTHER_ORG)).toBe(true);
+    expect(await peekWorkRefs(ORG, w.us)).toBe(1);
+    expect(w.us.raw("work_tasks", theirs.task.id)).toBeDefined();
+  });
+
+  it("refuses to take an id up while a region's Work can't be erased", async () => {
+    const stores = { regionDb: w.regionDb, controlDb: w.us };
+    await createWorkTask(aTask({ organisationId: ORG, brandId: null, addedFrom: EU_BRAND.tenantId, region: "eu" }), aWrite(), stores);
+    seedOrganisation(w, ORG, []);
+    const euDown = failingFirestore(w.eu, { collections: ["work_tasks"] });
+    await expect(clearOrganisationIdForReuse(ORG, "script:ops", deps({ regionDb: (r: Region) => (r === "eu" ? euDown : w.regionDb(r)) }))).rejects.toThrow(/work_erase_failed/);
   });
 
   it("an emptied organisation taken up again has no live connection and no secret that opens", async () => {

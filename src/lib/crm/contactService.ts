@@ -15,6 +15,8 @@ import { deterministicContactId, deterministicCompanyId, domainFromEmail } from 
 import { buildSearchTokens } from "./searchTokens";
 import { enqueueContactEnrich } from "./enrichmentQueue";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
+import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { normalizeLocale } from "@/lib/i18n/locale";
 
 /**
  * The person record follows each sign-up change (AUDIENCE_PERSON_LINKS_ENABLED): the write
@@ -67,6 +69,7 @@ function derive(ctx: TenantContext, signup: Signup): Derived {
 }
 
 export function linkFromSignup(signup: Signup): ContactCampaignLink {
+  const locale = isLanguageReadersEnabled() ? normalizeLocale(signup.locale) : null;
   return {
     campaignId: signup.campaignId,
     signupId: signup.id,
@@ -76,6 +79,7 @@ export function linkFromSignup(signup: Signup): ContactCampaignLink {
     score: typeof signup.score === "number" ? signup.score : null,
     joinedAt: signup.createdAt,
     joinedVia: signup.joinedVia ?? "form",
+    ...(locale ? { locale } : {}),
   };
 }
 

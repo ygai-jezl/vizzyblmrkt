@@ -34,6 +34,8 @@ import {
   type ContextRetrievalRequest,
 } from "@/lib/agents/knowledgeRetrieval";
 import { retrieveExemplars } from "@/lib/distribute/feedback/retrieveExemplars";
+import { examplePieceOf } from "@/lib/content/create/approvedExamples";
+import { approvedSourceId } from "@/lib/types/performanceExemplar";
 import { postPreferencesSection } from "@/lib/distribute/learnFromPostEdit";
 import { retrievePostPatterns } from "@/lib/distribute/feedback/patterns";
 import { buildTrendingBlock } from "@/lib/agents/trending";
@@ -334,13 +336,20 @@ export async function generateNode(
   }
 
   // Closed loop: weight generation toward this channel's PROVEN performers (gated by
-  // DISTRIBUTE_CLOSED_LOOP_ENABLED inside retrieveExemplars; empty when off/none).
+  // DISTRIBUTE_CLOSED_LOOP_ENABLED inside retrieveExemplars; empty when off/none). An email or hub
+  // also follows the pieces of its kind a person approved (CONTENT_APPROVED_EXAMPLES_ENABLED), never its own.
+  const piece = examplePieceOf(node);
+  const ownSource = piece ? approvedSourceId({ workspaceId, planId: plan.id, nodeId: node.id }) : null;
   const exemplarCtx = await retrieveExemplarsFn({
     ctx,
     channel: node.channel,
     queryText: req.queryText,
+    ...(piece ? { piece } : {}),
+    ...(ownSource ? { skipSourceId: ownSource } : {}),
   }).catch(() => null);
   const exemplarsBlock = exemplarCtx?.formatted ?? "";
+  // The approved pieces this draft followed, kept on its AI original for Vizzy to read.
+  const followed = exemplarCtx?.followed?.length ? { examples: exemplarCtx.followed } : {};
   // Learned-pattern DIRECTIVE (abstract "what performs") + optional TRENDING topics — both fenced
   // DATA, both separately flag-gated (POST_PATTERNS_INJECT_ENABLED / TRENDING_TOPICS_ENABLED), the
   // directive additionally skipped for holdout nodes so lift stays measurable. Empty when off.
@@ -422,6 +431,7 @@ export async function generateNode(
         purpose: writingPurposeOf(node.type, citableBlog),
         promptId: "content.email_fill",
         sources: sourcesOf({ brand_voice: input.brandVoice ?? "", audience: input.audience ?? "", knowledge: rag?.chunks ?? [], proof: proofBlock, exemplars: exemplarsBlock }),
+        ...followed,
       } satisfies MadeBy,
     };
 
@@ -558,6 +568,7 @@ export async function generateNode(
               hub_copy: node.type !== "hub" ? hubNode?.body ?? "" : "",
             }),
       }),
+      ...followed,
     },
   };
 }

@@ -98,7 +98,7 @@ export default async function BrandMapPage({ searchParams }: { searchParams?: Pr
   // The brand strategy (BRAND_STRATEGY_ENABLED): its own tab, hidden while the switch is off. Its
   // Content plan section (CONTENT_STRATEGY_ENABLED) shows only with that switch on too.
   const strategy = isBrandStrategyEnabled()
-    ? [{ id: "strategy", label: "Strategy", node: <BrandMapStrategy canEdit={ctx.role === "admin"} contentPlan={isContentStrategyEnabled()} /> }]
+    ? [{ id: "strategy", label: "Strategy", node: <BrandMapStrategy canEdit={ctx.role === "admin"} contentPlan={isContentStrategyEnabled()} canAsk={askOn && isGeminiConfigured()} /> }]
     : [];
   // Review the strategy, from the weekly check's row in Review (STRATEGY_CHECK_ENABLED), opens its tab.
   const openTab = isStrategyCheckEnabled() && strategy.length && (await searchParams)?.tab === "strategy" ? "strategy" : undefined;

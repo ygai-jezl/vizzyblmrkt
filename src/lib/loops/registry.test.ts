@@ -12,7 +12,7 @@ import { METERED_FEATURES } from "@/lib/plans/brandAccess";
 import { IMAGE_STYLES } from "@/lib/content/imageStyle/catalogue";
 import { learnsFromThumbs } from "@/lib/content/imageStyle/learning";
 import { DATA_SIGNAL_RULES } from "@/lib/types/dataSignal";
-import { BY_LEARNER, decisionKind, IMAGE_STYLE_SCOPES, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, UNMETERED_CALLS, type Decision, type Loop } from "./registry";
+import { BY_LEARNER, decisionKind, IMAGE_STYLE_SCOPES, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, UNMETERED_CALLS, VENDOR, type Decision, type Loop } from "./registry";
 import { reasonProblems } from "./reason";
 import { LOOP_SWITCHES } from "./switches";
 import { SWITCHES_BEFORE_LOOPS } from "./testing/switchesBeforeLoops";
@@ -66,8 +66,6 @@ function revisitProblem(revisit: string, today: Date): string | null {
   return null;
 }
 
-/** Results named after one provider: a loop's slow outcome must hold whatever source a brand connects. */
-const VENDOR = /^(?:ga4|cf|linkedin|google)[A-Z]/;
 const MAX_SCOPE = 40;
 
 /**

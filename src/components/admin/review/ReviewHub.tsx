@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { isWorkEnabled } from "@/lib/work/flags";
 import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type ReviewKind } from "@/lib/review/summary";
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
 import { DismissCheckButton } from "./DismissCheckButton";
 import { MarkSeenButton } from "./MarkSeenButton";
+import { FollowUpButtons } from "../investors/FollowUpButtons";
 import { SignalRow } from "./SignalActions";
 import { GoBackRow } from "./GoBackRow";
+import { WorkRow } from "./WorkRows";
 import { forTenant } from "@/lib/tenant";
 import { programmeWord } from "@/lib/nav/terms";
 
@@ -18,6 +21,7 @@ import { programmeWord } from "@/lib/nav/terms";
 export async function ReviewHub() {
   const ctx = await requireAdminContext();
   const lifecycle = isLifecycleEnabled();
+  const work = isWorkEnabled();
   const review = await loadReview(ctx, { lifecycle, includeContent: true });
   const byKind = new Map<ReviewKind, ReviewItem[]>();
   for (const item of review.items) byKind.set(item.kind, [...(byKind.get(item.kind) ?? []), item]);
@@ -55,7 +59,7 @@ export async function ReviewHub() {
       {total === 0 ? (
         <p className="rounded-xl border border-dashed border-shell-line p-8 text-center text-sm text-shell-muted">
           Nothing needs you right now. AI lines, Vizzy&rsquo;s drafts and suggestions, failed posts, repo results, connection
-          problems and what your competitors changed land here.
+          problems and what your competitors changed land here{work ? ", with Work's checks due and tasks ready to start" : ""}.
         </p>
       ) : null}
 
@@ -77,7 +81,10 @@ export async function ReviewHub() {
             ) : (
               <ul className="space-y-2">
                 {items.map((item) =>
-                  item.goBack && ctx.role === "admin" ? (
+                  item.work ? (
+                    // Work's rows (WORK_ENABLED): members act on them too.
+                    <WorkRow key={item.id} item={{ ...item, work: item.work }} />
+                  ) : item.goBack && ctx.role === "admin" ? (
                     <GoBackRow key={item.id} item={{ ...item, goBack: item.goBack }} />
                   ) : item.signal && ctx.role === "admin" ? (
                     <SignalRow key={item.id} item={{ ...item, signal: item.signal }} programmes={programmes} programmeWord={programmeWord().one} />
@@ -108,6 +115,7 @@ export async function ReviewHub() {
                       </div>
                       {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
                       {item.dismissCheck && ctx.role === "admin" ? <DismissCheckButton /> : null}
+                      {item.followUp && ctx.role === "admin" ? <FollowUpButtons id={item.followUp.id} rev={item.followUp.rev} quiet={item.followUp.quiet} /> : null}
                       <Link
                         href={item.href}
                         className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"

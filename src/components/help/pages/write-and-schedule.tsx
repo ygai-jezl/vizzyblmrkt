@@ -2,14 +2,14 @@ import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
-import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
+import { isBlogAiSummaryUiEnabled, isBlogCitableEnabled } from "@/lib/content/blog/flags";
 import {
   isEditModeEnabled,
   isEditModeLearningFollowsVizzyEnabled,
   isEditModeVizzyEnabled,
   isEditModeVizzyLearningEnabled,
 } from "@/lib/content/editor/flags";
-import { isAiDraftKeptEnabled, isAiOriginalsEnabled } from "@/lib/content/create/flags";
+import { isAiDraftKeptEnabled, isAiOriginalsEnabled, isApprovedExamplesEnabled } from "@/lib/content/create/flags";
 import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distribute/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
@@ -126,6 +126,18 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
+      {isApprovedExamplesEnabled() ? (
+        <P>
+          Each newsletter, blog article and workflow email you approve becomes an example of your own writing. When Vizzy
+          writes your next newsletter or workflow email, or a blog hub{isBlogCitableEnabled() ? " from a template" : ""}, it
+          follows the nearest examples of the same kind for voice, shape and length, without copying their words, facts or
+          links.{isBlogLiveWatchEnabled() ? " A blog article found live on your site counts as approved too." : null} YouGrow
+          keeps the newest 20 of each kind, takes out email addresses, handles and phone numbers, and keeps merge values such
+          as <code>{"{{first_name}}"}</code> as they are, never a reader&apos;s name. Deleting a piece, its workflow or its
+          programme removes its examples.
+          {isAiOriginalsEnabled() ? <> Vizzy can tell you which examples a draft followed: ask &quot;what did you base this on?&quot;</> : null}
+        </P>
+      ) : null}
       {connectorSignals ? (
         <P>
           From <Open href="/help/review-and-approvals#numbers">Review</Open>, <strong>Plan an article</strong> on a suggestion

@@ -7,6 +7,7 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "plan-and-usage": () => import("./pages/plan-and-usage"),
   "organisation-brands": () => import("./pages/organisation-brands"),
   "sign-in-and-passwords": () => import("./pages/sign-in-and-passwords"),
+  "work": () => import("./pages/work"),
   "email-sending": () => import("./pages/email-sending"),
   "your-brand": () => import("./pages/your-brand"),
   "email-style": () => import("./pages/email-style"),
@@ -27,6 +28,7 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "search": () => import("./pages/search"),
   "languages": () => import("./pages/languages"),
   "your-audience": () => import("./pages/your-audience"),
+  "investors-and-funding": () => import("./pages/investors-and-funding"),
   "history-and-restore": () => import("./pages/history-and-restore"),
   "troubleshooting": () => import("./pages/troubleshooting"),
 };

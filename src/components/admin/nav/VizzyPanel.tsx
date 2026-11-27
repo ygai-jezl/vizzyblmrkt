@@ -18,6 +18,8 @@ const ITEMS = buildNav({
   brandKit: isBrandKitUiEnabled(),
   review: true,
   phase3: isNavV2Phase3Enabled(),
+  // Work's key resolves whatever WORK_ENABLED says: the page itself answers not found while it is off.
+  work: true,
 }).flatMap((s) => s.items);
 
 /**
@@ -50,6 +52,7 @@ export function VizzyPanel() {
     person: onPerson && shell.personBrief,
     personFields: onPerson && !shell.personBrief,
     ideas: shell.ideaWords,
+    workVizzy: shell.workVizzy,
   });
 
   return (

@@ -55,10 +55,15 @@ import type { DataConnection } from "@/lib/types/dataConnection";
 import type { LoopKind } from "@/lib/loops/registry";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { learnedReviewItems } from "@/lib/loops/cards";
+import { isWorkEnabled } from "@/lib/work/flags";
+import { workReviewItems } from "@/lib/work/review";
+import type { WorkReviewPayload } from "@/lib/work/reviewCards";
 import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
 import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { reasonLine } from "@/lib/brandStrategy/checkRules";
 import type { StrategyCheck } from "@/lib/types/brandStrategy";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -85,6 +90,10 @@ export type ReviewKind =
   | "data_signal"
   | "content_refresh"
   | "person_suggestion"
+  | "work_check"
+  | "work_ready"
+  | "work_suggestion"
+  | "raise_followup"
   | "business_fact"
   | "learned";
 
@@ -104,8 +113,12 @@ export interface ReviewItem {
   details?: string[];
   /** A Go back card for a learned image look: Go back and Keep this look instead of the link (admins only). */
   goBack?: { cardId: string; scope: string; to: number };
+  /** A Work row's buttons (WORK_ENABLED): a check's read or Done and Tomorrow, Start, or a suggestion's Add to Work, Edit then add and Dismiss. */
+  work?: WorkReviewPayload;
   /** The weekly strategy check's row: Dismiss beside the link (admins only). */
   dismissCheck?: true;
+  /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
+  followUp?: { id: string; rev: number; quiet: boolean };
 }
 
 /**
@@ -196,6 +209,27 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
     from: ["canvas.person_fields", "canvas.new_person"],
   },
+  work_check: {
+    title: "Checks due today",
+    description:
+      "Tasks in Work to look at again today: on a date you set, when another task is done, or when a task's measure says to look. A measure's check asks if it worked.",
+    from: ["work_check_due"],
+  },
+  work_ready: {
+    title: "Ready to start",
+    description: "To do tasks with nothing in their way. Start the one you want next, and Work keeps which you picked.",
+    from: ["work_ready"],
+  },
+  work_suggestion: {
+    title: "Tasks Vizzy suggests",
+    description: "From your log, your numbers and the stage you're in. Nothing goes on the list until someone adds it, as written or edited.",
+    from: ["vizzy_chat"],
+  },
+  raise_followup: {
+    title: REVIEW_WORDS.title,
+    description: REVIEW_WORDS.description,
+    from: ["investor_quiet"],
+  },
   learned: {
     title: "What YouGrow learned",
     description: "Looks YouGrow learned that did worse than the look before. Nothing goes back on its own, and a card goes after 14 days.",
@@ -209,7 +243,28 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "learned", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = [
+  "ai_line",
+  "work_check",
+  "work_ready",
+  "learned",
+  "failed_post",
+  "connection",
+  "data_source",
+  "next_article",
+  "data_signal",
+  "content_refresh",
+  "work_suggestion",
+  "agent_draft",
+  "person_suggestion",
+  "raise_followup",
+  "business_fact",
+  "repo_results",
+  "brand_map",
+  "competitor_news",
+  "strategy_check",
+  "content_hub",
+];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -869,7 +924,7 @@ export async function loadContentHubItems(ctx: TenantContext, workspaces: Array<
 
 export async function loadReview(
   ctx: TenantContext,
-  opts: { lifecycle: boolean; includeContent: boolean },
+  opts: { lifecycle: boolean; includeContent: boolean; /** Count a due measure's check as it shows (the page; not the sidebar's count). */ workCount?: boolean },
   db?: FirestoreLike,
 ): Promise<Review> {
   const repos = forTenant(ctx, db);
@@ -932,6 +987,14 @@ export async function loadReview(
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
+  // Follow-ups from the investor or funding board: everyone on the team sees them, only admins decide one.
+  const raiseFollowUps = isRaiseFollowupsEnabled()
+    ? await soft(
+        "board follow-ups",
+        import("@/lib/raise/pipeline/followups").then((m) => m.followUpReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
@@ -942,6 +1005,11 @@ export async function loadReview(
   const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
   // Go back cards for learned image looks (IMAGE_STYLE_VERSIONS_ENABLED): admins act, members see them.
   const learned = isImageStyleVersionsOn() ? await soft("learned looks", learnedReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
+  // Work (WORK_ENABLED): checks due, tasks ready to start and Vizzy's task suggestions, for members
+  // too, as Work's view shows them. One fake database stands for every database in tests.
+  const work = isWorkEnabled()
+    ? await soft("work", workReviewItems(ctx, { ...(db ? { controlDb: db, regionDb: () => db } : {}), count: opts.workCount !== false }), [] as ReviewItem[])
+    : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -961,6 +1029,8 @@ export async function loadReview(
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...personSuggestions,
+    ...work,
+    ...raiseFollowUps,
     ...businessFacts,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
@@ -981,9 +1051,24 @@ export async function loadReview(
 const COUNT_TTL_MS = 2 * 60 * 1000;
 const countCache = new Map<string, { at: number; total: number }>();
 
-/** The count's cache key: per brand, and per role, since some items are for admins only. */
-function countKey(tenantId: string, role: TenantContext["role"]): string {
-  return `${tenantId}|${role === "admin" ? "admin" : "member"}`;
+/**
+ * The count's cache key: per brand, per role (some items are for admins only) and, while Work is
+ * on, whether the person owns the brand's organisation, since owners count the whole
+ * organisation's Work and everyone else in a multi brand organisation only their brand's.
+ */
+export function countKey(tenantId: string, role: TenantContext["role"], owner?: boolean): string {
+  return `${tenantId}|${role === "admin" ? "admin" : "member"}${owner === undefined ? "" : owner ? "|owner" : "|not_owner"}`;
+}
+
+/** Whether the person owns the brand's organisation, read live: undefined while Work is off, "unread" when it can't be read. */
+async function ownerFlag(ctx: TenantContext, db?: FirestoreLike): Promise<boolean | undefined | "unread"> {
+  if (!isWorkEnabled()) return undefined;
+  try {
+    const o = await organisationContextFor(ctx, db);
+    return o?.isOwner === true;
+  } catch {
+    return "unread";
+  }
 }
 
 export async function countReview(
@@ -992,19 +1077,20 @@ export async function countReview(
   db?: FirestoreLike,
 ): Promise<number> {
   const now = opts.now ?? Date.now();
-  const key = countKey(ctx.tenantId, ctx.role);
-  const hit = countCache.get(key);
+  const owner = await ownerFlag(ctx, db);
+  // Who the person is couldn't be read: count fresh, and keep it for no one else.
+  const key = owner === "unread" ? null : countKey(ctx.tenantId, ctx.role, owner);
+  const hit = key ? countCache.get(key) : undefined;
   if (hit && now - hit.at < COUNT_TTL_MS) return hit.total;
-  const review = await loadReview(ctx, { lifecycle: opts.lifecycle, includeContent: !db }, db);
+  const review = await loadReview(ctx, { lifecycle: opts.lifecycle, includeContent: !db, workCount: false }, db);
   const total = review.aiLines + review.items.length;
-  countCache.set(key, { at: now, total });
+  if (key) countCache.set(key, { at: now, total });
   return total;
 }
 
-/** Forget one brand's cached count, after something that changes it (a change marked seen). */
+/** Forget one brand's cached counts, every role and owner flag, after something that changes them (a change marked seen). */
 export function forgetReviewCount(tenantId: string): void {
-  countCache.delete(countKey(tenantId, "admin"));
-  countCache.delete(countKey(tenantId, "member"));
+  for (const key of [...countCache.keys()]) if (key.startsWith(`${tenantId}|`)) countCache.delete(key);
 }
 
 /** Test hook: forget cached counts. */

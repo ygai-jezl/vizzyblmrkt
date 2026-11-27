@@ -44,8 +44,11 @@ export type { KnowledgeChunkView, KnowledgePage } from "./knowledge";
 export {
   performanceExemplarsRef,
   writePerformanceExemplar,
+  listApprovedExemplars,
+  deletePerformanceExemplars,
   PERFORMANCE_EXEMPLARS,
 } from "./exemplars";
+export type { ApprovedExemplarRow } from "./exemplars";
 export {
   postPerformanceRef,
   upsertPostMetricSnapshot,
@@ -273,6 +276,38 @@ export type {
   EndPartResult,
   RepairOutcome,
 } from "./organisationConnections";
+// Work (ADR-0020): an organisation's tasks and daily log, in regional databases, and its task counter.
+export {
+  WORK_TASKS,
+  WORK_LOG,
+  newWorkTaskId,
+  newWorkLogId,
+  newWorkImportId,
+  createWorkTask,
+  changeWorkTask,
+  deleteWorkTask,
+  appendWorkLog,
+  getWorkTask,
+  findWorkTask,
+  findWorkTaskByRef,
+  listWorkTasks,
+  listWorkChecks,
+  countWorkTasks,
+  listWorkLog,
+  listTaskLog,
+  listTaskDecisions,
+  countWorkLog,
+  eraseOrganisationWork,
+  repointBrandWork,
+  countBrandWork,
+  brandWorkHome,
+  createSuggestedWorkTask,
+  saveDraftedWorkLog,
+  findWorkLogRow,
+} from "./work";
+export type { WorkStores, WorkWrite, NewWorkTask, WorkTaskPatch, WorkChangePlan, WorkChangeResult, NewWorkLogRow, WorkRead, WorkEraseCounts, SuggestionAccept, SuggestedTaskResult, DraftAccept, DraftedRowResult } from "./work";
+export { WORK_REFS, IMPORT_HOLD_MS, allocateWorkRefs, raiseWorkRefs, peekWorkRefs, peekImportRefs, claimImportRefs, releaseImportRefs, deleteWorkRefs } from "./workRefs";
+export type { ImportRefsPeek } from "./workRefs";
 // Who may act for an organisation, read live.
 export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow, mayMoveBrand } from "./organisationContext";
 export type { BrandMoveCheck, BrandMoveRefusal, OrganisationContext, VerifiedPerson } from "./organisationContext";

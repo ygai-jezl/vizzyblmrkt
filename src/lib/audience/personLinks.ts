@@ -4,6 +4,8 @@ import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 import { lastActiveAt, personReach, personStage } from "./personStage";
+import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { normalizeLocale } from "@/lib/i18n/locale";
 
 /**
  * The person record's derived parts, worked out from its sources: a link per launch
@@ -74,6 +76,7 @@ export function linkFromProductUser(
 ): PersonProductLink {
   const stage = personStage(user, connection.catalog, nowMs, connection.stageClocks);
   const reach = personReach(user, connection.consentPolicy, optOutRows(optOuts));
+  const locale = isLanguageReadersEnabled() ? normalizeLocale(user.locale) : null;
   return {
     connectionId: connection.id,
     productUserId: user.id,
@@ -84,6 +87,7 @@ export function linkFromProductUser(
     lastActiveAt: lastActiveAt(user, connection.catalog),
     reach: reach.can,
     groups: Object.keys(user.entities ?? {}).sort(),
+    ...(locale ? { locale } : {}),
   };
 }
 
@@ -93,6 +97,11 @@ export interface PersonSummary {
   activeAt: string | null;
   /** True while any sign-up or product user is left, or they were added by hand. */
   live: boolean;
+  /**
+   * Their language (LANGUAGE_READERS_ENABLED): the locale of their newest live sign-up or product
+   * user that has one, or null. Absent while the switch is off.
+   */
+  language?: string | null;
 }
 
 /**
@@ -198,7 +207,27 @@ export function summarize(
   ]
     .filter((t): t is string => !!t && Number.isFinite(Date.parse(t)))
     .sort();
-  return { memberOf: [...tags].sort(), reach, activeAt: times.at(-1) ?? null, live };
+  const summary: PersonSummary = { memberOf: [...tags].sort(), reach, activeAt: times.at(-1) ?? null, live };
+  if (isLanguageReadersEnabled()) summary.language = live ? languageOf(liveCampaigns, products) : null;
+  return summary;
+}
+
+/**
+ * The person's language: the locale of their newest source that has one. A sign-up is timed by
+ * when they joined, a product user by when they were last active (or signed up); on a tie the
+ * product wins, since a product's setting is the one they keep up to date.
+ */
+export function languageOf(campaigns: readonly ContactCampaignLink[], products: readonly PersonProductLink[]): string | null {
+  const sources = [
+    ...campaigns.map((c) => ({ at: c.joinedAt, locale: c.locale })),
+    ...products.map((p) => ({ at: p.lastActiveAt ?? p.signedUpAt, locale: p.locale })),
+  ];
+  let best: { at: string; locale: string } | null = null;
+  for (const { at, locale } of sources) {
+    if (!locale || !at || !Number.isFinite(Date.parse(at))) continue;
+    if (!best || at >= best.at) best = { at, locale };
+  }
+  return best?.locale ?? null;
 }
 
 /** Whether two activity times fall on the same UTC day: a change within a day isn't worth a write. */
@@ -224,6 +253,7 @@ export function sameProductLink(a: PersonProductLink, b: PersonProductLink): boo
     a.reach === b.reach &&
     (a.signedUpAt ?? null) === (b.signedUpAt ?? null) &&
     sameDay(a.lastActiveAt, b.lastActiveAt) &&
-    a.groups.join("\n") === b.groups.join("\n")
+    a.groups.join("\n") === b.groups.join("\n") &&
+    (a.locale ?? null) === (b.locale ?? null)
   );
 }

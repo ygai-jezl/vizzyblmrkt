@@ -279,6 +279,22 @@ describe("Vizzy's read of a plan", () => {
     expect(Object.keys(body.meanings)).toEqual(expect.arrayContaining(["draftWordsChanged", "draftWordsChangedShare", "draftSectionsAdded", "draftMinutesToApprove"]));
   });
 
+  it("names the approved pieces a draft followed as examples, and nothing when it followed none", async () => {
+    const db = new FakeFirestore();
+    const email = { id: "e1", type: "email" as const, channel: "newsletter" };
+    seedPlan(db, [{ ...email, body: "Hi {{first_name}}" }, { ...post, body: "Post." }]);
+    const examples = [{ workspaceId: WS, planId: "plan_0", nodeId: "e0" }];
+    const emailMade = { purpose: "content_email" as const, promptId: "content.email_fill", sources: ["exemplars" as const], examples };
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: email, body: "Hi {{first_name}}", made: emailMade }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Post.", made }, deps(db));
+    expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "e1"))?.original).toMatchObject({ sources: ["exemplars"], examples });
+    expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "li"))?.original).not.toHaveProperty("examples");
+    const r = await agentContentPlan(person, WS, PLAN, db);
+    const body = r.body as { pieces: Array<{ id: string; edit: Record<string, unknown> | null }> };
+    expect(body.pieces.find((p) => p.id === "e1")!.edit).toMatchObject({ followedExamples: [{ workspaceId: WS, planId: "plan_0", pieceId: "e0" }] });
+    expect(body.pieces.find((p) => p.id === "li")!.edit).not.toHaveProperty("followedExamples");
+  });
+
   it("reads as before with the switch off", async () => {
     vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "false");
     const db = new FakeFirestore();

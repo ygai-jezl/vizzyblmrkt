@@ -66,11 +66,22 @@ export const TERMINAL_FOR_DETAILS = ["acted", "declined"] as const satisfies rea
 export const DECLINE_REASONS = ["dismissed", "expired", "stale", "superseded"] as const;
 export type DeclineReason = (typeof DECLINE_REASONS)[number];
 
+/**
+ * Why a person dismissed a suggestion, one tap beside the mechanical reason (only with
+ * "dismissed"): Not now, Not for us, Already on it or Wrong. Optional: No reason still dismisses.
+ * One shared list: Work brings these four, and the learning loops add their own here later.
+ */
+export const DECLINE_WHY = ["not_now", "not_for_us", "already_on_it", "wrong"] as const;
+export type DeclineWhy = (typeof DECLINE_WHY)[number];
+
 export { AGENT_NAMES, type AgentName } from "./agentNames";
 
 // --- Signals -----------------------------------------------------------------------------------
 
-/** What a suggestion was based on, by kind of source. */
+/**
+ * What a suggestion was based on, by kind of source. "work_log" and "work_task" are the Work rows
+ * Vizzy read (ADR-0020): a log row's or a task's id, checked against the organisation.
+ */
 export const SIGNAL_KINDS = [
   "field_value",
   "product_event",
@@ -82,6 +93,8 @@ export const SIGNAL_KINDS = [
   "brand_map",
   "brand_note",
   "search_doc",
+  "work_log",
+  "work_task",
 ] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
 
@@ -198,7 +211,8 @@ export interface AgentAction {
   undo: { before: Record<string, unknown> } | null;
   undoneBy: EventActor | null;
   undoneAt: string | null;
-  declined: { reason: DeclineReason } | null;
+  /** Why it was declined, and for a person's dismissal, the reason they tapped (if any). */
+  declined: { reason: DeclineReason; why?: DeclineWhy } | null;
   /** Required, after createdAt and at most 90 days on. */
   expiresAt: string;
   clearDetailsOnClose: boolean;
@@ -245,7 +259,7 @@ export const AgentActionSchema = z
     undo: z.object({ before: Details }).nullable(),
     undoneBy: EventActorSchema.nullable(),
     undoneAt: Canonical.nullable(),
-    declined: z.object({ reason: z.enum(DECLINE_REASONS) }).nullable(),
+    declined: z.object({ reason: z.enum(DECLINE_REASONS), why: z.enum(DECLINE_WHY).optional() }).nullable(),
     expiresAt: Canonical,
     clearDetailsOnClose: z.boolean(),
     detailsClearedAt: Canonical.nullable(),
@@ -275,6 +289,7 @@ export const AgentActionSchema = z
         c.addIssue({ code: "custom", path: ["signals", i, "ref"], message: "a field_value signal names one of the action's field ids" });
       }
     });
+    if (a.declined?.why && a.declined.reason !== "dismissed") c.addIssue({ code: "custom", path: ["declined", "why"], message: "a why goes only with dismissed" });
     if (isCanonicalInstant(a.expiresAt) && isCanonicalInstant(a.createdAt)) {
       const span = Date.parse(a.expiresAt) - Date.parse(a.createdAt);
       if (span <= 0) c.addIssue({ code: "custom", path: ["expiresAt"], message: "expiresAt must be after createdAt" });

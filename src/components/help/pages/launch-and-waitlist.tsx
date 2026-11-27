@@ -6,6 +6,8 @@ import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isNavV2Enabled } from "@/lib/nav/flags";
 import { ideaWord } from "@/lib/nav/terms";
 import { ideaMessages } from "@/lib/ideas/words";
+import { isWaitlistAbWinnerEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { isResultsChatEnabled } from "@/lib/metrics/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -18,6 +20,8 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled(), ideaWo
   const compare = ideas && isNavV2Enabled();
   const w = ideaWord(ideaWords);
   const messages = ideaMessages(ideaWords);
+  // A server switch: /help and its Markdown copies show the section; the How to drawer leaves it out.
+  const abWinner = isWaitlistAbWinnerEnabled();
   return (
     <article>
       <H1>{w.One} and waitlist</H1>
@@ -169,6 +173,38 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled(), ideaWo
         publishes.
       </P>
 
+      {abWinner ? (
+        <>
+          <H2 id="pick-a-winner">Pick the winning email</H2>
+          <P>When an email in the welcome journey runs an A/B test, you decide which version wins.</P>
+          <Steps>
+            <li>
+              Open your {w.one}, then the <strong>Analytics</strong> tab.
+            </li>
+            <li>
+              Under <strong>Emails</strong>, open the email sequence. Each email with a test lists its versions with their
+              opens and clicks.
+            </li>
+            <li>
+              Once a version has 50 sends, press <strong>Promote</strong> next to it, and confirm.
+            </li>
+          </Steps>
+          <P>
+            From then on, everyone who reaches that email gets the winner, in whichever journey editor this {w.one} is
+            built. People who already had the email keep the version they got. The email shows{" "}
+            <strong>A/B promoted</strong>, with <strong>winner</strong> next to the version you picked.
+          </P>
+          <P>
+            To test that email again, turn <strong>A/B test this email</strong> off and on in the new journey editor, then
+            publish: the new test runs and the earlier pick stops applying. Until you publish, the Analytics tab shows
+            the earlier pick. In the original editor, press <strong>Start a new test</strong>.
+            {isResultsChatEnabled()
+              ? " Ask Vizzy how the emails did, and it says which version of each test won and when it was picked."
+              : null}
+          </P>
+        </>
+      ) : null}
+
       <H2 id="share">Share your waitlist</H2>
       <Steps>
         <li>
@@ -297,6 +333,14 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled(), ideaWo
           ],
           ["Add at least one email.", "The welcome journey has no email yet. Add one on the Canvas tab, or ask Vizzy to draft it."],
           ["Fix the issues listed before publishing.", "Open the list above the tabs, fix each item, then press Publish again."],
+          ...(abWinner
+            ? ([
+                [
+                  "Another version already won this test. Reload the page to see it.",
+                  "Someone picked the winner of this email after you opened the page. Reload it to see which version won.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
           [
             "Until then, your emails come from a shared default address.",
             <>

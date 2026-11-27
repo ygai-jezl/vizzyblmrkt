@@ -88,6 +88,7 @@ export async function pinOriginal(
     userId: ctx.userId ?? null,
     stamp: stampOf(args.madeBy),
     sources: [...new Set(args.madeBy?.sources ?? [])],
+    ...(args.madeBy?.examples?.length ? { examples: args.madeBy.examples.slice(0, 5) } : {}),
   };
   const { doc } = await forTenant(ctx, deps.db).aiOriginals.upsert(
     aiOriginalId(plan.id, node.id),

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { forTenant, deleteOwnerKnowledge } from "@/lib/tenant";
 import { removeWorkspacePages } from "@/lib/content/blog/pageActions";
+import { forgetWorkspaceExamples } from "@/lib/content/create/approvedExamples";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Workspace } from "@/lib/types/workspace";
 
@@ -72,7 +73,10 @@ export async function deleteWorkspace(
   // 3. Its articles' rows on the brand map (none while the pages switch is off).
   await removeWorkspacePages(ctx, workspaceId).catch(() => 0);
 
-  // 4. The workspace doc.
+  // 4. The approved emails and hub pieces its plans kept as examples (none unless they were turned on).
+  await forgetWorkspaceExamples(ctx, workspaceId);
+
+  // 5. The workspace doc.
   await forTenant(ctx).workspaces.delete(workspaceId);
   return true;
 }

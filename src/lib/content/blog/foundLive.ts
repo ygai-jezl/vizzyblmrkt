@@ -8,6 +8,7 @@ import { indexPlanAfterSave } from "@/lib/search/writeThrough";
 import { keepApprovedSeen } from "./hubActions";
 import { syncPlanPageSoftly } from "./pageActions";
 import { recordApproval } from "@/lib/content/create/aiOriginals";
+import { keepApprovedExample } from "@/lib/content/create/approvedExamples";
 
 /**
  * Found live (BLOG_LIVE_WATCH_ENABLED): an article up on the brand's site was accepted by the
@@ -59,6 +60,8 @@ export async function writeLiveMark(
   if (!node) return null;
   // Marked live is approved by whoever put it up: the AI original is kept beside the copy that went live.
   if (node.blog?.live) await recordApproval(ctx, { planId: plan.id, node, trigger: "live" }, { db: deps.db }).catch(() => null);
+  // Approved by being found live: the article becomes an example the hub writer follows (CONTENT_APPROVED_EXAMPLES_ENABLED).
+  if (approved) await keepApprovedExample(ctx, { workspaceId, planId: plan.id, node }, { db: deps.db }).catch(() => null);
   if (!approved) {
     await syncPlanPageSoftly(ctx, { workspaceId, planId: plan.id }, { db: deps.db });
     return { node, approved };

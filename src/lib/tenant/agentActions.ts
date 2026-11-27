@@ -32,6 +32,7 @@ import {
   type AgentActionState,
   type AgentName,
   type DeclineReason,
+  type DeclineWhy,
   type SignalRef,
 } from "@/lib/types/agentAction";
 
@@ -90,6 +91,8 @@ export interface AgentTransition {
   undo?: { before: Record<string, unknown> } | null;
   /** Required for declined. */
   reason?: DeclineReason;
+  /** Why a person dismissed it, if they said: only with declined and "dismissed". */
+  why?: DeclineWhy;
   /** Clear proposal and basis with an acted or declined decision, whatever the record says. */
   clearDetails?: boolean;
 }
@@ -124,7 +127,7 @@ function firstIssue(error: { issues: Array<{ path: PropertyKey[]; message: strin
 }
 
 /** The agent.* row for one step. */
-function trailEvent(a: AgentAction, step: AgentActionState, rev: number, at: string, by: EventActor, reason?: DeclineReason): EventWrite {
+function trailEvent(a: AgentAction, step: AgentActionState, rev: number, at: string, by: EventActor, reason?: DeclineReason, why?: DeclineWhy): EventWrite {
   return {
     key: `agent|${a.id}|${rev}`,
     kind: `agent.${step}`,
@@ -142,6 +145,7 @@ function trailEvent(a: AgentAction, step: AgentActionState, rev: number, at: str
       target: a.target,
       state: step,
       ...(reason ? { reason } : {}),
+      ...(why ? { why } : {}),
       ...(a.draft ? { draft: a.draft } : {}),
     },
   };
@@ -247,6 +251,7 @@ export function planAgentTransition(current: AgentAction | null, t: AgentTransit
   if (t.expectRev != null && t.expectRev !== current.rev) return { ok: false, error: "changed", state: current.state };
   if (!canTransition(current.state, t.to)) return { ok: false, error: "wrong_state", state: current.state };
   if (t.to === "declined" && !t.reason) invalid("reason:a decline needs a reason");
+  if (t.why !== undefined && (t.to !== "declined" || t.reason !== "dismissed")) invalid("why:only with dismissed");
   if (!isCanonicalInstant(t.at)) invalid("at:not canonical");
   if (t.result != null && jsonBytes(t.result) > AGENT_ACTION_LIMITS.resultBytes) invalid("result:over 64 KB");
   if (t.undo != null && jsonBytes(t.undo) > AGENT_ACTION_LIMITS.undoBytes) invalid("undo:over 64 KB");
@@ -265,7 +270,7 @@ export function planAgentTransition(current: AgentAction | null, t: AgentTransit
       patch.decidedBy = t.by;
       patch.decidedAt = step.at;
     }
-    if (step.state === "declined") patch.declined = { reason: t.reason! };
+    if (step.state === "declined") patch.declined = { reason: t.reason!, ...(t.why ? { why: t.why } : {}) };
     if (step.state === "acted") {
       patch.actedBy = t.by;
       patch.actedAt = step.at;
@@ -282,7 +287,9 @@ export function planAgentTransition(current: AgentAction | null, t: AgentTransit
     patch.basis = null;
     patch.detailsClearedAt = last.at;
   }
-  const events = steps.map((step, i) => trailEvent(current, step.state, current.rev + i + 1, step.at, t.by, step.state === "declined" ? t.reason : undefined));
+  const events = steps.map((step, i) =>
+    trailEvent(current, step.state, current.rev + i + 1, step.at, t.by, step.state === "declined" ? t.reason : undefined, step.state === "declined" ? t.why : undefined),
+  );
   return { ok: true, current, patch, next: { ...current, ...patch }, events };
 }
 

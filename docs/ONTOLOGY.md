@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-106 types: 86 built and 20 planned.
+107 types: 87 built and 20 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1387,6 +1387,26 @@ Something Vizzy heard about the business and an admin kept: a timeline, channel,
 - Numbers: none. No numbers an agent reads.
 - Made by: `onboarding`, `vizzy_chat` (see Learning)
 
+### Raise document (`raise_doc`)
+
+A deck for investors or a pack for lenders, one record per deck: its slides, speaker notes (the talk track), number blocks each with its source and date, what it still needs, every kept version with its change note, and Vizzy's own draft of each slide. Numbers are frozen in each version. A draft only: nothing is sent or shared.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `raise_docs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per deck, at most 20 per brand, version 1 and the newest 11 kept whole; `createdBy`, `updatedBy` and each version's `by` hold user ids; under 700 KB.
+- Links: `brand_map` through the identity, audiences and situations a draft read; `brand_strategy` through the claims and competitor groups a draft read; `idea` through launchId on a People on a launch block (a launch is an idea's waitlist) (many)
+- Erase:
+  - `deleteRaiseDoc` in `src/lib/raise/docs/store.ts`, on removing the record (an admin deletes the deck on Content › Raise kit)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: a team member's erase does not find a team slide that names them: it is free text
+- Export:
+  - `exportRaiseDoc` in `src/lib/raise/docs/store.ts`, on the team member themselves (an admin downloads the deck's data on its page)
+- Search: `raise_doc`
+- Numbers: `waitlistSignups`, `launchSignups`, `signupGrowth`, `talkSeconds`, through `get_raise_doc`
+- Made by: `raise_write`, `deck_outline`, `canvas.raise_deck` (see Learning)
+
 ### Legal entity (`legal_entity`)
 
 A company the founders formed, added whenever it exists, under its registered name. Brands point at it.
@@ -1978,6 +1998,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Business fact (`business_fact`):
   - Erase: no path deletes a whole brand and everything it holds
   - Erase: a person's erase does not find a fact that names them: it is free text
+- Raise document (`raise_doc`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: a team member's erase does not find a team slide that names them: it is free text
 - Your next action (`next_action_card`):
   - Erase: no path deletes a whole brand and everything it holds
   - Erase: a person's erase does not find a reason that names them: it is free text
@@ -2067,11 +2090,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-98 kinds: 0 learn, 0 fleet only, 23 own, 34 gap and 41 none.
+101 kinds: 0 learn, 0 fleet only, 23 own, 36 gap and 42 none.
 
-119 call sites: 0 learn, 0 fleet only, 33 own, 40 gap and 46 none.
+123 call sites: 0 learn, 0 fleet only, 33 own, 43 gap and 47 none.
 
-Not learning: 86 of 119 call sites, under gap and none lines.
+Not learning: 90 of 123 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2199,6 +2222,9 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
+- `raise_write` (AI purpose, Writing decks), look again by 2027-05-01. Vizzy keeps its own draft of each slide beside the version a person saves, but the next deck learns nothing from those changes yet.
+  - `src/lib/raise/docs/draft.ts`
+  - `src/lib/raise/docs/revise.ts`
 - `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.
   - `src/lib/canvas/kinds/journey.ts`
 - `canvas.lifecycle` (canvas), look again by 2027-05-01. With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.
@@ -2231,6 +2257,8 @@ No line says this yet.
   - `src/lib/competitors/profile.ts`
 - `strategy_check` (rule, Weekly strategy check), look again by 2027-05-01. The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.
   - `src/lib/brandStrategy/checkRules.ts`
+- `deck_outline` (rule, Deck sections by kind and stage), look again by 2027-05-01. Every new deck starts from YouGrow's shipped outline for its kind and stage, and which outlines led to meetings is not counted yet.
+  - `src/lib/raise/docs/outlines.ts`
 
 ### None
 
@@ -2296,6 +2324,8 @@ No line says this yet.
   - `src/lib/canvas/kinds/personFields.ts`
 - `canvas.new_person` (canvas). Vizzy copies details from the chat into the New person form, and a person checks the facts and records consent, so no taste is involved.
   - `src/lib/canvas/kinds/newPerson.ts`
+- `canvas.raise_deck` (canvas). The deck only gathers slides, and the words on each slide learn under Writing decks.
+  - `src/lib/canvas/kinds/raiseDeck.ts`
 - `ab_split` (rule, Email test split). The split between versions has to stay a fair, stable coin toss per person, or the test can no longer say which email did better.
   - `src/lib/journey/allocation.ts`
 - `journey_next_step` (rule, Journey next step). The next step is the path a person drew on the journey, and the walk follows it rather than picking a branch of its own.

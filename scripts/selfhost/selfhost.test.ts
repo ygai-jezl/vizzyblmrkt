@@ -286,6 +286,27 @@ describe("brand search's switches (ADR-0025)", () => {
   });
 });
 
+describe("the learning loops' switch (ADR-0029)", () => {
+  it("stays off on a new copy, no add-on turns it on, and its why sends you to the privacy page, the operators and the doc's section", () => {
+    const kept = KEPT_OFF.LOOPS_ENABLED;
+    expect(kept.addon).toBeNull();
+    const addons = new Set(Object.values(KEPT_OFF).flatMap((k) => (k.addon ? [k.addon] : [])));
+    for (const addon of addons) expect(switchesForAddon(addon), addon).not.toContain("LOOPS_ENABLED");
+    expect(kept.why).toContain("counts what every brand on this copy makes and keeps");
+    expect(kept.why).toContain("privacy page");
+    expect(kept.why).toContain("LOOPS_OPERATOR_EMAILS");
+    expect(kept.why).not.toMatch(/[\u2013\u2014]|\s-\s/);
+    // The section it names is titled exactly so in docs/self-host.md, which agrees the switch stays off.
+    const section = /\(docs\/self-host\.md, ([^)]+)\)/.exec(kept.why)?.[1];
+    expect(section).toBe("Loops counts stay inside this copy");
+    const doc = readFileSync(new URL("../../docs/self-host.md", import.meta.url), "utf8");
+    const loops = doc.split("\n\n").find((p) => p.startsWith("**Upgrading to the learning loops.**"))?.replace(/\s+/g, " ") ?? "";
+    expect(loops).toContain(`**${section}:**`);
+    expect(loops).toContain("A new copy keeps it off, since it counts what every brand on the copy makes and keeps");
+    expect(loops).not.toContain("has it on");
+  });
+});
+
 describe("npm run selfhost: the plan", { timeout: SLOW }, () => {
   it("on a project that doesn't exist, says so, gives the next command, and changes nothing", async () => {
     writeState({ exists: false });

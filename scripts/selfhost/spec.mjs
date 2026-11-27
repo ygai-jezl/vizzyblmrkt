@@ -116,6 +116,10 @@ export const KEPT_OFF = {
     addon: null,
     why: "erasing archived fields' values needs plans on and an owner of the organisation with an admin row for the brand (docs/self-host.md, Erasing archived values)",
   },
+  LOOPS_ENABLED: {
+    addon: null,
+    why: "counts what every brand on this copy makes and keeps; turn it on after your own privacy page says so, and set LOOPS_OPERATOR_EMAILS to who may see the counts (docs/self-host.md, Loops counts stay inside this copy)",
+  },
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },

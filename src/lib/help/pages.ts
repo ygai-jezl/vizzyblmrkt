@@ -112,6 +112,8 @@ export interface HelpBodyProps {
   paste?: boolean;
   /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
   vizzyPaste?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  assetTranslations?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

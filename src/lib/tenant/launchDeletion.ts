@@ -131,11 +131,12 @@ export async function deleteLaunch(
       deleted.siteKeys = 1;
     }
     // The launch's waitlist journey on the lifecycle engine (engine move): its
-    // enrolments, versions and counters, then the journey itself.
+    // enrolments, versions, counters and translations, then the journey itself.
     const waitlistEnrolments = await repo.waitlistEnrolments.deleteWhere(where);
     const waitlistJourney = waitlistJourneyId(campaignId);
     await repo.lifecycleVersions.deleteWhere([["journeyId", "==", waitlistJourney]]);
     await repo.lifecycleCounters.deleteWhere([["journeyId", "==", waitlistJourney]]);
+    await repo.translations.deleteWhere([["journeyId", "==", waitlistJourney]]);
     if (await repo.lifecycleJourneys.getById(waitlistJourney)) {
       await repo.lifecycleJourneys.delete(waitlistJourney);
       deleted.waitlistJourneys = 1;

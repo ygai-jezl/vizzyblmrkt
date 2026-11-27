@@ -1189,6 +1189,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Journey emails in each language with enough readers: translated after publish, checked
+  # by a person, sent in each reader's language (needs LANGUAGE_READERS_ENABLED; brands need
+  # the translations feature).
+  - variable: ASSET_TRANSLATIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Researched blog hubs, cite sources, articles written from the brand map, the
   # editorial writer (each needs the first), and Suggest an angle.
   - variable: CREATE_BLOG_CITABLE_ENABLED

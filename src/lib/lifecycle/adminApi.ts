@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { translationsFeature } from "@/lib/i18n/translationsAdmin";
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { continuesFromId, dateStartOf, type LifecycleEnrolment, type LifecycleJourney } from "@/lib/types/lifecycle";
@@ -187,7 +188,16 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       emailStyle: resolveEmailStyle(tenant),
       postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
       modeCeiling: "live",
-      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false, entities: false, emailStyle: isEmailStyleEnabled(), ...own?.features },
+      features: {
+        chatAuthoring: false,
+        aiLines: false,
+        consentAtSend: false,
+        optInAfterSignup: false,
+        entities: false,
+        emailStyle: isEmailStyleEnabled(),
+        ...(translationsFeature(tenant) ? { translations: true } : {}),
+        ...own?.features,
+      },
       ...(own ? { journeyStyle: own.journeyStyle } : {}),
     });
   }
@@ -260,6 +270,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       ...(isLifecycleDateStartEnabled() ? { dateStart: true } : {}),
       ...(isLifecycleSendTrackingEnabled() ? { sendTracking: true } : {}),
       ...(isPersonViewEnabled() ? { personView: true } : {}),
+      ...(translationsFeature(tenant) ? { translations: true } : {}),
       ...own?.features,
     },
     ...(own ? { journeyStyle: own.journeyStyle } : {}),

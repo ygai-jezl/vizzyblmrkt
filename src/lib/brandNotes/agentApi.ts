@@ -101,6 +101,10 @@ export async function agentSuggestNotes(
   const limited = deps.limited ?? ((key: string) => isRateLimited(key, CHAT_LIMIT));
   if (await limited(`tenant:${ctx.tenantId}`)) return { status: 429, body: { error: "rate_limited" } };
   let filed = 0;
+  // One stamp for the notes of this call (brand_notes is a none line, so this reads nothing): made
+  // counts it once per note filed, and each note's record keeps it, so a person's keep or remove
+  // counts once where the record closes (learning loops step 5).
+  const { stamp } = await learnedFor(ctx, "brand_notes", { by: "vizzy" });
   for (const n of parsed.data.notes) {
     const r = await createNote(
       ctx,
@@ -115,10 +119,10 @@ export async function agentSuggestNotes(
     filed += 1;
     // The agent record: one record per note, by id and a fingerprint of its text, never the text
     // itself (soft, never fails the save).
-    await recordDraft(ctx, { action: "brand_note.suggest", draft: { kind: "brand_note", ref: r.value.id }, href: LINK, fingerprint: notePrint(r.value) }, { db: deps.db });
+    await recordDraft(ctx, { action: "brand_note.suggest", draft: { kind: "brand_note", ref: r.value.id }, href: LINK, fingerprint: notePrint(r.value), made: stamp }, { db: deps.db });
   }
   // The notes Vizzy wrote are counted made where they are filed, in one write (LOOPS_ENABLED, learning loops step 5).
-  if (filed) await countMade(ctx, "brand_notes", (await learnedFor(ctx, "brand_notes", { by: "vizzy" })).stamp, { type: "brand_note", n: filed, db: deps.db });
+  if (filed) await countMade(ctx, "brand_notes", stamp, { type: "brand_note", n: filed, db: deps.db });
   return {
     status: 200,
     body: {

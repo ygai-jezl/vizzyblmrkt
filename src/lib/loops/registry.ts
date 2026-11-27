@@ -248,7 +248,7 @@ export const LOOPS = {
 
   // ----- Canvases Vizzy fills (src/lib/canvas/names.ts) -----
   "canvas.journey": gap("Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.", LATER),
-  "canvas.lifecycle": gap("With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.", LATER),
+  "canvas.lifecycle": gap("With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept and counted, but not what they changed, so the next draft cannot get better yet.", LATER),
   "canvas.invite_wave": none("A launch sends only a few invite waves, so neither their size nor their copy learns, and a person sets the size and presses Send."),
   "canvas.content_plan": none("The plan only gathers pieces, and each piece, such as an article or a post, says how it learns under its own kind of writing."),
   "canvas.email_style": none("A brand sets its email look once and a person saves it, so there is no stream of repeated choices to learn a taste from."),

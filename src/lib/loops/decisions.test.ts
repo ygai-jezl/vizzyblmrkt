@@ -45,6 +45,18 @@ describe("a decision on an agent action", () => {
     expect(agentDecisionSignals(action({ proposal: { name: "Sam" } }), action({ state: "acted", result: { personId: MAYA } }))).toEqual({ kept: 1 });
   });
 
+  it("counts a recorded draft kept after a person's edits as edited, from the agent record's result (ADR-0026)", () => {
+    const draft = action({ proposal: { label: "Welcome", fingerprint: "0123456789abcdef" } });
+    expect(agentDecisionSignals(draft, action({ state: "acted", result: { label: "Welcome", edited: true } }))).toEqual({ edited: 1 });
+    expect(agentDecisionSignals(draft, action({ state: "acted", result: { label: "Welcome", edited: false } }))).toEqual({ kept: 1 });
+    // Closed by the catch-up, which can't tell: kept.
+    expect(agentDecisionSignals(draft, action({ state: "acted", result: { label: "Welcome" } }))).toEqual({ kept: 1 });
+    // Superseded, stale and expired are the system's: nothing.
+    for (const reason of ["superseded", "stale", "expired"] as const) {
+      expect(agentDecisionSignals(draft, action({ state: "declined", declined: { reason } }))).toBeNull();
+    }
+  });
+
   it("counts undone, and a person's dismissal with the why they gave", () => {
     expect(agentDecisionSignals(action({ state: "acted" }), action({ state: "undone" }))).toEqual({ undone: 1 });
     expect(agentDecisionSignals(action({}), action({ state: "declined", declined: { reason: "dismissed" } }))).toEqual({ declined: 1 });

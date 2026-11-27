@@ -5,9 +5,10 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import type { AgentTarget, EventActor } from "@/lib/ontology/events";
 import { AgentActionSchema, agentDedupeKey, type AgentAction, type DeclineReason } from "@/lib/types/agentAction";
+import type { LoopStamp, Made } from "@/lib/types/loopStamp";
 import { isAgentRecordEnabled } from "./flags";
 import { hash16, stableJson } from "./fingerprints";
-import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction } from "./sources";
+import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction, type SourceLine } from "./sources";
 
 /**
  * Agent record (ADR-0026): recording an agent's draft beside its own save, and closing the record
@@ -24,6 +25,10 @@ import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction } from "./sou
  * - Superseded, stale and expired are the system's, never a person's no. Every record asks 0e to
  *   clear its proposal when it closes (clearDetailsOnClose), so a decline, 0e's own expiry sweep
  *   included, keeps nothing of the draft (decision 25). Acted keeps the label, moved to `result`.
+ * - The loops (learning loops step 5): a line whose outcome is counted here (`countsAt:
+ *   "transition"`) keeps the stamp of what made the draft, so transitionAgentAction counts the
+ *   person's answer once against it (kept, edited by the fingerprint, or dismissed). A line
+ *   counted at its own path keeps none, so its answer is never counted twice.
  */
 
 /** A draft as the record names it: its kind (a store) and its id there. */
@@ -63,6 +68,8 @@ export interface RecordDraftInput {
   keyPart?: string;
   /** Who asked: the member in the chat or on the page by default; the system for the autopilot. */
   requestedBy?: EventActor;
+  /** What made the draft (learning loops step 5): kept only for a line counted here (stampOf). */
+  made?: Made;
 }
 
 export type RecordOutcome = "recorded" | "same" | "off" | "failed";
@@ -143,6 +150,25 @@ function proposalOf(input: RecordDraftInput): Record<string, unknown> {
   };
 }
 
+/** A stamp, leaving out a save with none. */
+const stampIn = (m: Made | null | undefined): LoopStamp | undefined => (m && !("unstamped" in m) ? m : undefined);
+
+/**
+ * The stamp a record keeps (learning loops step 5): none for a line the loops count at its own
+ * path (invite waves, content plans, the autopilot, brand map runs), so an answer counts once
+ * there. Otherwise the newest save's stamp, as Vizzy's new words take the newest stamp; but a save
+ * of another kind on a draft already recorded (a style on a journey Vizzy drafted) keeps the
+ * draft's own stamp, as the record keeps its first action and target, so the answer counts under
+ * the kind that made the draft. Pure.
+ */
+export function stampOf(line: Pick<SourceLine, "countsAt">, made: Made | null | undefined, open: AgentAction | undefined): LoopStamp | undefined {
+  if (line.countsAt !== "transition") return undefined;
+  const now = stampIn(made);
+  const was = stampIn(open?.made);
+  if (was && now && was.kind !== now.kind) return was;
+  return now ?? was;
+}
+
 /** The same draft as the open record holds: nothing to write. */
 function sameAs(open: AgentAction, proposal: Record<string, unknown>): boolean {
   return stableJson(open.proposal ?? {}) === stableJson(proposal);
@@ -190,6 +216,7 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
     if (newest && sameAs(newest, proposal) && (!input.keyPart || newest.dedupeKey === dedupeKey)) return "same";
     if (newest) await declineAsSystem(ctx, newest, "superseded", at, deps.db);
     const target: AgentTarget = newest ? newest.target : input.launchId ? { type: "idea", id: input.launchId } : { type: "brand", id: ctx.tenantId };
+    const made = stampOf(line, input.made, newest);
     const saved = await proposeAgentAction(
       ctx,
       {
@@ -207,6 +234,8 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
         expiresAt: new Date(nowMs + line.expiryDays * DAY_MS).toISOString(),
         // Whoever closes it, 0e's expiry sweep too, the proposal goes with the decision (decision 25).
         clearDetailsOnClose: true,
+        // Kept only with LOOPS_ENABLED on (keptMade, in proposeAgentAction).
+        ...(made ? { made } : {}),
         at,
       },
       { db: deps.db },

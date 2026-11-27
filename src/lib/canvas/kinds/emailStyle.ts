@@ -266,7 +266,7 @@ function outcome(
 }
 
 export async function authorEmailStyleSuggestion(
-  { ctx, input, brief }: CanvasAuthorArgs,
+  { ctx, input, brief, made }: CanvasAuthorArgs,
   deps: { db?: FirestoreLike } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isEmailStyleEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -405,6 +405,8 @@ export async function authorEmailStyleSuggestion(
       keyPart: styleKeyPart(stored.suggestedAt),
       href: BRAND_KIT_EMAIL_STYLE_ROUTE,
       fingerprint: emailStylePrint(stored),
+      // Vizzy's stamp: applied or dismissed counts once, where the record closes (learning loops step 5).
+      made,
     },
     { db: deps.db },
   );

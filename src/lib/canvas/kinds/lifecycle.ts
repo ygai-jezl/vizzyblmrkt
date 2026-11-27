@@ -130,7 +130,7 @@ function dateStartTiming(start: DateStart, connection: { catalog: ProductConnect
 
 /** The kind's work, with injectable dependencies (tests pass a fake db and model). */
 export async function authorLifecycleDraft(
-  { ctx, input, brief }: CanvasAuthorArgs,
+  { ctx, input, brief, made }: CanvasAuthorArgs,
   deps: { db?: FirestoreLike; generate?: (p: string) => Promise<string | null> } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isLifecycleEnabled() || !isLifecycleChatAuthoringEnabled()) {
@@ -228,7 +228,7 @@ export async function authorLifecycleDraft(
 
   const { journey, issues } = saved.value;
   // The agent record: the draft as Vizzy left it (soft, never fails the save).
-  await recordJourneyDraft(ctx, "lifecycle_journey.draft", journey, { db: deps.db });
+  await recordJourneyDraft(ctx, "lifecycle_journey.draft", journey, { db: deps.db, made });
   const { url, card: c } = card(journey, connection.name, draft, issues);
   const emails = c.stats[0]!.value;
   const splits = c.stats[1]!.value;

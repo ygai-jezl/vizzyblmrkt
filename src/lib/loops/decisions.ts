@@ -32,8 +32,10 @@ function fieldValues(part: Record<string, unknown> | null | undefined): unknown 
 
 /**
  * The signals one move of an agent action counts, from the record before and after it:
- * - acted is kept, or edited when the field values it acted on differ from the ones proposed
- *   (a result with other data, such as the new person's id, can't say, so it counts kept);
+ * - acted is kept, or edited when the field values it acted on differ from the ones proposed, or
+ *   when the agent record says a person changed the draft first (`result.edited`, from its
+ *   fingerprint; ADR-0026); a result with other data, such as the new person's id, can't say, so it
+ *   counts kept;
  * - undone is undone;
  * - a person's dismissal is declined, with the why they gave if any (Work's `declined.why`, read as
  *   given); expiry, staleness and being superseded count nothing here, so those suggestions stay
@@ -44,6 +46,7 @@ function fieldValues(part: Record<string, unknown> | null | undefined): unknown 
 export function agentDecisionSignals(before: AgentAction, after: AgentAction): Signals | null {
   if (before.state === after.state) return null;
   if (after.state === "acted") {
+    if (after.result?.edited === true) return { edited: 1 };
     const proposed = fieldValues(before.proposal);
     const acted = fieldValues(after.result);
     const edited = proposed !== undefined && acted !== undefined && stable(proposed) !== stable(acted);

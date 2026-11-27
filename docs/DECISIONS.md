@@ -176,6 +176,17 @@ Where the build follows the code, not the plan (the plan's intent kept):
   longest wait floors on the organisations that wait, not on this week's.
 - The plan listed step 5 as ADR-0023, then 0024: dev took 0022 to 0025, work in progress holds 0026,
   the verdict moved to 0027 and step 4 to 0028.
+- After merging the agent record (ADR-0026): a record whose line counts at the transition
+  (`countsAt: "transition"`: launch and product journeys, a journey's own style, the email and image
+  style suggestions and Vizzy's notes) keeps the stamp the canvas route (or `agentSuggestNotes`)
+  handed its save, so `transitionAgentAction` counts the person's answer once where the record
+  closes: kept, edited when its fingerprint changed (`result.edited`), or dismissed; a close by
+  the catch-up when the draft moved on another way counts kept, and superseded, stale and expired
+  count nothing. A record whose line counts at its own path (invite waves, content plans, the
+  autopilot, brand map runs) keeps no stamp, so its answer still counts only there. A save of
+  another kind on a recorded draft (a style on a journey Vizzy drafted) keeps the draft's own stamp
+  (`stampOf`). The weekly strategy check (`strategy_check`, a gap line) counts made once for each
+  row it opens or changes.
 
 Enforced where:
 
@@ -188,7 +199,9 @@ Enforced where:
   `src/lib/agents/creative.holdback.test.ts`: `records_off` and `stamp_lost`;
   `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
 - `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts` and `learnLog.test.ts`: each
-  count once, coverage and unused.
+  count once, coverage and unused; `src/lib/agentRecord/loopsCount.test.ts` and
+  `src/lib/brandStrategy/check.test.ts`: each recorded draft's answer once, and the strategy check's
+  rows.
 - `src/lib/loops/stages.test.ts`, `heartbeat.test.ts`, `fleetView.test.ts`, `tick.test.ts`,
   `src/lib/tenant/fleetCells.test.ts`, `loopLane.test.ts`, `indexes.test.ts` and `lane.heap.test.ts`
   (with `--expose-gc`): the stages, the marks and their budgets, the floors, brands visited and the
@@ -204,8 +217,9 @@ Enforced where:
 
 Not yet: email assist, the hero, Edit mode Vizzy, the email layout and block image and Suggest an
 angle sign no token until their saves send one and check it (`TOKEN_SAVES`); they count made at
-hand back. Journey, product journey and person plan drafts, the email and image style suggestions
-and brand map records keep no stamp (counted only). An email named by its enrolment keeps its
+hand back. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
+product journeys, a journey's own style and the email and image style suggestions keep theirs only
+on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted. An email named by its enrolment keeps its
 stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not
 counted, and a failed synthesis writes no line. Work's counted measures call `usedAcrossBrands` once
 Work lands. An operator path for agents waits for the company retro (step 6), decline reasons for

@@ -80,6 +80,7 @@ const LEFT_AS_THEY_ARE: Record<string, string> = {
   "brand.generate_theme": READS,
   "content.style_profile_extract": READS,
   "content.style_profile_synthesize": "guidance for the image model",
+  "content.style_look_learn": "a learned image look, guidance for the image model",
   "content.post_patterns_synthesize": "guidance for other prompts, not copy",
   "content.trending_topics": "finds topics on the web for other prompts",
   "brand.competitor_find": "names competitors and their sites",

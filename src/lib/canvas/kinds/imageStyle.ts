@@ -33,7 +33,7 @@ const issuesOf = (error: z.ZodError) => error.issues.map((i) => `${i.path.join("
 const labelOf = (id: string) => imageStyleById(id)?.label ?? id;
 
 export async function authorImageStyleSuggestion(
-  { ctx, input }: CanvasAuthorArgs,
+  { ctx, input, made }: CanvasAuthorArgs,
   deps: { db?: FirestoreLike } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isBrandImageStyleEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -71,6 +71,8 @@ export async function authorImageStyleSuggestion(
       keyPart: styleKeyPart(s.suggestedAt),
       href: BRAND_KIT_IMAGE_STYLE_ROUTE,
       fingerprint: imageStylePrint(s),
+      // Vizzy's stamp: applied or dismissed counts once, where the record closes (learning loops step 5).
+      made,
     },
     { db: deps.db },
   );

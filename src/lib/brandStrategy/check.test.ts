@@ -8,6 +8,8 @@ import { saveBrandMap } from "@/lib/brandMap/store";
 import { monitorCompetitor } from "@/lib/competitors/store";
 import { forTenant } from "@/lib/tenant";
 import { brandStrategyDocId } from "@/lib/types/brandStrategy";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { isCheckTick, runStrategyChecks } from "./check";
 import { approveStrategy, dismissStrategyCheck, readBrandStrategyDoc, saveProposal, type ProposedStrategy } from "./store";
 
@@ -162,6 +164,29 @@ describe("the weekly strategy check", () => {
     const next = checkTickFrom(new Date(T1.getTime() + 60_000).toISOString());
     expect(await run(db, ids, next)).toMatchObject({ brands: 1 });
     expect(await looked("ten_A")).toBe(next.toISOString());
+  });
+});
+
+describe("the weekly strategy check counts its rows (learning loops step 5)", () => {
+  it("counts a row it opens as made once under strategy_check, and nothing for a look that keeps the same row", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await brand("ten_A", db, { approve: true, articles: 3 });
+    expect(await run(db, ["ten_A"], T1)).toEqual({ brands: 1, open: 1, failed: 0 });
+    const week = loopWeekOf(new Date());
+    const made = { c: { strategy_check: { strategy_check: { v0: { none: { made: 1 } } } } }, t: { brand_strategy: { made: 1 } } };
+    expect(sumWeek(db, "ten_A", week)).toEqual(made);
+    // A week later the same articles give the same row: still open, made no more.
+    const next = checkTickFrom(new Date(T1.getTime() + 7 * 86_400_000).toISOString());
+    expect(await run(db, ["ten_A"], next)).toEqual({ brands: 1, open: 1, failed: 0 });
+    expect(sumWeek(db, "ten_A", week)).toEqual(made);
+  });
+
+  it("with LOOPS_ENABLED off counts nothing (decision 22)", async () => {
+    const db = new FakeFirestore();
+    await brand("ten_A", db, { approve: true, articles: 3 });
+    expect(await run(db, ["ten_A"], T1)).toEqual({ brands: 1, open: 1, failed: 0 });
+    expect(db.dump("loop_days")).toEqual([]);
   });
 });
 

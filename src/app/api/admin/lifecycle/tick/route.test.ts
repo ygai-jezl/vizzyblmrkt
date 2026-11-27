@@ -299,6 +299,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
+    ["loops", "@/lib/loops/tick", loopsLane],
     ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
     ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
   ];
@@ -366,6 +367,57 @@ describe("each job's code loads only when its switch is on", () => {
     expect([...loaded]).toEqual(["agent-record"]);
     const [{ deadlineMs }] = agentRecord.runAgentRecordCatchUp.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
+  });
+
+  it("runs the loops lane, the field erase, the strategy check and the agent record's catch-up side by side, each within its own budget", async () => {
+    for (const n of [
+      "LOOPS_ENABLED",
+      "SETTINGS_HISTORY_ENABLED",
+      "AUDIENCE_PERSON_LINKS_ENABLED",
+      "AUDIENCE_ONE_VIEW_ENABLED",
+      "ONTOLOGY_PERSON_IDS_ENABLED",
+      "AUDIENCE_FIELDS_ENABLED",
+      "PLANS_ENABLED",
+      "SETTINGS_ERASE_ENABLED",
+      "COMPETITORS_ENABLED",
+      "COMPETITOR_ARTICLES_ENABLED",
+      "BRAND_MAP_ENABLED",
+      "BRAND_STRATEGY_ENABLED",
+      "STRATEGY_COMPETITORS_ENABLED",
+      "STRATEGY_CHECK_ENABLED",
+      "AGENT_RECORD_ENABLED",
+    ]) {
+      vi.stubEnv(n, "true");
+    }
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      loops: { brands: 3, idle: 1, learned: 1, verdicts: 1 },
+      fieldErase: { jobs: 1, pages: 3 },
+      strategyCheck: { brands: 2, open: 1 },
+      agentRecord: { brands: 1, read: 4, closed: 2 },
+    });
+    expect([...loaded]).toEqual(expect.arrayContaining(["loops", "field-erase", "strategy-check", "agent-record"]));
+    const deadline = (fn: { mock: { calls: unknown[][] } }) => (fn.mock.calls.at(-1) as [{ deadlineMs: number }])[0].deadlineMs - before;
+    expect(deadline(loopsLane.runLoopsLane)).toBeLessThanOrEqual(20_000 + 1000);
+    expect(deadline(fieldErase.runFieldErase)).toBeLessThanOrEqual(20_000 + 1000);
+    expect(deadline(strategyCheck.runStrategyChecks)).toBeLessThanOrEqual(10_000 + 1000);
+    expect(deadline(agentRecord.runAgentRecordCatchUp)).toBeLessThanOrEqual(15_000 + 1000);
+  });
+
+  it("with LOOPS_ENABLED and image style versions off, never loads the loops lane while the others run", async () => {
+    for (const n of ["SETTINGS_HISTORY_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "PLANS_ENABLED", "SETTINGS_ERASE_ENABLED", "AGENT_RECORD_ENABLED"]) {
+      vi.stubEnv(n, "true");
+    }
+    const post = await freshRoute();
+    const body = await (await post(machine())).json();
+    expect(body).toMatchObject({ ok: true, fieldErase: { jobs: 1 }, agentRecord: { brands: 1 } });
+    expect(body).not.toHaveProperty("loops");
+    expect([...loaded]).toEqual(expect.arrayContaining(["agent-record", "field-erase"]));
+    expect([...loaded]).not.toContain("loops");
+    expect(loopsLane.runLoopsLane).not.toHaveBeenCalled();
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {

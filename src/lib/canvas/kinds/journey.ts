@@ -93,7 +93,7 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
   kind: "journey",
   label: "email journey",
 
-  async authorDraft({ ctx, input, brief }: CanvasAuthorArgs): Promise<CanvasAuthorOutcome> {
+  async authorDraft({ ctx, input, brief, made }: CanvasAuthorArgs): Promise<CanvasAuthorOutcome> {
     const req = JourneyInput.safeParse(input);
     const campaignId = req.success ? (req.data.scope?.campaignId ?? req.data.campaignId) : undefined;
     if (!req.success || !campaignId) return { ok: false, status: 400, error: "invalid_input" };
@@ -146,7 +146,7 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
 
     // A launch moved to the lifecycle engine (engine move): the same journey is
     // saved there as a DRAFT. Its live version only changes when a human publishes.
-    if (campaign.waitlistEngine === "lifecycle") return saveMovedLaunchDraft(ctx, campaign, filled, warnings);
+    if (campaign.waitlistEngine === "lifecycle") return saveMovedLaunchDraft(ctx, campaign, filled, warnings, made);
     // Engine move D6: the original editor is retired; the launch has to move first.
     if (legacyEditorMode() !== "edit") return { ok: false, status: 409, error: "original_editor_retired" };
 
@@ -166,6 +166,8 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
       href: url,
       label: resolveProductName(campaign) || campaign.waitlistName,
       fingerprint: launchJourneyPrint(filled),
+      // Vizzy's stamp: the person's answer counts once, where the record closes (learning loops step 5).
+      made,
     });
     return {
       ok: true,
@@ -193,6 +195,7 @@ async function saveMovedLaunchDraft(
   campaign: Campaign,
   graph: JourneyGraph,
   warnings: string[],
+  made: CanvasAuthorArgs["made"],
 ): Promise<CanvasAuthorOutcome> {
   const { draft, report } = convertLegacyJourney({ graph }, { lenient: true });
   if (!draft) {
@@ -206,7 +209,7 @@ async function saveMovedLaunchDraft(
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
   const journey = saved.value.journey;
   // The agent record: the launch's welcome emails, in the store it used (soft, never fails the save).
-  await recordJourneyDraft(ctx, "launch_journey.draft", journey, { label: resolveProductName(campaign) || campaign.waitlistName });
+  await recordJourneyDraft(ctx, "launch_journey.draft", journey, { label: resolveProductName(campaign) || campaign.waitlistName, made });
   const issues = saved.value.issues.map((i) => `${i.code}${i.nodeId ? `@${i.nodeId}` : ""}`);
   const all = [...warnings, ...issues.map((i) => `journey_issue:${i}`)];
   const url = `/admin/lifecycle/${journey.id}`;

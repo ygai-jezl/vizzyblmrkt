@@ -1,6 +1,7 @@
 import type { TenantContext } from "@/lib/tenant";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
+import type { Made } from "@/lib/types/loopStamp";
 import { lifecycleDraftPrint, planPrint } from "./fingerprints";
 import { closeDraft, memberOf, recordDraft, type RecordDeps, type RecordOutcome } from "./record";
 import { RECORD_SYSTEM } from "./sources";
@@ -90,12 +91,12 @@ export async function closePlanDraft(
   return closeDraft(ctx, draft, { to: "acted", by, fingerprint: planPrint(after) }, deps);
 }
 
-/** A lifecycle journey Vizzy drafted or styled: recorded beside its save. */
+/** A lifecycle journey Vizzy drafted or styled: recorded beside its save, with the canvas's stamp (`made`). */
 export function recordJourneyDraft(
   ctx: TenantContext,
   action: "lifecycle_journey.draft" | "journey_style.suggest" | "launch_journey.draft",
   journey: Pick<LifecycleJourney, "id" | "name" | "draft" | "audience">,
-  deps: RecordDeps & { label?: string } = {},
+  deps: RecordDeps & { label?: string; made?: Made } = {},
 ): Promise<RecordOutcome> {
   const launchId = journey.audience?.kind === "waitlist" ? journey.audience.campaignId : null;
   return recordDraft(
@@ -107,6 +108,7 @@ export function recordJourneyDraft(
       href: journeyHref(journey.id),
       label: deps.label ?? journey.name,
       fingerprint: lifecycleDraftPrint(journey.draft),
+      ...(deps.made ? { made: deps.made } : {}),
     },
     deps,
   );

@@ -146,7 +146,7 @@ function outcome(
 }
 
 export async function authorJourneyStyle(
-  { ctx, input }: CanvasAuthorArgs,
+  { ctx, input, made }: CanvasAuthorArgs,
   deps: { db?: FirestoreLike } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isEmailStyleEnabled() || !isEmailJourneyStyleEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -195,8 +195,9 @@ export async function authorJourneyStyle(
     };
   }
   // The agent record: one draft with the journey, so a journey Vizzy drafted and then styled stays
-  // one record (soft, never fails the save).
-  await recordJourneyDraft(ctx, "journey_style.suggest", saved.value, { db: deps.db });
+  // one record (soft, never fails the save). That record keeps the journey's own stamp, so a style
+  // on a journey Vizzy drafted counts the person's answer once, under the journey (stampOf).
+  await recordJourneyDraft(ctx, "journey_style.suggest", saved.value, { db: deps.db, made });
   const engineNote = launchEngineNote(found.launch);
   return outcome(saved.value, readJourneyStyle(saved.value.draft.settings.emailStyle), {
     brand,

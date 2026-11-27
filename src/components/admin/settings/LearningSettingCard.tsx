@@ -9,9 +9,10 @@ import { learnedAction } from "@/components/admin/brand-kit/learnedClient";
  * Settings › General › Learning (learning loops step 4, screen 5, IMAGE_STYLE_VERSIONS_ENABLED):
  * Help check that learning works, on by default. Off, no image of the brand is made without what
  * YouGrow learned, and the brand's own learning carries on. Admins change it; members read it.
- * /help/what-yougrow-learned#holdback explains it.
+ * With `counts` (LOOPS_ENABLED, step 5, worked out on the server) its words say that off also
+ * leaves the brand out of the counts across brands. /help/what-yougrow-learned#holdback explains it.
  */
-export function LearningSettingCard({ isAdmin, offSince: initial }: { isAdmin: boolean; offSince: string | null }) {
+export function LearningSettingCard({ isAdmin, offSince: initial, counts = false }: { isAdmin: boolean; offSince: string | null; counts?: boolean }) {
   const [offSince, setOffSince] = useState<string | null>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,12 +45,12 @@ export function LearningSettingCard({ isAdmin, offSince: initial }: { isAdmin: b
           <input type="checkbox" checked={on} disabled={!isAdmin || busy} onChange={(e) => void toggle(e.target.checked)} className="mt-1" />
           <span>
             <span className="block text-sm font-medium">{LEARNING_SETTING.toggle}</span>
-            <span className="block text-sm text-neutral-600 dark:text-neutral-400">{LEARNING_SETTING.words}</span>
+            <span className="block text-sm text-neutral-600 dark:text-neutral-400">{counts ? LEARNING_SETTING.countsWords : LEARNING_SETTING.words}</span>
           </span>
         </label>
         {offSince ? (
           <p role="status" className="text-sm text-neutral-700 dark:text-neutral-300">
-            {learningOffLine(offSince)}
+            {learningOffLine(offSince, counts)}
           </p>
         ) : null}
         {!isAdmin ? <p className="text-xs text-neutral-600 dark:text-neutral-400">{LEARNING_SETTING.member}</p> : null}

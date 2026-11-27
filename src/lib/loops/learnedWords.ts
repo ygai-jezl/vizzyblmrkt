@@ -359,15 +359,20 @@ export function reasonDoneLine(scope: string | null): string {
 /** A saved reason's label, for the row and the details. */
 export const reasonLabelOf = (direction: VoteDirection, key: string | null | undefined): string | null => (key ? voteReasonLabel("image", direction, key) : null);
 
-// ----- The learning setting (screen 5, step 4's words) -----
+// ----- The learning setting (screen 5: step 4's words, widened in step 5) -----
 
 export const LEARNING_SETTING = {
   title: "Learning",
   toggle: HELP_CHECK,
   words: "About 1 in 20 images is made without what YouGrow learned, so YouGrow can check that learning helps. Turn off to always use what it learned.",
+  /** With LOOPS_ENABLED on (step 5), the setting also leaves the brand out of the counts across brands. */
+  countsWords:
+    "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts and also stops the 1 in 20 images made without what YouGrow learned.",
   member: "Only admins can change it.",
 } as const;
-export const learningOffLine = (at: string): string => `Off since ${shortDay(at)}. Every image is made with what YouGrow learned.`;
+/** The line under the setting while it is off: step 4's, or with the counts across brands on (step 5), step 5's. */
+export const learningOffLine = (at: string, counts = false): string =>
+  counts ? `Off since ${shortDay(at)}. This brand's counts stay with this brand.` : `Off since ${shortDay(at)}. Every image is made with what YouGrow learned.`;
 
 // ----- The help page's examples (screen 4) -----
 

@@ -22,6 +22,7 @@ import { isPasswordSigninEnabled } from "@/lib/auth/flags";
 import { LearningSettingCard } from "@/components/admin/settings/LearningSettingCard";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { readBrandPointers } from "@/lib/tenant/loops";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +81,8 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
 
 /**
  * Settings › General › Learning (IMAGE_STYLE_VERSIONS_ENABLED): Help check that learning works,
- * read from the brand's pointers in its region. A read that fails leaves the section out.
+ * read from the brand's pointers in its region. A read that fails leaves the section out. With
+ * LOOPS_ENABLED on its words widen (step 5): off also leaves the brand out of the counts across brands.
  */
 async function learningSetting(ctx: TenantContext): Promise<ReactElement | null> {
   if (!isImageStyleVersionsOn()) return null;
@@ -89,7 +91,7 @@ async function learningSetting(ctx: TenantContext): Promise<ReactElement | null>
     return null;
   });
   if (!pointers) return null;
-  return <LearningSettingCard isAdmin={ctx.role === "admin"} offSince={pointers.fleetOptOut?.at ?? null} />;
+  return <LearningSettingCard isAdmin={ctx.role === "admin"} offSince={pointers.fleetOptOut?.at ?? null} counts={isLoopsEnabled()} />;
 }
 
 /**

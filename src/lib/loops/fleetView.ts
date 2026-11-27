@@ -49,6 +49,8 @@ export interface PlanStall {
   stuck: Record<StuckStep, number>;
   /** Stuck organisations' most common refusal reason, by step. */
   topReason: Partial<Record<StuckStep, string>>;
+  /** Stuck organisations by refusal reason, by step (shown below 10, as stuck is). */
+  why: Record<StuckStep, Counts>;
   /** Steps where every organisation on the plan that reached it is stuck there and none went further: the shape of a learner the plan blocks. */
   amber: StuckStep[];
 }
@@ -110,14 +112,15 @@ export function kindView(n: unknown): KindView {
     const reached = byStage((s) => num(at(n, "st", s, "p", p)));
     const stuck = Object.fromEntries(STUCK_STEPS.map((step) => [step, num(at(n, "stuck", step, "p", p))])) as Record<StuckStep, number>;
     const topReason: Partial<Record<StuckStep, string>> = {};
+    const why = Object.fromEntries(STUCK_STEPS.map((step) => [step, counts(at(n, "stuck", step, "why", p))])) as Record<StuckStep, Counts>;
     const amber: StuckStep[] = [];
     for (const step of STUCK_STEPS) {
-      const why = Object.entries(counts(at(n, "stuck", step, "why", p))).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
-      if (why) topReason[step] = why[0];
+      const top = Object.entries(why[step]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+      if (top) topReason[step] = top[0];
       const next = STAGES[STAGES.indexOf(step) + 1]!;
       if (stuck[step] > 0 && stuck[step] >= reached[step] && reached[next] === 0) amber.push(step);
     }
-    plans[p] = { reached, stuck, topReason, amber };
+    plans[p] = { reached, stuck, topReason, why, amber };
   }
 
   const shown = showsThings(orgs);
@@ -169,8 +172,10 @@ export interface OrgsView {
   /** Organisations that sent a heartbeat (Declared), and by plan (shown below 10). */
   orgs: number;
   plans: Counts;
-  /** By industry, only where an industry and the rest both have 10 or more. */
+  /** By industry, only where an industry and the rest both have 10 or more: the industries that can be compared. */
   industries: Counts;
+  /** Every industry's organisations, from 10 of them; null below 10 (a screen says "fewer than 10"). */
+  industryCounts: Record<string, number | null>;
   /** Brands that reported the week against brands listed, and reports dropped as late. */
   reported: number;
   listed: number;
@@ -185,7 +190,11 @@ export interface OrgsView {
 export function orgsView(n: unknown): OrgsView {
   const orgs = num(at(n, "orgs"));
   const industries: Counts = {};
-  for (const [i, k] of Object.entries(counts(at(n, "i")))) if (showsThings(k) && showsThings(orgs - k)) industries[i] = k;
+  const industryCounts: Record<string, number | null> = {};
+  for (const [i, k] of Object.entries(counts(at(n, "i")))) {
+    industryCounts[i] = showsThings(k) ? k : null;
+    if (showsThings(k) && showsThings(orgs - k)) industries[i] = k;
+  }
   const behind = Object.keys(counts(at(n, "foldBehind")))
     .map((k) => Number(/^w(\d{1,2})$/.exec(k)?.[1]))
     .filter(Number.isFinite);
@@ -193,6 +202,7 @@ export function orgsView(n: unknown): OrgsView {
     orgs,
     plans: counts(at(n, "p")),
     industries,
+    industryCounts,
     reported: num(at(n, "reported")),
     listed: num(at(n, "listed")),
     late: num(at(n, "late")),

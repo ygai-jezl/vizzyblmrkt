@@ -6,6 +6,8 @@ import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
 import { loadOrganisationPageOwner } from "@/lib/connectors/organisationPage";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
+import { isLoopsOperator } from "@/lib/loops/operators";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +18,15 @@ export const dynamic = "force-dynamic";
  * only to an owner of the brand's organisation who is an admin of the brand they are in, read live
  * on the server while sharing or the join is on (Connectors 3), so flipping either needs no new build.
  * History shows to the whole team while SETTINGS_HISTORY_ENABLED is on, after the other tabs.
+ * Loops shows last, while LOOPS_ENABLED is on, only to the people LOOPS_OPERATOR_EMAILS names.
  */
 export default async function AccountLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  await requireAdminContext();
+  const ctx = await requireAdminContext();
+  const loops = isLoopsEnabled() && isLoopsOperator(ctx);
   const organisation = Boolean(await loadOrganisationPageOwner());
 
   return (
@@ -34,7 +38,7 @@ export default async function AccountLayout({
           Global settings for your account, reused across all of your {ideaWord(isIdeaWordsEnabled()).many}.
         </p>
       </div>
-      <AccountTabs dataModel={isFieldsEnabled()} organisation={organisation} history={isSettingsHistoryEnabled()} />
+      <AccountTabs dataModel={isFieldsEnabled()} organisation={organisation} history={isSettingsHistoryEnabled()} loops={loops} />
       <div>{children}</div>
     </div>
   );

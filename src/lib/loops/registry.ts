@@ -227,7 +227,7 @@ export const LOOPS = {
   next_up: own("learned", "Next up learns from the picks your team skips, kept with their reason on the Learned list."),
   judge: own("learned", "Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays."),
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
-  images: none("This is the image style learner from before versions, and where versions are on its calls move to loop_learn, the loops' own learner."),
+  images: none("This is the image style learner from before versions, and where versions are on its calls move to the loops' own learner."),
   loop_learn: none("The learners themselves, judged by the loops they feed."),
   vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),

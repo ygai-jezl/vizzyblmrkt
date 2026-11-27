@@ -82,6 +82,7 @@ describe("stuck per plan", () => {
       reached: { stamped: 3, signalled: 3, learning: 0, checked: 0 },
       stuck: { stamped: 0, signalled: 3 },
       topReason: { signalled: "plan" },
+      why: { stamped: {}, signalled: { plan: 3 } },
       amber: ["signalled"],
     });
     expect(v.plans.ultra).toMatchObject({ reached: { learning: 2 }, stuck: { signalled: 0 }, amber: [] });
@@ -103,7 +104,9 @@ describe("industries and the copy's own row", () => {
     const mixed = { orgs: 25, st: { stamped: { p: { free: 25 }, i: { unknown: 12, bakery: 13 } } } };
     expect(Object.keys(kindView(mixed).industries).sort()).toEqual(["bakery", "unknown"]);
     const o = orgsView({ orgs: 12, p: { free: 12 }, i: { unknown: 12 }, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehind: { w7: 1, w10: 1 } });
-    expect(o).toEqual({ orgs: 12, plans: { free: 12 }, industries: {}, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehindWeeks: 10 });
+    expect(o).toEqual({ orgs: 12, plans: { free: 12 }, industries: {}, industryCounts: { unknown: 12 }, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehindWeeks: 10 });
+    // The table shows each industry from 10 organisations, Unknown alone included; below 10 it is null.
+    expect(orgsView({ orgs: 21, i: { unknown: 12, bakery: 9 } }).industryCounts).toEqual({ unknown: 12, bakery: null });
   });
 
   it("hides a type's or a purpose's count under 10 organisations", () => {

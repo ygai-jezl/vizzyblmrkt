@@ -167,24 +167,40 @@ describe("revising a deck from chat", () => {
   });
 
   it("uses the newest deck when none is named, and 404s when there is none or it is another brand's", async () => {
-    expect(await author({ mode: "revise", ops: [{ change: "remove", slide: 2 }] })).toMatchObject({ ok: false, status: 404, error: "doc_not_found" });
+    expect(await author({ mode: "revise", baseVersion: 1, ops: [{ change: "remove", slide: 2 }] })).toMatchObject({ ok: false, status: 404, error: "doc_not_found" });
     const theirs = await deck(FERNHILL);
-    expect(await author({ mode: "revise", scope: { docId: theirs.id }, ops: [{ change: "remove", slide: 2 }] })).toMatchObject({ ok: false, status: 404 });
+    expect(await author({ mode: "revise", scope: { docId: theirs.id }, baseVersion: 1, ops: [{ change: "remove", slide: 2 }] })).toMatchObject({ ok: false, status: 404 });
     const ours = await deck();
-    const r = await author({ mode: "revise", ops: [{ change: "remove", slide: 2 }] });
+    const r = await author({ mode: "revise", baseVersion: 1, ops: [{ change: "remove", slide: 2 }] });
     expect(r).toMatchObject({ ok: true, id: ours.id });
+  });
+
+  it("needs the version Vizzy read for any change that names a slide, so a moved slide is never the one changed", async () => {
+    const doc = await deck();
+    const ids = doc.current.slides.map((s) => s.id);
+    // Someone moves slides on the page: version 2.
+    await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "move", slide: 5, to: 2 }] });
+    for (const op of [{ change: "remove", slide: 3 }, { change: "rewrite", slide: 3, ask: "Shorter" }, { change: "add", after: 2, section: "product" }]) {
+      expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [op] })).toMatchObject({ ok: false, status: 400, error: "invalid_input", issues: ["baseVersion: read the deck first"] });
+    }
+    // Working from version 1 is stale, not applied to whatever slide 3 is now.
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "remove", slide: 3 }] })).toMatchObject({ ok: false, status: 409, error: "stale_version" });
+    const after = await readRaiseDoc(ACME, doc.id, { db });
+    expect(after?.version).toBe(2);
+    expect(after?.current.slides.map((s) => s.id)).toEqual([ids[0], ids[4], ids[1], ids[2], ids[3], ...ids.slice(5)]);
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it("refuses a stale base, a bad change and a number the person didn't say", async () => {
     const doc = await deck();
     await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "remove", slide: 2 }] });
     expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "remove", slide: 2 }] })).toMatchObject({ ok: false, status: 409, error: "stale_version" });
-    expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "layout", slide: 2, layout: "poster" }] })).toMatchObject({ ok: false, status: 422, error: "invalid_ops" });
-    expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [null, "remove"] })).toMatchObject({ ok: false, status: 422, error: "invalid_ops" });
-    expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "remove", slide: 40 }] })).toMatchObject({ ok: false, status: 422, issues: ["ops.0: there is no slide 40, the deck has 9"] });
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 2, ops: [{ change: "layout", slide: 2, layout: "poster" }] })).toMatchObject({ ok: false, status: 422, error: "invalid_ops" });
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 2, ops: [null, "remove"] })).toMatchObject({ ok: false, status: 422, error: "invalid_ops" });
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 2, ops: [{ change: "remove", slide: 40 }] })).toMatchObject({ ok: false, status: 422, issues: ["ops.0: there is no slide 40, the deck has 9"] });
     const typed = { change: "typed_number", slide: 3, name: "Monthly sales", value: 6200, unit: "money", currency: "USD", per: "month" };
-    expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ ...typed, quote: "about six grand a month" }] })).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
-    const r = await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ ...typed, quote: "our MRR is $6,200" }] });
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 2, ops: [{ ...typed, quote: "about six grand a month" }] })).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
+    const r = await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 2, ops: [{ ...typed, quote: "our MRR is $6,200" }] });
     if (!r.ok) throw new Error(r.error);
     const after = await readRaiseDoc(ACME, doc.id, { db });
     expect(after?.version).toBe(3);
@@ -196,7 +212,7 @@ describe("revising a deck from chat", () => {
   it("never changes a server block's value, except on a refresh", async () => {
     const doc = await deck();
     generate.mockResolvedValue(JSON.stringify({ slides: [{ task: "T1", headline: "{{mb_aaaaaaaa}} shops joined, and more each week", notes: "Shops keep joining." }] }));
-    const r = await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "rewrite", slide: 4, ask: "Lead with the growth" }, { change: "move", slide: 4, to: 2 }] });
+    const r = await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "rewrite", slide: 4, ask: "Lead with the growth" }, { change: "move", slide: 4, to: 2 }] });
     if (!r.ok) throw new Error(r.error);
     const moved = await readRaiseDoc(ACME, doc.id, { db });
     expect(moved?.version).toBe(2);

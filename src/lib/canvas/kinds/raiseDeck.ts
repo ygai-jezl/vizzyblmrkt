@@ -34,7 +34,7 @@ const RaiseDeckInput = z.object({
   /** draft, investor only */
   stage: z.enum(INVESTOR_STAGES).optional(),
   title: z.string().trim().max(L.title).optional(),
-  /** revise: the version Vizzy read. */
+  /** revise: the version Vizzy read. Needed for any change that names a slide by its place in it. */
   baseVersion: z.number().int().min(1).optional(),
   note: z.string().trim().max(L.note).optional(),
   /** revise: each checked on its own (revise.ts), so a bad one comes back as invalid_ops. */
@@ -92,6 +92,11 @@ export async function authorRaiseDeck({ ctx, input, brief }: CanvasAuthorArgs, d
   const req = parsed.data;
   if (req.mode === "draft" && !req.audience) return refused(400, "invalid_input", ["audience: investor or lender"]);
   if (req.mode === "revise" && !req.ops) return refused(400, "invalid_input", ["ops: at least one change"]);
+  // Slides are named by their place in the version Vizzy read: without it, a slide number could
+  // land on a different slide after someone moved them. Only a refresh names no slide.
+  if (req.mode === "revise" && req.baseVersion === undefined && !onlyRefresh(req.ops ?? [])) {
+    return refused(400, "invalid_input", ["baseVersion: read the deck first"]);
+  }
   if (!(await canUseRaiseKit(ctx, deps))) return refused(403, "not_included");
   const limit = req.mode === "draft" ? DRAFT_LIMIT : onlyRefresh(req.ops ?? []) ? NUMBERS_LIMIT : REVISE_LIMIT;
   if (await overLimit(ctx, limit, deps)) return refused(429, "rate_limited");
@@ -115,6 +120,7 @@ export async function authorRaiseDeck({ ctx, input, brief }: CanvasAuthorArgs, d
   const docId = req.scope?.docId ?? (await listRaiseDocs(ctx, deps))[0]?.id;
   const doc = docId ? await readRaiseDoc(ctx, docId, deps) : null;
   if (!doc) return refused(404, "doc_not_found");
+  // A refresh may leave the version out: it names no slide, so it works on the newest.
   const r = await reviseDeck(ctx, doc, { ops: ops.ops, baseVersion: req.baseVersion ?? doc.version, note: req.note }, { db: deps.db, now: deps.now, ...deps.revise });
   if (!r.ok) return refused(r.status, r.error, r.issues);
   const next = r.value.doc;

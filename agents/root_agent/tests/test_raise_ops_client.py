@@ -122,6 +122,13 @@ def test_an_unknown_change_never_calls(monkeypatch):
     assert rc.revise({"ctxToken": "tok"}, None)["code"] == "invalid_change"
 
 
+def test_a_change_that_names_a_slide_needs_the_version_read(monkeypatch):
+    _no_call(monkeypatch)
+    for op in ({"change": "remove", "slide": 3}, {"change": "rewrite", "slide": 3, "ask": "Shorter"}, {"change": "add", "after": 2, "section": "product"}):
+        out = rc.revise({"ctxToken": "tok", "raiseDocId": "rd_abcdefghij12"}, op)
+        assert out == {"status": "needs_version", "message": "Read the deck with get_raise_doc first, then pass the version it shows."}, op
+
+
 def test_errors_become_plain_messages(monkeypatch):
     cases = [
         (503, {"error": "unavailable"}, "Decks from chat aren't switched on in this environment yet."),
@@ -142,6 +149,6 @@ def test_errors_become_plain_messages(monkeypatch):
         out = rc.revise({"ctxToken": "tok"}, {"change": "refresh_numbers"})
         assert out["status"] == "error" and out["message"] == message, (status, body)
     _capture(monkeypatch, status=422, body={"error": "invalid_ops", "issues": ["ops.0: there is no slide 11, the deck has 10"]})
-    out = rc.revise({"ctxToken": "tok"}, {"change": "remove", "slide": 11})
+    out = rc.revise({"ctxToken": "tok"}, {"change": "remove", "slide": 11}, version=3)
     assert out["message"] == "Some of that change wasn't valid: ops.0: there is no slide 11, the deck has 10"
     assert out["code"] == "invalid_ops" and out["issues"] == ["ops.0: there is no slide 11, the deck has 10"]

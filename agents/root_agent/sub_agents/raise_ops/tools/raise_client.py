@@ -236,6 +236,13 @@ def revise(state: "dict | None", op: "dict | None", note: str = "", version: int
             "code": "invalid_change",
             "message": "That change isn't one I can make. Use rewrite, notes, add, remove, move, layout, number, typed_number or refresh_numbers.",
         }
+    # Slides are named by their place in the version read: without it, a number could land on a
+    # different slide after someone moved them. Only a refresh names no slide.
+    if int(version or 0) <= 0 and op.get("change") != "refresh_numbers":
+        return {
+            "status": "needs_version",
+            "message": "Read the deck with get_raise_doc first, then pass the version it shows.",
+        }
     got = _base_and_token(state)
     if isinstance(got, dict):
         return got

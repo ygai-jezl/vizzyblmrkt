@@ -102,7 +102,8 @@ def revise_raise_doc(
         source_note: "typed_number" only: where the number is from, such as "our till".
         quote: "typed_number" only: the person's exact words that hold the number.
         note: A short change note for the version, such as "Led slide 5 with the weekly growth."
-        version: The version you read with get_raise_doc.
+        version: The version you read with get_raise_doc. Needed for every change except
+            "refresh_numbers".
         doc_id: The deck's id. Leave empty for the deck on screen, else the newest.
 
     Returns:

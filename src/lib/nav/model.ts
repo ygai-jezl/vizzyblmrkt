@@ -242,6 +242,7 @@ const ACCOUNT_TABS: Record<string, string> = {
   settings: "Content defaults",
   connections: "Connections",
   billing: "Billing",
+  history: "History",
 };
 
 /** Single-page areas: the crumb is just the page's name. People renames crm (opts.people). */
@@ -272,6 +273,7 @@ const ACCOUNT_TABS_V3: Record<string, string> = {
   settings: "General",
   connections: "Connections",
   billing: "Billing",
+  history: "History",
 };
 
 /** Nav v2 phase 4: the Insights hub's tabs. */

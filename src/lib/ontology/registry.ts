@@ -84,6 +84,8 @@ const NO_NUMBERS = "no numbers an agent reads";
 
 /** Getting to know you: the kept conversations and facts (ONBOARDING_ENABLED). */
 const ONBOARDING = "src/lib/onboarding/store.ts";
+/** Home's Your next action, the card Vizzy writes (NEXT_ACTION_CARD_ENABLED). */
+const NEXT_ACTION = "src/lib/tenant/nextActionCards.ts";
 const SPOKEN_GAPS = [
   "no path deletes a whole brand and everything it holds",
   "the member's user id in `by` stays after they leave the team; no path removes it",
@@ -460,10 +462,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "competitor",
     name: "Competitor",
-    description: "A competitor the brand watches: their sitemap's pages, their news posts, monthly changes and the findings from articles read in full.",
+    description:
+      "A competitor the brand watches: their sitemap's pages, their news posts, monthly changes, the findings from articles read in full, and the strategy group a person put it in. What they write is worked out from those findings when asked, never stored.",
     place: "signals",
     status: "built",
-    madeBy: ["competitor_site", "competitor_analysis", "competitor_articles"],
+    madeBy: ["competitor_site", "competitor_analysis", "competitor_articles", "competitor_profile"],
     home: "brand",
     personal: "none",
     stores: [
@@ -473,7 +476,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       regional("competitor_changes"),
       regional("competitor_articles", "findings and short quotes, never the article's text"),
     ],
-    links: [],
+    links: [{ to: "brand_strategy", via: "its group, shown under Who you compete with, and its articles, which Propose and Against your competitors read", many: false }],
     events: [],
     erase: {
       paths: [brandPath("removeCompetitor", "src/lib/competitors/store.ts"), brandPath("removeArticles", "src/lib/competitors/articles.ts")],
@@ -1121,7 +1124,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
       regional("brand_map_situations"),
       regional("brand_map_runs"),
       side("brand_map_groups", "src/lib/tenant/brandMapRecords.ts", { note: "paged reads of every record kind" }),
-      side("brand_map_vectors", "src/lib/tenant/brandMapVectors.ts"),
+      side("brand_map_vectors", "src/lib/tenant/brandMapVectors.ts", {
+        note: "until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025)",
+      }),
     ],
     links: [
       { to: "brand_question", via: "subject and situation ids", many: true },
@@ -1186,22 +1191,65 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "brand_strategy",
     name: "Brand strategy",
     description:
-      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.",
+      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, and the weekly check that sets the approved strategy against what the watched competitors publish.",
     place: "content",
     status: "built",
-    madeBy: ["brand_strategy", "competitor_find"],
+    madeBy: ["brand_strategy", "competitor_find", "competitor_claim_match", "strategy_check"],
     home: "brand",
     personal: "none",
     stores: [regional("brand_strategy", "one document per brand; `by` and decisions hold the admin's email or user id")],
     links: [
       { to: "brand_map", via: "its audiences and identity, and the focus situations it stars on approval", many: false },
-      { to: "competitor", via: "the competitors a person ticked to monitor", many: true },
+      { to: "competitor", via: "the competitors a person ticked to monitor, or, joined to Competitors, every one the brand watches, live", many: true },
     ],
     events: [],
     erase: { paths: [brandPath("deleteBrandStrategy", "src/lib/brandStrategy/store.ts", "an admin presses Start over on the Strategy tab")] },
     export: { none: NOT_PERSONAL },
     search: { none: "one short record per brand, read whole by the writer, research, Next up and Vizzy" },
-    numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes"], tool: "get_brand_strategy" },
+    numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes", "theirArticles", "theirNewArticles", "competitorArticles", "namingArticles"], tool: "get_brand_strategy" },
+  },
+  {
+    id: "content_strategy",
+    name: "Content strategy",
+    description:
+      "The brand's plan for the quarter, one record per brand, approved by a person: its decided questions merged by meaning into slots (one article each, with a stage, a kind of page and the live articles that answer it), 3 to 6 pillars with a hub each, a score for each slot and a 12 week roadmap of what to write, refresh or combine. Keeps the draft, the approved plan Next up reads, the last 5 approved in short, and the splits, joins, skips and moves people made.",
+    place: "content",
+    status: "built",
+    madeBy: ["content_strategy", "slot_merge", "roadmap_order"],
+    home: "brand",
+    personal: "none",
+    stores: [regional("content_strategy", "one document per brand, question and page ids only; `by` and decisions hold the admin's email or user id")],
+    links: [
+      { to: "brand_strategy", via: "the approved strategy's focus situations, which its fit scores read", many: false },
+      { to: "brand_question", via: "the question ids each slot merges", many: true },
+      { to: "content_plan", via: "the live articles each slot is covered by, and what it refreshes or combines", many: true },
+    ],
+    events: [],
+    erase: { paths: [brandPath("deleteContentStrategy", "src/lib/contentStrategy/store.ts", "an admin presses Start over on the Content plan")] },
+    export: { none: NOT_PERSONAL },
+    search: { none: "one record per brand, read whole by Next up, the autopilot and Vizzy" },
+    numbers: {
+      meanings: [
+        "slotCount",
+        "liveSlots",
+        "openSlots",
+        "questionsInPlan",
+        "questionsInSlot",
+        "roadmapSharePercent",
+        "articlesPerWeek",
+        "refreshSharePercent",
+        "targetPercent",
+        "questionsPercent",
+        "roadmapPercent",
+        "fitScore",
+        "demandScore",
+        "gapScore",
+        "depthScore",
+        "balanceScore",
+        "slotScore",
+      ],
+      tool: "get_content_strategy",
+    },
   },
   {
     id: "brand_note",
@@ -1212,11 +1260,28 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["brand_notes", "seen_notes", "notes_rest"],
     home: "brand",
     personal: "people",
-    stores: [regional("brand_notes")],
+    stores: [
+      regional("brand_notes"),
+      {
+        collection: "search_docs",
+        db: "search",
+        definedIn: "src/lib/tenant/searchIndex.ts",
+        path: "brands/{tenantId}/search_docs",
+        note: "kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025)",
+      },
+      side("brand_map_vectors", "src/lib/tenant/brandMapVectors.ts", { note: "each note's and question's embedding, until retired (ADR-0025)" }),
+    ],
     links: [{ to: "content_plan", via: "the articles it informed", many: true }],
     events: [],
     erase: {
-      paths: [brandPath("removeNote", "src/lib/brandNotes/store.ts")],
+      paths: [
+        brandPath("removeNote", "src/lib/brandNotes/store.ts"),
+        brandPath(
+          "removeFromIndex",
+          "src/lib/search/indexer.ts",
+          "forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer",
+        ),
+      ],
       gaps: ["a person's erase does not find notes that name them: notes are free text"],
     },
     export: { gap: "a person's export does not include notes that name them" },
@@ -1488,6 +1553,49 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { none: NO_NUMBERS },
     madeBy: ["onboarding", "vizzy_chat"],
   },
+  {
+    id: "next_action_card",
+    name: "Your next action",
+    description:
+      "The card Vizzy writes for Home's Your next action: 1 to 3 steps from the brand's four answers, the facts an admin kept and where the brand is, each with a line on why in the founder's own terms, and the newest 30 outcomes of earlier steps (done, answered, dismissed with the reason a person gave, or replaced untouched) with each step's newest dismissal of the last 30 days, which the next card reads. One record per brand. Each step is also an agent action, which holds only ids.",
+    place: "partner_agent",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [
+      regional(
+        "next_action_cards",
+        "one record per brand: the card, the hash of what it was written from, the day's count, and the newest 30 outcomes with each step's newest dismissal of the last 30 days; a dismissal's reason is the member's own words",
+      ),
+    ],
+    links: [
+      { to: "brand", via: "one record per brand", many: false },
+      { to: "agent_action", via: "each step's agentActionId", many: true },
+      { to: "business_fact", via: "the lines it was written from", many: true },
+    ],
+    events: [],
+    erase: {
+      paths: [
+        brandPath(
+          "forgetNextActionCard",
+          NEXT_ACTION,
+          "an admin removes a fact or deletes a conversation in About your business: the card and every title, reason and answer go; only the day's count and which steps were dismissed (ids and times) stay",
+        ),
+        retention(
+          "trimOutcomes",
+          NEXT_ACTION,
+          "outcomes past the newest 30 (besides each step's newest dismissal of the last 30 days), or older than 90 days, are never read again and leave when the record is next written",
+        ),
+      ],
+      gaps: ["no path deletes a whole brand and everything it holds", "a person's erase does not find a reason that names them: it is free text"],
+    },
+    export: {
+      paths: [{ fn: "readNextActionCard", file: NEXT_ACTION, trigger: "member", when: "an admin reads the card on Home, and Vizzy reads it with its outcomes through get_next_action" }],
+    },
+    search: { none: "a short card read whole on Home and by Vizzy, not searched" },
+    numbers: { none: NO_NUMBERS },
+    madeBy: ["next_action"],
+  },
 
   // ===== Platform: what runs everything ======================================================
   {
@@ -1724,7 +1832,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "search_index",
     name: "Brand search index",
-    description: "The brand's own index of what it wrote, by words and meaning, in its region's search database.",
+    description:
+      "The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).",
     place: "platform",
     status: "built",
     madeBy: [],
@@ -1740,6 +1849,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       paths: [
         brandPath("removeFromIndex", "src/lib/search/indexer.ts", "when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased"),
         brandPath("sweepBrand", "src/lib/search/sweep.ts", "the scheduled check drops records that are gone"),
+        brandPath("removeFamily", "src/lib/search/familyIndex.ts", "at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed"),
       ],
     },
     export: { none: "copies of the brand's own writing" },
@@ -1876,7 +1986,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
     stores: [
       regional(
         "record_field_lists",
-        "one document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB",
+        "one document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy`, `archivedBy` and `erasedBy` hold user ids, never an address; under 200 KB",
+      ),
+      regional(
+        "field_erase_jobs",
+        "an owner's count and erase of an archived field's values (SETTINGS_ERASE_ENABLED), one per brand, object and field with a fixed id, written by `src/lib/settings/eraseArchived.ts`: ids, counts, a cursor and times, and who started it as a user id; never a value; no TTL",
       ),
     ],
     links: [
@@ -1886,7 +2000,20 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "ontology_event", via: "fieldId, one row per change of a value", many: true },
     ],
     events: [],
-    erase: { gap: "a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2" },
+    erase: {
+      paths: [
+        {
+          fn: "runFieldErase",
+          file: "src/lib/settings/eraseArchived.ts",
+          trigger: "field",
+          when: "an owner with an admin row erases an archived field's values 30 days after its archive, with SETTINGS_ERASE_ENABLED: values and field tags off each person or company, blanked in the event history and agent actions; the definition stays, archived, with erasedAt",
+        },
+      ],
+      gaps: [
+        "a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave",
+        "an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before",
+      ],
+    },
     export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
     numbers: { none: "a value belongs to one record and is not a brand metric" },
@@ -1936,20 +2063,33 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "view",
     name: "View",
-    description: "A saved filter, sort and set of columns over people or another record, shared or personal.",
+    description:
+      "A saved filter, sort and set of columns over People (CRM_VIEWS_ENABLED): up to 10 filters joined by all or any, 10 columns and one sort, read in memory up to 5,000 people a view. Team views (Everyone on the team) are the settings subject views:person, saved by admins and kept in the settings log, archived and never removed, and listed in Settings › History, where an admin restores one view at a time; Only me views belong to one team member, are not logged, never in History, and are deleted for real. A saved view never keeps typed words (text and email domain filters work while looking, decision 3), so neither store holds the values of the brand's people; both hold team members' user ids.",
     place: "customers",
-    status: "planned",
+    status: "built",
     madeBy: [],
-    plannedIn: "C",
     home: "brand",
-    personal: "none",
-    stores: [],
-    links: [],
+    personal: "team",
+    stores: [
+      side("saved_views", "src/lib/tenant/settingsLog.ts", {
+        note: "the team's views, as the `views:person` setting: one document per brand, id from settingsDocId, one item per view (its id `viw_...`, name, filters, columns and sort, version, and who made, changed or archived it by user id), archived and never removed, written only with its settings version; caps 50 in use, 200 in all, under 200 KB, one view under 2 KB",
+      }),
+      side("member_views", "src/lib/tenant/memberViews.ts", {
+        note: "one team member's Only me views: one document per brand and member, id `mv_` and a hash of both, with the member's user id and a rev checked in one transaction; not logged, a view is deleted for real; 50 a member",
+      }),
+    ],
+    links: [
+      { to: "settings_version", via: "subject views:person, one version per team save", many: true },
+      { to: "custom_field", via: "the field ids its filters, columns and sort name", many: true },
+      { to: "member", via: "createdBy, changedBy and archivedBy on a team view, and member_views.userId", many: true },
+    ],
     events: [],
-    erase: { none: planned("piece C") },
-    export: { none: planned("piece C") },
-    search: { none: "a saved query, found by name" },
-    numbers: { none: planned("piece C") },
+    erase: {
+      gap: "neither store holds a person's values, so a person's erase has nothing here; a team member's user id stays an id after they leave and shows as Former team member, and their member_views document stays, seen by nobody, as the field lists' user ids do",
+    },
+    export: { gap: "neither store holds a person's values, so a person's export has nothing here; team member ids stay as ids, with no export by team member" },
+    search: { none: "a saved query, found by name in the Views menu and through get_view_counts" },
+    numbers: { meanings: ["viewPeople"], tool: "get_view_counts" },
   },
   {
     id: "list",
@@ -2455,10 +2595,28 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
-    madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],
+    madeBy: [
+      "canvas.person_fields",
+      "canvas.new_person",
+      "rising_search",
+      "losing_page",
+      "within_reach",
+      "canvas.journey",
+      "canvas.lifecycle",
+      "canvas.invite_wave",
+      "canvas.content_plan",
+      "canvas.email_style",
+      "canvas.image_style",
+      "canvas.journey_style",
+      "canvas.brand_map",
+      "vizzy_chat",
+      "brand_map_research",
+      "product_map",
+      "autopilot",
+    ],
     home: "brand",
     personal: "people",
     stores: [
@@ -2470,7 +2628,15 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "idea", via: "the target, when it is an idea", many: false },
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
-      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat", many: false },
+      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action", many: false },
+      { to: "next_action_card", via: "the card's step records name it", many: false },
+      { to: "launch_journey", via: "draft, a launch's welcome emails on the original engine (agent record)", many: false },
+      { to: "lifecycle_journey", via: "draft, a journey Vizzy drafted or styled (agent record)", many: false },
+      { to: "invite_wave", via: "draft, an invite wave Vizzy drafted (agent record)", many: false },
+      { to: "content_plan", via: "draft, a plan Vizzy or the autopilot drafted (agent record)", many: false },
+      { to: "brand_map", via: "draft, one research run or chat call with hashes of the keys it filed (agent record)", many: false },
+      { to: "brand_note", via: "draft, a note Vizzy suggested in a chat (agent record)", many: false },
+      { to: "repo_map", via: "draft, learning a product's map from its repo, by product (agent record)", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

@@ -116,7 +116,7 @@ describe("waitlist journeys on the lifecycle engine", () => {
   });
 
   it("reads signup.* conditions like the original engine (someone who used the voice chat gets the other branch)", async () => {
-    const w = await world({ signup: { aiConversation: { completed: true } } as Partial<Signup> });
+    const w = await world({ signup: { aiConversation: { completed: true, transcript: [{ role: "user", text: "Faster invoicing, please." }] } } as Partial<Signup> });
     await w.run();
     w.setNow(T0 + 24 * HOUR);
     await w.run();

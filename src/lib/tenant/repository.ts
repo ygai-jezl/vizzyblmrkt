@@ -49,6 +49,7 @@ import type { PersonPlan } from "@/lib/types/personPlan";
 import type { PersonMove } from "@/lib/types/personMove";
 import type { BrandMapRecord } from "@/lib/types/brandMap";
 import type { BrandStrategyRecord } from "@/lib/types/brandStrategy";
+import type { ContentStrategyRecord } from "@/lib/types/contentStrategy";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
 import type { BrandAuthor } from "@/lib/types/brandAuthor";
@@ -66,10 +67,12 @@ import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
 import type { RecordFieldListDoc } from "@/lib/types/recordField";
+import type { FieldEraseJob } from "@/lib/types/fieldEraseJob";
 import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
 import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
 import type { BusinessFact, OnboardingConversation } from "@/lib/types/onboarding";
+import type { NextActionRecord } from "@/lib/types/nextAction";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -86,6 +89,12 @@ export interface FindOptions {
    * lists. Add an `id`/`createdAt` tiebreak to `orderBy` to disambiguate ties.
    */
   startAfter?: unknown[];
+  /**
+   * Read only these fields of each row (a projection), each a field path such as `memberOf` or
+   * `fields.fld_abc123def456`; the id always comes back. Firestore still bills each row read, but a
+   * projection keeps what a large read holds in memory small (a view reads up to 5,000 people).
+   */
+  select?: string[];
 }
 
 type TenantScoped = { tenantId: string; id: string };
@@ -134,6 +143,10 @@ export class TenantCollection<T extends TenantScoped> {
     for (const [field, dir] of opts.orderBy ?? []) q = q.orderBy(field, dir);
     if (opts.startAfter != null) q = q.startAfter(...opts.startAfter);
     if (opts.limit != null) q = q.limit(opts.limit);
+    if (opts.select) {
+      if (typeof q.select !== "function") throw new TenantValidationError("this database can't read a projection (select)");
+      q = q.select(...opts.select);
+    }
     const snap = await q.get();
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
   }
@@ -569,6 +582,8 @@ export interface TenantRepositories {
   brandMapImports: TenantCollection<BrandMapStoredRecord>;
   /** The brand strategy: one document per brand (`bst_<tenantId>`), parsed by src/lib/brandStrategy/store.ts. */
   brandStrategy: TenantCollection<BrandStrategyRecord>;
+  /** The content strategy: one document per brand (`cst_<tenantId>`), parsed by src/lib/contentStrategy/store.ts. */
+  contentStrategy: TenantCollection<ContentStrategyRecord>;
   /** The authors a brand's articles are written under (role, bio, profile page), one per name. */
   brandAuthors: TenantCollection<BrandAuthor>;
   /** What we've seen: the brand's own first-hand notes (src/lib/brandNotes/store.ts). */
@@ -620,6 +635,11 @@ export interface TenantRepositories {
    * only here: a list changes only with its settings version (./settingsLog.ts).
    */
   recordFieldLists: VersionCollection<RecordFieldListDoc>;
+  /**
+   * An archived field's count and erase (SETTINGS_ERASE_ENABLED), one per field with a fixed id
+   * (src/lib/settings/eraseArchived.ts writes them): ids, counts and times only.
+   */
+  fieldEraseJobs: TenantCollection<FieldEraseJob>;
   /** Connected data (CONNECTORS_ENABLED): one record per connection, its secrets sealed (./dataConnections.ts writes them). */
   dataConnections: ConnectionRecords<DataConnection>;
   /** Each change to a connection, kept 90 days by a TTL on ttlAt (./dataConnections.ts writes them). */
@@ -641,6 +661,11 @@ export interface TenantRepositories {
   onboardingConversations: TenantCollection<OnboardingConversation>;
   /** What an admin kept of what Vizzy heard, each with the member's own words (src/lib/onboarding/store.ts). */
   businessFacts: TenantCollection<BusinessFact>;
+  /**
+   * Home's Your next action (NEXT_ACTION_CARD_ENABLED): one record per brand, the card Vizzy wrote
+   * and the newest outcomes of its steps (./nextActionCards.ts and src/lib/nextAction/service.ts).
+   */
+  nextActionCards: TenantCollection<NextActionRecord>;
 }
 
 /**
@@ -764,6 +789,8 @@ export function forTenant(
     brandMapImports: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_imports", t),
     // The brand strategy steers the same content as the brand map, and sits beside it → regional DB.
     brandStrategy: new TenantCollection<BrandStrategyRecord>(regionalDb, "brand_strategy", t),
+    // The content strategy plans the same articles, from the brand map and the strategy → regional DB.
+    contentStrategy: new TenantCollection<ContentStrategyRecord>(regionalDb, "content_strategy", t),
     // An article's author (a person's name, role and bio) sits with the articles → regional DB.
     brandAuthors: new TenantCollection<BrandAuthor>(regionalDb, "brand_authors", t),
     // The brand's first-hand notes may name its customers → regional DB, with the content they inform.
@@ -800,6 +827,8 @@ export function forTenant(
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
     settingsVersions: new TenantCollection<SettingsVersion>(regionalDb, "settings_versions", t),
     recordFieldLists: new TenantCollection<RecordFieldListDoc>(regionalDb, "record_field_lists", t),
+    // An erase of a field's values runs where the values are kept → regional DB.
+    fieldEraseJobs: new TenantCollection<FieldEraseJob>(regionalDb, "field_erase_jobs", t),
     // A connection holds a brand's sealed tokens and settings, kept in its region beside the data
     // it reads; its activity names team members by id only. Both regional, like launch_site_keys.
     dataConnections: new TenantCollection<DataConnection>(regionalDb, "data_connections", t),
@@ -812,5 +841,7 @@ export function forTenant(
     // People's own words about the business, and what was kept of them: regional, like brand notes.
     onboardingConversations: new TenantCollection<OnboardingConversation>(regionalDb, "onboarding_conversations", t),
     businessFacts: new TenantCollection<BusinessFact>(regionalDb, "business_facts", t),
+    // The card can hold the founder's words (its lines, a dismissal's reason): regional, beside the facts.
+    nextActionCards: new TenantCollection<NextActionRecord>(regionalDb, "next_action_cards", t),
   };
 }

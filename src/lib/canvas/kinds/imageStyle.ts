@@ -6,6 +6,8 @@ import { IMAGE_STYLE_CHANNELS, IMAGE_STYLE_SUGGESTION_LIMITS, ImageStyleIdSchema
 import { BRAND_KIT_IMAGE_STYLE_ROUTE } from "@/lib/content/brandKit";
 import { imageStyleById, isStyleAvailable } from "@/lib/content/imageStyle/catalogue";
 import { isBrandImageStyleEnabled, isMoreStylesEnabled } from "@/lib/content/imageStyle/flags";
+import { recordDraft, styleKeyPart } from "@/lib/agentRecord/record";
+import { imageStylePrint } from "@/lib/agentRecord/fingerprints";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -59,6 +61,19 @@ export async function authorImageStyleSuggestion(
   if (!checked.success) return { ok: false, status: 400, error: "invalid_input", issues: issuesOf(checked.error) };
   // Only the suggestion: `imageStyle` (what images use) is never touched here.
   const s = await setTenantImageStyleSuggestion(ctx.tenantId, checked.data, deps.db);
+  // The agent record: the brand's image style is one draft, so a newer suggestion supersedes the
+  // last; its key is its suggestedAt, so Save and Dismiss find it (soft, never fails the save).
+  await recordDraft(
+    ctx,
+    {
+      action: "image_style.suggest",
+      draft: { kind: "image_style", ref: ctx.tenantId },
+      keyPart: styleKeyPart(s.suggestedAt),
+      href: BRAND_KIT_IMAGE_STYLE_ROUTE,
+      fingerprint: imageStylePrint(s),
+    },
+    { db: deps.db },
+  );
   const perChannel = Object.entries(s.channels ?? {}).filter(([, v]) => v);
   const url = BRAND_KIT_IMAGE_STYLE_ROUTE;
   return {

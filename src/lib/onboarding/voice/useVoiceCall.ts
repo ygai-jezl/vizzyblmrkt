@@ -272,24 +272,29 @@ export class VoiceCallController {
     const seconds = Number(started.callSeconds);
     this.callSeconds = Number.isFinite(seconds) ? Math.min(600, Math.max(30, Math.floor(seconds))) : CALL_SECONDS;
 
-    // A connection that closes before it is ours (a refused token, no model) is a failed start.
-    let closedEarly = false;
-    const lost = () => {
-      if (this.openedAt) this.dropped(gen);
-      else closedEarly = true;
-    };
-    let session: LiveSessionLike | null = null;
+    // Gemini can close the connection before it is ours (a refused token, no model): the SDK's
+    // connect then never settles, so the close or error itself ends the start, as a drop does.
+    let session: LiveSessionLike;
     try {
-      session = await this.deps.connect(started.token, started.model, { onmessage: (m) => this.onMessage(gen, m), onerror: lost, onclose: lost });
+      session = await this.deps.connect(started.token, started.model, {
+        onmessage: (m) => this.onMessage(gen, m),
+        onerror: () => this.dropped(gen),
+        onclose: () => this.dropped(gen),
+      });
     } catch {
-      closedEarly = true;
-    }
-    if (gen !== this.gen) return void session?.close();
-    if (closedEarly || !session) {
-      session?.close();
+      if (gen !== this.gen || this.ending) return;
       // Nothing was said: close the conversation now rather than at the brand's next start.
       void this.sendEnd("error");
       return this.refuse(gen, "unavailable");
+    }
+    // The screen went, or the call already ended as a drop: a session handed over now is closed.
+    if (gen !== this.gen || this.ending) {
+      try {
+        session.close();
+      } catch {
+        /* already closed */
+      }
+      return;
     }
     this.session = session;
     this.openedAt = this.deps.now();

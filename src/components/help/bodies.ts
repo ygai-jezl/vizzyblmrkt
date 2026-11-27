@@ -21,7 +21,9 @@ import OnboardingJourneysHelp from "./pages/onboarding-journeys";
 import ReviewAndApprovalsHelp from "./pages/review-and-approvals";
 import PeopleHelp from "./pages/people";
 import SearchHelp from "./pages/search";
+import LanguagesHelp from "./pages/languages";
 import YourAudienceHelp from "./pages/your-audience";
+import HistoryAndRestoreHelp from "./pages/history-and-restore";
 import TroubleshootingHelp from "./pages/troubleshooting";
 
 /** Each help page's body by slug ("" = Get set up): the /help routes, their Markdown copies and llms-full.txt render these. */
@@ -33,6 +35,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,
+  "languages": LanguagesHelp,
   "launch-and-waitlist": LaunchAndWaitlistHelp,
   "newsletter-from-your-site": NewsletterFromYourSiteHelp,
   "programmes-and-knowledge": ProgrammesAndKnowledgeHelp,
@@ -48,5 +51,6 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "people": PeopleHelp,
   "search": SearchHelp,
   "your-audience": YourAudienceHelp,
+  "history-and-restore": HistoryAndRestoreHelp,
   "troubleshooting": TroubleshootingHelp,
 };

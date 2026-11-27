@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { clearTenantImageStyleSuggestion } from "@/lib/tenant/control";
 import { imageStyleAdmin } from "@/lib/content/imageStyle/admin";
+import { closeStyle, memberOf } from "@/lib/agentRecord/record";
+import { forgetReviewCount } from "@/lib/review/summary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,5 +20,8 @@ export async function DELETE(req: Request) {
   const parsed = DismissSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   const cleared = await clearTenantImageStyleSuggestion(g.ctx.tenantId, parsed.data.suggestedAt);
+  // Dismissed by this admin (agent record); a newer suggestion already closed it as superseded.
+  await closeStyle(g.ctx, "image_style.suggest", parsed.data.suggestedAt, { to: "declined", reason: "dismissed", by: memberOf(g.ctx) });
+  forgetReviewCount(g.ctx.tenantId);
   return NextResponse.json({ ok: true, cleared });
 }

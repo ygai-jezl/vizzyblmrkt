@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 
 // Brand › Competitors: switch, then sign-in, then (to change anything) admin, then the brand's access.
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
@@ -54,6 +56,10 @@ const store = vi.hoisted(() => ({
   markSeen: vi.fn(async () => 2),
 }));
 vi.mock("@/lib/competitors/store", () => store);
+const strategy = vi.hoisted(() => ({ logStrategyDecisions: vi.fn(async () => true), noteMonitored: vi.fn(async () => true), readBrandStrategyDoc: vi.fn(async (): Promise<unknown> => null), fullRunsInMonth: vi.fn(() => 0) }));
+vi.mock("@/lib/brandStrategy/store", () => strategy);
+const tenants = vi.hoisted(() => ({ getTenantById: vi.fn(async () => null) }));
+vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), getTenantById: tenants.getTenantById }));
 
 const { GET, POST } = await import("./route");
 const item = await import("./[competitorId]/route");
@@ -146,6 +152,70 @@ describe("the Competitors APIs", () => {
     expect(await seen.json()).toEqual({ ok: true, marked: 2 });
     expect(review.forgetReviewCount).toHaveBeenCalledWith("ten_A");
     expect((await SEEN(req("POST", { competitorId: "../etc" }))).status).toBe(400);
+  });
+
+  it("leave a group out while the strategy isn't joined to Competitors, as any field it didn't know", async () => {
+    // A group alone is nothing to change: the input check refuses it before the store is asked.
+    const alone = await item.PATCH(req("PATCH", { group: "most" }), params);
+    expect(alone.status).toBe(400);
+    expect(await alone.json()).toMatchObject({ error: "invalid_input" });
+    expect(store.updateCompetitor).not.toHaveBeenCalled();
+    // Beside a real change, even a group that isn't one is left out, and the change goes through.
+    store.updateCompetitor.mockResolvedValueOnce({ ok: true, value: COMPETITOR });
+    const paused = await item.PATCH(req("PATCH", { group: "everything", paused: true }), params);
+    expect(paused.status).toBe(200);
+    expect(store.updateCompetitor).toHaveBeenCalledTimes(1);
+    expect(store.updateCompetitor).toHaveBeenLastCalledWith(admin, "cmp_abcdef123456", { paused: true }, {});
+    expect(store.getCompetitor).toHaveBeenCalledTimes(1);
+    await POST(req("POST", { ...MONITOR, group: "most" }));
+    expect(store.monitorCompetitor).toHaveBeenLastCalledWith(admin, MONITOR, {});
+    expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();
+    expect(strategy.noteMonitored).not.toHaveBeenCalled();
+  });
+
+  it("joined: a group a person changes is kept, and logged on the strategy before and after", async () => {
+    for (const [k, v] of Object.entries({ BRAND_MAP_ENABLED: "true", BRAND_STRATEGY_ENABLED: "true", STRATEGY_COMPETITORS_ENABLED: "true" })) vi.stubEnv(k, v);
+    store.updateCompetitor.mockResolvedValue({ ok: true, value: { ...COMPETITOR, group: "big" } });
+    expect((await item.PATCH(req("PATCH", { group: "everything" }), params)).status).toBe(400);
+    expect((await item.PATCH(req("PATCH", { group: "big" }), params)).status).toBe(200);
+    expect(store.updateCompetitor).toHaveBeenLastCalledWith(admin, "cmp_abcdef123456", { group: "big" }, {});
+    expect(strategy.logStrategyDecisions).toHaveBeenCalledWith(admin, [{ kind: "competitor_grouped", ref: "Acme Dental", before: null, after: "big" }], {});
+    // The same group again changes nothing to log.
+    store.getCompetitor.mockResolvedValue({ ...COMPETITOR, group: "big" });
+    strategy.logStrategyDecisions.mockClear();
+    await item.PATCH(req("PATCH", { group: "big" }), params);
+    expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();
+    // Monitor carries the finder's group, and one the finder suggested is kept as a tick.
+    expect((await POST(req("POST", { ...MONITOR, group: "most" }))).status).toBe(201);
+    expect(store.monitorCompetitor).toHaveBeenLastCalledWith(admin, { ...MONITOR, group: "most" }, {});
+    expect(strategy.noteMonitored).toHaveBeenCalledWith(admin, { name: "Acme Dental", site: "acme-dental.example" }, {});
+    session.getAdminContext.mockResolvedValue(member);
+    expect((await item.PATCH(req("PATCH", { group: "most" }), params)).status).toBe(403);
+  });
+
+  it("joined, the list carries the finder's suggestions that aren't watched or left out; off, it doesn't", async () => {
+    store.listCompetitors.mockResolvedValue([COMPETITOR] as never);
+    strategy.readBrandStrategyDoc.mockResolvedValue({
+      rev: 3,
+      draft: { competitorGroups: [{ kind: "big", competitors: [{ name: "Alpha", site: "alpha.example", foundTimes: 2, evidence: [], ticked: false, from: "finder" }, { name: "Acme Dental", site: "acme-dental.example", foundTimes: 1, evidence: [], ticked: false, from: "finder" }, { name: "Left", site: "left.example", foundTimes: 1, evidence: [], ticked: false, from: "finder" }] }] },
+      approved: null,
+      finder: { quickAt: null, fullRuns: [], notCompetitors: [{ name: "Left", site: null }] },
+    });
+    const withSuggestions = () => GET(new Request("http://localhost/api/admin/brand-kit/competitors?suggestions=1", { method: "GET" }));
+    const off = (await (await withSuggestions()).json()) as Record<string, unknown>;
+    expect(Object.keys(off)).toEqual(["competitors"]);
+    for (const [k, v] of Object.entries({ BRAND_MAP_ENABLED: "true", BRAND_STRATEGY_ENABLED: "true", STRATEGY_COMPETITORS_ENABLED: "true" })) vi.stubEnv(k, v);
+    // The poll while one is set up asks for the list alone: the strategy isn't read.
+    const poll = (await (await GET(req("GET"))).json()) as Record<string, unknown>;
+    expect(Object.keys(poll)).toEqual(["competitors"]);
+    expect(strategy.readBrandStrategyDoc).not.toHaveBeenCalled();
+    const on = (await (await withSuggestions()).json()) as { competitors: Array<{ id: string }>; suggestions: Array<{ name: string; group: string }> };
+    expect(on.competitors.map((c) => c.id)).toEqual(["cmp_abcdef123456"]);
+    expect(on.suggestions).toEqual([{ name: "Alpha", site: "alpha.example", group: "big", foundTimes: 2, evidence: [] }]);
+    // Its record has no group: the draft's "big" comes as a hint only, never as its group.
+    expect((on as unknown as { was: Record<string, string> }).was).toEqual({ cmp_abcdef123456: "big" });
+    expect((on.competitors[0] as { group?: string }).group).toBeUndefined();
+    store.listCompetitors.mockResolvedValue([]);
   });
 
   it("Stop watching removes it and resets the Review count", async () => {

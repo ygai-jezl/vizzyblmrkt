@@ -3,9 +3,10 @@
 import { base64ToInt16, bytesToBase64, downsample, float32ToInt16, int16ToFloat32 } from "./pcm";
 
 /**
- * The browser's side of a Gemini Live voice call, for Talk with Vizzy (the waitlist's voice chat
- * keeps its own, src/lib/hooks/useLiveConversation.ts): the microphone, sent as 16 kHz PCM, and
- * Vizzy's voice, played as it arrives with no gaps. Browser only.
+ * The browser's side of a Gemini Live voice call, for Talk with Vizzy
+ * (src/lib/onboarding/voice/useVoiceCall.ts) and the voice chat on waitlist pages
+ * (src/lib/hooks/useLiveConversation.ts): the microphone, sent as 16 kHz PCM, and the model's
+ * voice, played as it arrives with no gaps. Browser only.
  */
 
 /** What Live hears best: 16 kHz mono. */
@@ -37,7 +38,7 @@ export function closeCallAudio(audio: CallAudio | null): void {
   for (const ctx of [audio.capture, audio.playback]) if (ctx.state !== "closed") void ctx.close().catch(() => {});
 }
 
-/** The microphone, mono, with the browser's echo cancelling (Vizzy's voice plays from the same device). */
+/** The microphone, mono, with the browser's echo cancelling (the model's voice plays from the same device). */
 export function askForMicrophone(): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -100,8 +101,8 @@ export class MicCapture {
 }
 
 /**
- * Vizzy's voice: each chunk is scheduled right after the one before, so there are no gaps.
- * `clear()` stops it at once (the person talked over Vizzy); `drained()` waits until it has said
+ * The model's voice: each chunk is scheduled right after the one before, so there are no gaps.
+ * `clear()` stops it at once (the person talked over it); `drained()` waits until it has said
  * everything it was sent.
  */
 export class PcmPlayer {

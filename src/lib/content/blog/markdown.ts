@@ -13,6 +13,7 @@
 
 import { isTableStart, readTable } from "../markdownTable";
 import type { Dateline } from "./dates";
+import { articleLabel, dateLineLanguage, otherLabels } from "./labels";
 
 export type ArticleBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
@@ -378,7 +379,11 @@ export function renderInlineHtml(text: string): string {
   return inlineHtml(parseInline(text));
 }
 
-const DATE_LINE = /^last\s+updated\s*[:\-–]\s*(\d{4}-\d{2}-\d{2})\b(.*)$/i;
+// "Last updated: 2026-10-07", or the same line in another catalog language ("Dernière mise à jour : …").
+const DATE_LINE = (() => {
+  const other = otherLabels("lastUpdated").map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
+  return new RegExp(`^(?:last\\s+updated${other.length ? `|${other.join("|")}` : ""})\\s*[:：\\-–]\\s*(\\d{4}-\\d{2}-\\d{2})\\b(.*)$`, "i");
+})();
 
 /** The date in a "Last updated: 2026-10-07" line, or null when the line is something else. */
 export function lastUpdatedOf(text: string): string | null {
@@ -390,10 +395,19 @@ export function afterDateOf(text: string): string {
   return DATE_LINE.exec(plainInline(text))?.[2]?.trimEnd() ?? "";
 }
 
+/** A dateline day as words in `language` (its stored English words for English). */
+function dayText(d: { iso: string; text: string }, language: string): string {
+  if (language === "en") return d.text;
+  const [y, m, day] = d.iso.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, day ?? 1)).toLocaleDateString(language, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
 /** The date line as HTML (BLOG_DATES_ENABLED): each date in a <time> with its time and offset. */
-function datelineHtml(dl: Dateline, after: string): string {
-  const time = (d: { iso: string; text: string }) => `<time datetime="${escapeHtml(d.iso)}">${escapeHtml(d.text)}</time>`;
-  return `<p class="dateline">Published ${time(dl.published)}${dl.updated ? ` · Updated ${time(dl.updated)}` : ""}${escapeHtml(after)}</p>`;
+function datelineHtml(dl: Dateline, after: string, language = "en"): string {
+  const time = (d: { iso: string; text: string }) => `<time datetime="${escapeHtml(d.iso)}">${escapeHtml(dayText(d, language))}</time>`;
+  const published = escapeHtml(articleLabel(language, "published"));
+  const updated = escapeHtml(articleLabel(language, "updated"));
+  return `<p class="dateline">${published} ${time(dl.published)}${dl.updated ? ` · ${updated} ${time(dl.updated)}` : ""}${escapeHtml(after)}</p>`;
 }
 
 function blockHtml(block: ArticleBlock, ids: Map<string, number>, dateline: Dateline | null = null): string {
@@ -410,8 +424,11 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>, dateline: Date
     case "paragraph": {
       const date = lastUpdatedOf(block.text);
       // The byline an editorial article carries on the same line stays with it.
-      if (date && dateline) return datelineHtml(dateline, afterDateOf(block.text));
-      if (date) return `<p class="last-updated">Last updated: <time datetime="${date}">${date}</time>${escapeHtml(afterDateOf(block.text))}</p>`;
+      if (date && dateline) return datelineHtml(dateline, afterDateOf(block.text), dateLineLanguage(plainInline(block.text)));
+      if (date) {
+        const label = articleLabel(dateLineLanguage(plainInline(block.text)), "lastUpdated");
+        return `<p class="last-updated">${escapeHtml(label)}: <time datetime="${date}">${date}</time>${escapeHtml(afterDateOf(block.text))}</p>`;
+      }
       return `<p>${renderInlineHtml(block.text)}</p>`;
     }
     case "list": {

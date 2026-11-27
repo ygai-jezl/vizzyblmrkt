@@ -1,3 +1,5 @@
+import { removeFamily } from "@/lib/search/familyIndex";
+import { isOldVectorsRetired } from "@/lib/search/flags";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { removeBrandMapVector, setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -12,6 +14,9 @@ import { recountGroup, recountSubject } from "./recount";
  * merged-away subject's goes, so nearest lookups never find it), whether or not embedding
  * them again works, and the ones still on the map are embedded again. Best effort, after the
  * change is saved: it never fails it.
+ *
+ * Brand search (ADR-0025): a gone subject leaves it at once, forced, whatever any switch says;
+ * embedSubjects writes the status and text of the live ones there (a status alone embeds nothing).
  */
 export async function afterRecordsChange(
   ctx: TenantContext,
@@ -39,15 +44,18 @@ export async function afterRecordsChange(
   // Each subject's own record (not following a merge): what its stored meaning should say.
   const records = new Map((await brandMapRecords(ctx, deps.db).getMany("sub", subjects).catch(() => [])).map((r) => [r.id, r]));
   const live: string[] = [];
+  const gone: string[] = [];
   for (const id of subjects) {
     const r = records.get(id);
-    const gone = !r || r.status === "dismissed" || Boolean(r.mergedInto);
-    if (gone) await removeBrandMapVector(ctx, "subject", id, deps.db).catch(() => undefined);
-    else {
+    if (!r || r.status === "dismissed" || Boolean(r.mergedInto)) {
+      gone.push(id);
+      await removeBrandMapVector(ctx, "subject", id, deps.db).catch(() => undefined);
+    } else {
       live.push(id);
-      await setBrandMapVectorStatus(ctx, { kind: "subject", ref: id, status: String(r.status) }, deps.db).catch(() => undefined);
+      if (!isOldVectorsRetired()) await setBrandMapVectorStatus(ctx, { kind: "subject", ref: id, status: String(r.status) }, deps.db).catch(() => undefined);
     }
   }
+  if (gone.length) await removeFamily(ctx, "subject", gone, deps);
   await embedSubjects(ctx, live, deps).catch((err: unknown) => {
     console.warn("[brand-map] embedding after a change failed", err instanceof Error ? err.message.slice(0, 200) : "error");
     return 0;

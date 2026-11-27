@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
@@ -8,9 +9,11 @@ import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnable
 
 /**
  * With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch's emails are waitlist emails,
- * as Brand voice says. "Such as a launch or an award" is the general sense and stays.
+ * as Brand voice says. "Such as a launch or an award" is the general sense and stays. With
+ * `searchNoteReads` (SEARCH_NOTE_READS_ENABLED, ADR-0025) a note that names a customer reaches an
+ * article only through its subject.
  */
-export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled(), searchNoteReads = isSearchNoteReadsEnabled() }: HelpBodyProps = {}) {
   const imageStyle = isBrandImageStyleUiEnabled();
   const competitors = isCompetitorsUiEnabled();
   return (
@@ -219,6 +222,13 @@ export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled() }: Help
             otherwise articles keep them anonymous. The panels beside your notes show which kinds you have least of, and which
             subjects on your brand map have no note yet.
           </P>
+          {searchNoteReads ? (
+            <P>
+              A note ticked as naming a customer goes into an article only when it is linked to the article&apos;s subject, never
+              because it is close in meaning, and Vizzy&apos;s search of your notes leaves it out. Link it to its subjects so the
+              right articles still find it.
+            </P>
+          ) : null}
           {isBrandNotesQuestionsUiEnabled() ? (
             <P>
               {isBrandNotesRestUiEnabled()
@@ -283,6 +293,15 @@ export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled() }: Help
             allows it, we read their news through Google instead: the card says <strong>news only, read through Google</strong>,
             we check their posts every week, and there are no monthly site checks because we can&apos;t see the rest of their
             site. Otherwise the competitor&apos;s page says we couldn&apos;t read it.
+          </P>
+          <P>
+            When this copy of YouGrow joins Competitors to your strategy, this page and the Strategy tab on{" "}
+            <Open href="/admin/brand-kit/map">Brand › Brand map</Open> share one list. Each card, and each competitor&apos;s page,
+            has a group, the same groups the strategy uses, such as <strong>Does most of what you do</strong>. An admin picks it
+            with <strong>Choose a group</strong> on either page, and the other shows it. <strong>Find competitors</strong> here runs
+            the same search as on the Strategy tab, and counts the same way. What it finds waits under{" "}
+            <strong>Suggested by the finder</strong>: press <strong>Monitor</strong> to watch one, or{" "}
+            <strong>Not a competitor</strong> so it isn&apos;t suggested again.
           </P>
           <H2 id="competitor-articles">See what they write</H2>
           <P>

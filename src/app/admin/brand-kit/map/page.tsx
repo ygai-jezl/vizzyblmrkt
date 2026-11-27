@@ -38,7 +38,8 @@ import { BrandMapSituations } from "@/components/admin/brand-kit/BrandMapSituati
 import { BrandMapImport } from "@/components/admin/brand-kit/BrandMapImport";
 import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
 import { BrandMapStrategy } from "@/components/admin/brand-kit/BrandMapStrategy";
-import { isBrandStrategyEnabled } from "@/lib/brandStrategy/flags";
+import { isBrandStrategyEnabled, isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
+import { isContentStrategyEnabled } from "@/lib/contentStrategy/flags";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
 
@@ -49,7 +50,7 @@ export const dynamic = "force-dynamic";
  * article is written from. Members can view it; only admins save it, accept or dismiss a
  * suggestion, run research or look up an identifier.
  */
-export default async function BrandMapPage() {
+export default async function BrandMapPage({ searchParams }: { searchParams?: Promise<{ tab?: string }> }) {
   const ctx = await requireAdminContext();
   if (!isBrandMapEnabled()) notFound();
 
@@ -94,10 +95,16 @@ export default async function BrandMapPage() {
     competitors !== null && isCompetitorArticlesPlanningEnabled() && (await brandCanUse(ctx, "competitor_articles").catch(() => false));
 
   const nextUp = isNextUpEnabled() && map !== null && (await brandCanUse(ctx, "next_up").catch(() => false));
-  // The brand strategy (BRAND_STRATEGY_ENABLED): its own tab, hidden while the switch is off.
-  const strategy = isBrandStrategyEnabled() ? [{ id: "strategy", label: "Strategy", node: <BrandMapStrategy canEdit={ctx.role === "admin"} /> }] : [];
+  // The brand strategy (BRAND_STRATEGY_ENABLED): its own tab, hidden while the switch is off. Its
+  // Content plan section (CONTENT_STRATEGY_ENABLED) shows only with that switch on too.
+  const strategy = isBrandStrategyEnabled()
+    ? [{ id: "strategy", label: "Strategy", node: <BrandMapStrategy canEdit={ctx.role === "admin"} contentPlan={isContentStrategyEnabled()} /> }]
+    : [];
+  // Review the strategy, from the weekly check's row in Review (STRATEGY_CHECK_ENABLED), opens its tab.
+  const openTab = isStrategyCheckEnabled() && strategy.length && (await searchParams)?.tab === "strategy" ? "strategy" : undefined;
   const tabs = (
     <BrandMapTabs
+      initialTab={openTab}
       editor={
         <BrandMapEditor
           initial={decidedOf(map)}

@@ -20,20 +20,23 @@ export function BrandMapTabs({
   contentMap,
   editorLabel = "Names and subjects",
   extra = [],
+  initialTab,
 }: {
   editor: ReactNode;
   contentMap: ReactNode | null;
   editorLabel?: string;
   /** More views, between the list and the content map. */
   extra?: Array<TabDef & { node: ReactNode }>;
+  /** The view to open first (a link such as Review the strategy names it); the list when it isn't one of them. */
+  initialTab?: string;
 }) {
   const id = useId();
-  const [tab, setTab] = useState("names");
   const views: Array<TabDef & { node: ReactNode }> = [
     { id: "names", label: editorLabel, node: editor },
     ...extra,
     ...(contentMap ? [{ id: "map", label: "Content map", node: contentMap }] : []),
   ];
+  const [tab, setTab] = useState(() => (initialTab && views.some((v) => v.id === initialTab) ? initialTab : "names"));
   const tabs = views.length > 1;
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {

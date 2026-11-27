@@ -44,6 +44,7 @@ import { blockedCrawlers } from "./crawlers";
 import { factFiguresOnPage, factWordedAs, figureSet, wordingShared, wordsOf } from "./figures";
 import { blogResearchThinkingBudget, isBlogEditorialEnabled } from "./flags";
 import { chooseLinkTargets, isLinkablePage, linkLabel, pagesFromRepoPaths, type KnownPage } from "./links";
+import { withWritingLanguage, writingLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Research for a blog hub — the up-front work that lets one article answer what buyers
@@ -874,6 +875,7 @@ export async function researchBlogBrief(
   const audience = workspace.audience?.trim().slice(0, 500) || "(not given)";
   const search = deps.grounded ?? generateGroundedText;
   const usage = deps.usage ?? aiUsage(ctx, input.searchPurpose ?? "blog_research");
+  const language = await writingLanguage(usage);
   // Editorial articles stay on their own question (no spread of intents, alternatives only when choosing).
   const questionsPrompt = renderPrompt(isBlogEditorialEnabled() ? "content.blog_research_editorial" : "content.blog_research", {
     brand_name: brandName.slice(0, 120),
@@ -911,13 +913,16 @@ export async function researchBlogBrief(
     ? (async () => {
         if (timeLeft() < 5_000) return nothingCited;
         const picked = await (deps.pick ?? generateTextWithDeadline)(
-          renderPrompt("content.blog_cited_facts", {
-            today,
-            subject: (plan.scope.spark || plan.name).slice(0, 1000),
-            primary_question: current.primaryQuestion || "(not set)",
-            audience,
-            passages: formatPassages(passages),
-          }),
+          withWritingLanguage(
+            renderPrompt("content.blog_cited_facts", {
+              today,
+              subject: (plan.scope.spark || plan.name).slice(0, 1000),
+              primary_question: current.primaryQuestion || "(not set)",
+              audience,
+              passages: formatPassages(passages),
+            }),
+            language,
+          ),
           { timeoutMs: Math.min(timeLeft(), 30_000), thinkingBudget: blogResearchThinkingBudget(), usage },
         );
         // The page's name and year are worth a few seconds, not the whole of what is left.
@@ -927,12 +932,12 @@ export async function researchBlogBrief(
     : Promise.resolve(nothingCited);
 
   const [askedOrLimited, groundedOrLimited, site] = await Promise.all([
-    search(questionsPrompt, {
+    search(withWritingLanguage(questionsPrompt, language), {
       timeoutMs: Math.max(deadline - clock().getTime(), 1_000),
       thinkingBudget: blogResearchThinkingBudget(),
       usage,
     }).catch(() => null),
-    searchFacts(factsPrompt, search, deadline, () => clock().getTime(), usage),
+    searchFacts(withWritingLanguage(factsPrompt, language), search, deadline, () => clock().getTime(), usage),
     (deps.sitePages ?? indexedSitePages)(ctx, workspace.id).catch((): SitePages => ({ pages: [], repoPaths: [] })),
   ]);
   // At the month's web search cap, research carries on from the brand's own material, and says so.

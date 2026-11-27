@@ -14,6 +14,8 @@ const competitors = vi.hoisted(() => ({ runCompetitorChecks: vi.fn(async () => (
 vi.mock("@/lib/competitors/tick", () => (loaded.add("competitors"), competitors));
 const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenants: 1, queued: 2, read: 1, failed: 0, skipped: 0 })) }));
 vi.mock("@/lib/competitors/articleTick", () => (loaded.add("competitor-articles"), articles));
+const strategyCheck = vi.hoisted(() => ({ runStrategyChecks: vi.fn(async () => ({ brands: 2, open: 1, failed: 0 })) }));
+vi.mock("@/lib/brandStrategy/check", () => (loaded.add("strategy-check"), strategyCheck));
 const search = vi.hoisted(() => ({ runSearchSweeps: vi.fn(async () => ({ scanned: 1, indexed: 2 })) }));
 vi.mock("@/lib/search/sweep", () => (loaded.add("search"), search));
 const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1, ready: 2, failed: 0, waiting: 1 })) }));
@@ -28,6 +30,10 @@ const refresh = vi.hoisted(() => ({ runRefreshReviews: vi.fn(async () => ({ bran
 vi.mock("@/lib/content/blog/refreshReview", () => (loaded.add("refresh"), refresh));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
+const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
+vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
+const agentRecord = vi.hoisted(() => ({ runAgentRecordCatchUp: vi.fn(async () => ({ brands: 1, read: 4, closed: 2 })) }));
+vi.mock("@/lib/agentRecord/catchUp", () => (loaded.add("agent-record"), agentRecord));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
 const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
@@ -121,6 +127,32 @@ describe("the lifecycle tick with Competitors", () => {
     expect(await res.json()).toMatchObject({ competitors: { advanced: 1 }, competitorArticles: { read: 1 } });
     const [{ deadlineMs }] = articles.runArticleReads.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(40_000 + 50);
+  });
+
+  it("runs the weekly strategy check beside them only with its switch on, within its own time", async () => {
+    for (const k of ["COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "BRAND_MAP_ENABLED", "BRAND_STRATEGY_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
+    expect(await (await POST(machine())).json()).not.toHaveProperty("strategyCheck");
+    expect(strategyCheck.runStrategyChecks).not.toHaveBeenCalled();
+
+    vi.stubEnv("STRATEGY_CHECK_ENABLED", "true");
+    const before = Date.now();
+    const res = await POST(machine());
+    expect(await res.json()).toMatchObject({ competitors: { advanced: 1 }, strategyCheck: { brands: 2, open: 1 } });
+    const [{ deadlineMs }] = strategyCheck.runStrategyChecks.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(10_000 + 50);
+
+    // A run that looked at no brand adds nothing to the answer, and one that fails never fails the call.
+    strategyCheck.runStrategyChecks.mockResolvedValueOnce({ brands: 0, open: 0, failed: 0 });
+    expect(await (await POST(machine())).json()).not.toHaveProperty("strategyCheck");
+    strategyCheck.runStrategyChecks.mockRejectedValueOnce(new Error("boom"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const failed = await POST(machine());
+      expect(failed.status).toBe(200);
+      expect(await failed.json()).toMatchObject({ ok: true, competitors: { advanced: 1 } });
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("never fails the scheduler's call when the article reads fail", async () => {
@@ -256,6 +288,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["waitlist", "@/lib/lifecycle/waitlist/tick", waitlist],
     ["competitors", "@/lib/competitors/tick", competitors],
     ["competitor-articles", "@/lib/competitors/articleTick", articles],
+    ["strategy-check", "@/lib/brandStrategy/check", strategyCheck],
     ["search", "@/lib/search/sweep", search],
     ["signals", "@/lib/signals/tick", signals],
     ["autopilot", "@/lib/autopilot/tick", autopilot],
@@ -264,6 +297,8 @@ describe("each job's code loads only when its switch is on", () => {
     ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
+    ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
+    ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
   ];
 
   /**
@@ -303,6 +338,32 @@ describe("each job's code loads only when its switch is on", () => {
     const res = await post(machine());
     expect(await res.json()).toMatchObject({ ok: true, authCleanup: { mode: "log_only" } });
     expect([...loaded]).toEqual(["auth-cleanup"]);
+  });
+
+  it("loads the erase lane only with SETTINGS_ERASE_ENABLED and what it needs on, and moves jobs on within its budget", async () => {
+    for (const n of ["SETTINGS_HISTORY_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "PLANS_ENABLED"]) vi.stubEnv(n, "true");
+    let post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).not.toContain("field-erase");
+    vi.stubEnv("SETTINGS_ERASE_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, fieldErase: { jobs: 1, pages: 3 } });
+    expect([...loaded]).toContain("field-erase");
+    const [{ deadlineMs }] = fieldErase.runFieldErase.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 1000);
+  });
+
+  it("loads only the agent record's catch-up with only AGENT_RECORD_ENABLED on, within its own budget", async () => {
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", agentRecord: { brands: 1, read: 4, closed: 2 } });
+    expect([...loaded]).toEqual(["agent-record"]);
+    const [{ deadlineMs }] = agentRecord.runAgentRecordCatchUp.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {

@@ -1,4 +1,4 @@
-import { forTenant, organisationContextFor } from "@/lib/tenant";
+import { forTenant, getTenantById, organisationContextFor } from "@/lib/tenant";
 import { readDueArticles } from "@/lib/content/blog/freshnessPages";
 import { refreshHref } from "@/lib/content/blog/freshnessHref";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
@@ -24,7 +24,13 @@ import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
 import { isBlogFreshnessEnabled, isBlogRefreshEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
-import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
+import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_EMAIL_STYLE_ROUTE, BRAND_KIT_IMAGE_STYLE_ROUTE, BRAND_KIT_MAP_ROUTE, BRAND_KIT_NOTES_ROUTE } from "@/lib/content/brandKit";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isEmailStyleEnabled } from "@/lib/email/flags";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandNotesEnabled } from "@/lib/brandNotes/flags";
+import type { BrandNote } from "@/lib/types/brandNote";
+import type { Tenant } from "@/lib/types/tenant";
 import { isCompetitorsEnabled } from "@/lib/competitors/flags";
 import { listCompetitors, unseenChanges } from "@/lib/competitors/store";
 import { PROBLEM_TEXT } from "@/lib/competitors/view";
@@ -47,6 +53,10 @@ import { productName } from "@/lib/connectors/messages";
 import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { LoopKind } from "@/lib/loops/registry";
+import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
+import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
+import { reasonLine } from "@/lib/brandStrategy/checkRules";
+import type { StrategyCheck } from "@/lib/types/brandStrategy";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -68,6 +78,7 @@ export type ReviewKind =
   | "connection"
   | "data_source"
   | "competitor_news"
+  | "strategy_check"
   | "next_article"
   | "data_signal"
   | "content_refresh"
@@ -88,6 +99,8 @@ export interface ReviewItem {
   signal?: { id: string };
   /** The detail as lines, each shown in full (a suggestion's numbers). */
   details?: string[];
+  /** The weekly strategy check's row: Dismiss beside the link (admins only). */
+  dismissCheck?: true;
 }
 
 /**
@@ -116,7 +129,9 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
   agent_draft: {
     title: "Drafts from Vizzy",
     description: "Vizzy only saves drafts. Check them, then publish or turn them on when you're happy.",
-    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero"],
+    // With the agent record on (AGENT_RECORD_ENABLED), admins also see Vizzy's email and image style
+    // suggestions and the notes it suggested in chats.
+    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero", "canvas.email_style", "canvas.image_style", "vizzy_chat"],
   },
   brand_map: {
     title: "Brand map suggestions",
@@ -151,6 +166,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "New posts on their news pages and changes to their sites since you last looked. Open one to read it, or mark it seen.",
     from: ["competitor_analysis"],
   },
+  strategy_check: {
+    title: "Your strategy against competitors",
+    description: "Once a week your approved strategy is set against what your competitors publish. It asks for a look only when something material changed: review the strategy, or dismiss it for 30 days.",
+    from: ["strategy_check"],
+  },
   next_article: {
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
@@ -179,7 +199,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -288,6 +308,79 @@ export function agentContentPlanItem(
   };
 }
 
+/** The words for a style Vizzy suggested: which page, by the kind of style. */
+const STYLE_WORDS = {
+  email: { title: "Email style Vizzy suggested", page: "Brand › Email style", href: BRAND_KIT_EMAIL_STYLE_ROUTE },
+  image: { title: "Image style Vizzy suggested", page: "Brand › Image style", href: BRAND_KIT_IMAGE_STYLE_ROUTE },
+} as const;
+
+/**
+ * A style Vizzy suggested that no admin has saved or dismissed (agent record, admins only), read
+ * from the brand's record, where it lives: one row, opening the page that saves it.
+ */
+export function agentStyleItem(kind: "email" | "image", suggestion: { suggestedAt: string } | null | undefined): ReviewItem | null {
+  if (!suggestion?.suggestedAt) return null;
+  const words = STYLE_WORDS[kind];
+  const day = /^\d{4}-\d{2}-\d{2}/.test(suggestion.suggestedAt) ? ` on ${dayOf(suggestion.suggestedAt)}` : "";
+  return {
+    id: `${kind}_style:${suggestion.suggestedAt}`,
+    kind: "agent_draft",
+    title: words.title,
+    detail: `Suggested in a chat${day} · Nothing changes until an admin saves it on ${words.page}.`,
+    href: words.href,
+    action: "Review",
+  };
+}
+
+/**
+ * The notes Vizzy suggested in chats that nobody has kept or removed (agent record, admins only):
+ * one row. `more`: the read was full, so there may be more than it counted.
+ */
+export function agentNotesItem(waiting: number, more = false): ReviewItem | null {
+  if (waiting <= 0) return null;
+  return {
+    id: "brand_notes:suggested",
+    kind: "agent_draft",
+    title: more ? `${waiting} or more notes Vizzy suggested` : `${waiting} note${waiting === 1 ? "" : "s"} Vizzy suggested`,
+    detail: "From your chats · Keep the right ones on What we've seen. Articles use only the notes you keep.",
+    href: BRAND_KIT_NOTES_ROUTE,
+    action: "Review",
+  };
+}
+
+/** Most suggested notes read for the row. */
+const NOTES_READ = 50;
+
+/**
+ * What Review lists that only the agent record added (AGENT_RECORD_ENABLED, admins only), each
+ * read where it lives: the brand record's style suggestions, and the notes from chats waiting
+ * (equality on status and source only, up to 50: a full read says "or more").
+ */
+async function agentRecordItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const styles = isEmailStyleEnabled() || isBrandImageStyleEnabled();
+  const [tenant, notes] = await Promise.all([
+    styles ? soft("style suggestions", getTenantById(ctx.tenantId, db), null as Tenant | null) : (null as Tenant | null),
+    isBrandNotesEnabled()
+      ? soft(
+          "suggested notes",
+          forTenant(ctx, db).brandNotes.find({
+            where: [
+              ["status", "==", "suggested"],
+              ["source", "==", "chat"],
+            ],
+            limit: NOTES_READ,
+          }),
+          [] as BrandNote[],
+        )
+      : ([] as BrandNote[]),
+  ]);
+  return [
+    isEmailStyleEnabled() ? agentStyleItem("email", tenant?.emailStyleSuggestion) : null,
+    isBrandImageStyleEnabled() ? agentStyleItem("image", tenant?.imageStyleSuggestion) : null,
+    agentNotesItem(notes.length, notes.length >= NOTES_READ),
+  ].filter((i): i is ReviewItem => !!i);
+}
+
 /** A hub-and-spoke plan whose hub is written but not approved (its spokes wait on it). */
 export function contentHubItem(
   workspace: { id: string; name: string },
@@ -368,6 +461,27 @@ export function competitorItems(competitors: Array<Pick<Competitor, "id" | "name
     });
   }
   return items;
+}
+
+/**
+ * The weekly strategy check's open row (STRATEGY_CHECK_ENABLED): one at most, each reason a line.
+ * Review the strategy opens the Strategy tab.
+ */
+export function strategyCheckItem(check: StrategyCheck | null, nowIso: string = new Date().toISOString()): ReviewItem | null {
+  const open = check?.open;
+  if (!check || !open?.reasons.length) return null;
+  const lines = open.reasons.map((r) => reasonLine(r, check.since, nowIso));
+  const moved = open.reasons.some((r) => r.kind !== "named");
+  return {
+    id: `strategy_check:${open.key}`,
+    kind: "strategy_check",
+    title: moved ? "Your competitors moved on your focus situations" : "Your competitors name an alternative you don't watch",
+    detail: lines.length > 1 ? `${lines[0]} And ${lines.length - 1} more.` : lines[0]!,
+    details: lines,
+    href: `${BRAND_KIT_MAP_ROUTE}?tab=strategy`,
+    action: "Review the strategy",
+    dismissCheck: true,
+  };
 }
 
 const CHANNEL: Record<string, string> = {
@@ -791,6 +905,12 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
+  // The weekly strategy check's open row (STRATEGY_CHECK_ENABLED): one read of the strategy record.
+  // It needs their articles too, as the tick does, so a row left from before a change of plan doesn't stay.
+  const strategyCheck =
+    competitorsOn && isStrategyCheckEnabled() && (await soft("competitor articles access", brandCanUse(ctx, "competitor_articles"), false))
+      ? await soft("strategy check", readBrandStrategyDoc(ctx, { db }).then((d) => (d?.approved ? d.check : null)), null)
+      : null;
   // Articles due a refresh (BLOG_FRESHNESS_ENABLED): the freshness watch's list, one read.
   const dueArticles = isBlogFreshnessEnabled()
     ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])
@@ -804,6 +924,8 @@ export async function loadReview(
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
+  // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
+  const recordItems = isAgentRecordEnabled() && ctx.role === "admin" ? await soft("agent record", agentRecordItems(ctx, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
@@ -830,10 +952,12 @@ export async function loadReview(
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),
+    strategyCheckItem(strategyCheck),
     ...nextArticleItems(autopilotRuns),
     ...numberSuggestions,
     ...refreshItems(dueArticles, readyArticles),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
+    ...recordItems,
   ].filter((i): i is ReviewItem => !!i);
 
   return { aiLines, items };

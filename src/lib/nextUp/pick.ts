@@ -27,6 +27,9 @@ import { mayStartReview } from "@/lib/content/blog/refreshGate";
 import { MAX_CANDIDATES } from "./candidates";
 import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
+import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, skippedSlotQuestions } from "@/lib/contentStrategy/nextUp";
+import { PAGE_KIND_LABEL, ROADMAP_SHARE, type ContentPlan, type PickSlot } from "@/lib/types/contentStrategy";
+import { withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
@@ -66,6 +69,10 @@ export interface PickDeps {
   reviewsOpen?: (ctx: TenantContext) => Promise<boolean>;
   /** The approved brand strategy (BRAND_STRATEGY_ENABLED): its focus goes first, and the model reads its goal. */
   strategy?: (ctx: TenantContext) => Promise<Strategy | null>;
+  /** The approved content plan (CONTENT_STRATEGY_NEXT_UP_ENABLED): 3 of 4 candidates come from its roadmap. */
+  contentPlan?: (ctx: TenantContext) => Promise<ContentPlan | null>;
+  /** The roadmap's next open entries as candidates (tests inject them). */
+  roadmap?: (ctx: TenantContext, plan: ContentPlan, opts: { exclude: ReadonlySet<string>; refreshes: Candidate[] }) => Promise<Candidate[]>;
 }
 
 /** The one line naming the approved strategy's goal for the model, or "" without one. Pure. */
@@ -104,6 +111,40 @@ export async function refreshCandidates(ctx: TenantContext, deps: Pick<PickDeps,
 }
 
 const SEARCH_CONSOLE_REASONS = new Set(["losing_clicks", "within_reach"]);
+
+/** The chip label of the line that says which slot of the content plan a candidate fills. */
+export const CONTENT_PLAN_CHIP = "Content plan";
+
+/** The line naming the pillar, the slot and why it is planned, so the model's reason can say it. Pure. */
+export function slotLineFor(id: string, slot: PickSlot): CandidateLine {
+  const pillar = slot.pillar ? `the pillar "${cut(oneLine(slot.pillar), 80)}"` : "no pillar";
+  const doing = slot.action === "combine" ? "combine its live articles" : slot.action === "refresh" ? "refresh its live article" : `write it as a ${PAGE_KIND_LABEL[slot.kind]}`;
+  return {
+    id,
+    text: oneLine(`Content plan (approved by the brand): the slot "${cut(oneLine(slot.title), 120)}" in ${pillar}, a ${slot.stage} stage article, planned for week ${slot.week} to ${doing}.`),
+    chip: { kind: "map", label: CONTENT_PLAN_CHIP, text: cut(oneLine(`${slot.pillar ?? "No pillar"} · ${PAGE_KIND_LABEL[slot.kind]} · ${slot.stage}`), 90) },
+  };
+}
+
+/** How a candidate is named to the model: PLAN for one from the content plan, REFRESH or COMBINE for a live article. Pure. */
+export function candidateHead(k: number, c: Candidate): string {
+  const plan = c.slot ? "PLAN " : "";
+  if (c.combine) return `${k}. ${plan}COMBINE "${c.question}" (two live articles)`;
+  if (c.refresh) return `${k}. ${plan}REFRESH "${c.question}" (a live article)`;
+  return `${k}. ${plan}"${c.question}" (subject: ${c.subjectName})`;
+}
+
+/** What is known about a combine candidate: the live articles that answer one question. Pure. */
+export function combineLinesFor(n: number, c: Candidate): CandidateLine[] {
+  const pages = c.combine?.pages ?? [];
+  return [
+    {
+      id: `${n}.1`,
+      text: oneLine(`Your live articles: ${pages.map((p) => `"${cut(oneLine(p.title), 100)}"`).join(" and ")} answer the same question, so buyers and AI engines see two pages where one would do.`),
+      chip: { kind: "you", label: "Your articles", text: cut(oneLine(`${pages.length} live articles answer it`), 90) },
+    },
+  ];
+}
 
 /** What is known about a refresh candidate: its freshness reasons, as numbered lines. Pure. */
 export function refreshLinesFor(n: number, c: Candidate): CandidateLine[] {
@@ -209,8 +250,12 @@ export function reasonHolds(because: string, lines: CandidateLine[], competitorN
   return true;
 }
 
-/** Read the model's picks, keeping only those that hold, and at most `refreshShare` refreshes. Pure. */
-export function readPicks(raw: string | null, weighed: Weighed[], competitorNames: string[], refreshShare = DEFAULT_REFRESH_SHARE): NextUpPick[] {
+/**
+ * Read the model's picks, keeping only those that hold, at most `refreshShare` refreshes, at most
+ * one combine, and, with the content plan's roadmap in the candidates, at most `freeMax` picks
+ * from outside it. Pure.
+ */
+export function readPicks(raw: string | null, weighed: Weighed[], competitorNames: string[], refreshShare = DEFAULT_REFRESH_SHARE, freeMax = PICKS): NextUpPick[] {
   const parsed = raw ? (parseFirstJson(raw) as { picks?: unknown } | null) : null;
   const list = Array.isArray(parsed?.picks) ? (parsed!.picks as Array<Record<string, unknown>>) : [];
   const out: NextUpPick[] = [];
@@ -221,6 +266,8 @@ export function readPicks(raw: string | null, weighed: Weighed[], competitorName
     const because = oneLine(typeof p?.because === "string" ? p.because : "").slice(0, 400);
     if (!w || used.has(n) || !because || !reasonHolds(because, w.lines, competitorNames)) continue;
     if (w.candidate.refresh && out.filter((x) => x.kind === "refresh").length >= refreshShare) continue;
+    if (w.candidate.combine && out.some((x) => x.kind === "combine")) continue;
+    if (!w.candidate.slot && out.filter((x) => !x.slot).length >= freeMax) continue;
     const uses = new Set(Array.isArray(p.uses) ? (p.uses as unknown[]).filter((u): u is string => typeof u === "string") : []);
     const chips = w.lines.filter((l) => uses.has(l.id)).map((l) => l.chip);
     used.add(n);
@@ -234,6 +281,8 @@ export function readPicks(raw: string | null, weighed: Weighed[], competitorName
       from: "gemini",
       ...(w.candidate.refresh ? { kind: "refresh" as const, planId: w.candidate.refresh.planId, workspaceId: w.candidate.refresh.workspaceId } : {}),
       ...(w.candidate.closeTo ? { closeTo: w.candidate.closeTo } : {}),
+      ...(w.candidate.combine ? { kind: "combine" as const, combine: w.candidate.combine } : {}),
+      ...(w.candidate.slot ? { slot: w.candidate.slot } : {}),
     });
     if (out.length >= PICKS) break;
   }
@@ -252,6 +301,7 @@ function codePick(w: Weighed): NextUpPick {
     chips: [w.lines[0]!.chip],
     from: "code",
     ...(c.closeTo ? { closeTo: c.closeTo } : {}),
+    ...(c.slot ? { slot: c.slot } : {}),
   };
 }
 
@@ -314,19 +364,38 @@ export async function pickNextUp(
       : [];
   const read = await readBrandMap(ctx, deps.db).catch(() => null);
   if (!read || read.state !== "ok") return { ok: false, error: "no_map" };
+  // The approved content plan (CONTENT_STRATEGY_NEXT_UP_ENABLED): its roadmap's next open entries.
+  const plan = await (deps.contentPlan ?? ((c) => planForNextUp(c, { db: deps.db })))(ctx).catch(() => null);
+  const fromRoadmap = plan
+    ? await (deps.roadmap ?? ((c, p, o) => roadmapCandidates(c, p, o, { db: deps.db })))(ctx, plan, { exclude: excluded, refreshes }).catch(() => [] as Candidate[])
+    : [];
+  const roadmapQuestions = fromRoadmap.filter((c) => !c.refresh && !c.combine);
+  const listedIds = new Set(listed.map((q) => q.questionId));
   // Stop repeats: a question a live article answers is linked and left out, one an article being
   // written covers is left out, and one close to a live article says so.
+  const toMatch = roadmapQuestions.length ? [...roadmapQuestions.filter((q) => !listedIds.has(q.questionId)), ...listed] : listed;
   const repeats = repeatsOn
-    ? await (deps.repeats ?? ((c, a) => findRepeats(c, a, { db: deps.db, now: deps.now })))(ctx, { questions: listed, moved: Boolean(read.map.moved) }).catch(() => NO_REPEATS)
+    ? await (deps.repeats ?? ((c, a) => findRepeats(c, a, { db: deps.db, now: deps.now })))(ctx, { questions: toMatch, moved: Boolean(read.map.moved) }).catch(() => NO_REPEATS)
     : NO_REPEATS;
   if (repeats.linked.length && read.map.moved) await (deps.link ?? linkAnswered)(ctx, repeats.linked, { db: deps.db, now: deps.now }).catch(() => 0);
   const dropped = new Set([...repeats.linked.map((l) => l.questionId), ...repeats.inProgress]);
+  const withClose = (q: Candidate): Candidate => (repeats.close.has(q.questionId) && !q.closeTo ? { ...q, closeTo: repeats.close.get(q.questionId)! } : q);
+  // With a plan, a slot a person skipped a pick of isn't offered free through its other questions either.
+  const heldBySlot = plan ? skippedSlotQuestions(plan, excluded) : new Set<string>();
   const questions = listed
-    .filter((q) => !dropped.has(q.questionId))
+    .filter((q) => !dropped.has(q.questionId) && !heldBySlot.has(q.questionId))
     .slice(0, MAX_CANDIDATES)
     .map((q) => (repeats.close.has(q.questionId) ? { ...q, closeTo: repeats.close.get(q.questionId)! } : q));
-  const candidates = [...questions, ...refreshes];
+  const roadmap = fromRoadmap.filter((c) => c.refresh || c.combine || !dropped.has(c.questionId)).map((c) => (c.refresh || c.combine ? c : withClose(c)));
+  const share = plan?.rules.roadmapShare ?? ROADMAP_SHARE;
+  // 3 of every 4 candidates from the roadmap, 1 free from today's ordering (decision 5).
+  const inRoadmap = new Set(roadmap.map((c) => c.questionId));
+  const candidates = roadmap.length
+    ? mixRoadmap(roadmap, [...questions, ...refreshes].filter((c) => !inRoadmap.has(c.questionId)), share, MAX_CANDIDATES + MAX_REFRESH)
+    : [...questions, ...refreshes];
+  const freeMax = roadmap.length ? freePicksOf(PICKS, share) : PICKS;
   if (!candidates.length) return { ok: false, error: "no_questions" };
+  const searchable = candidates.filter((c) => !c.refresh && !c.combine);
 
   // Read once for all candidates.
   const [flags, signals, names, notOnMap, planning, answers] = await Promise.all([
@@ -342,26 +411,31 @@ export async function pickNextUp(
   const byQuery = new Map(signals.map((s) => [queryKey(s.about.query), s] as const));
   const search = deps.search ?? ((c, q, o) => searchBrand(c, q, o));
   let searched = true;
-  const rows = await eachLimited(questions, SEARCH_PARALLEL, async (c) => {
+  const rows = await eachLimited(searchable, SEARCH_PARALLEL, async (c) => {
     // No search once the model call wouldn't fit: the map line still goes in.
     const found = Date.now() < opts.deadlineMs - PICK_MS ? await search(ctx, c.question, { limit: 8 }).catch(() => null) : null;
     if (!found?.ok) searched = false;
     return { candidate: c, found };
   });
-  const weighed: Weighed[] = rows.map((r, i) => ({
-    candidate: r.candidate,
-    lines: linesFor(i + 1, r.candidate, {
-      search: r.found,
-      flag: flags?.[r.candidate.subjectId],
-      signal: byQuery.get(queryKey(r.candidate.question)),
-      searchConsole: searchConsoleLines(r.candidate, planning),
-      aiAnswers: aiAnswersLine(r.candidate.question, answers),
-      now,
-    }),
-  }));
-  // Refresh candidates carry their own reasons as lines; nothing more is read for them.
-  for (const c of refreshes) weighed.push({ candidate: c, lines: refreshLinesFor(weighed.length + 1, c) });
-  if (!searched && questions.length) missing.push("Brand search isn't on for this brand, so what it already made wasn't weighed.");
+  const found = new Map(rows.map((r) => [r.candidate.questionId, r.found] as const));
+  // In the candidates' order: refresh and combine candidates carry their own lines; nothing more is read for them.
+  const weighed: Weighed[] = candidates.map((c, i) => {
+    const lines = c.refresh
+      ? refreshLinesFor(i + 1, c)
+      : c.combine
+        ? combineLinesFor(i + 1, c)
+        : linesFor(i + 1, c, {
+            search: found.get(c.questionId) ?? null,
+            flag: flags?.[c.subjectId],
+            signal: byQuery.get(queryKey(c.question)),
+            searchConsole: searchConsoleLines(c, planning),
+            aiAnswers: aiAnswersLine(c.question, answers),
+            now,
+          });
+    if (c.slot) lines.push(slotLineFor(`${i + 1}.${lines.length + 1}`, c.slot));
+    return { candidate: c, lines };
+  });
+  if (!searched && searchable.length) missing.push("Brand search isn't on for this brand, so what it already made wasn't weighed.");
 
   let picks: NextUpPick[] = [];
   if ((deps.configured ?? isGeminiConfigured)() && opts.deadlineMs - Date.now() > 5_000) {
@@ -381,31 +455,42 @@ export async function pickNextUp(
       refresh: refreshes.length
         ? ` Candidates marked REFRESH are live articles of the brand's that are due a refresh: choosing one means improving that article, not writing a new one. Choose at most ${refreshShare} of them, and only when its lines show a real reason.`
         : "",
-      close: questions.some((q) => q.closeTo)
+      close: candidates.some((q) => q.closeTo)
         ? " A candidate whose lines say it is CLOSE to a live article of the brand's is better added to that article than written again: choose one only when its lines show it is worth it, and then say in its reason that it adds to that article, never that it is a new article."
+        : "",
+      plan: roadmap.length
+        ? ` Candidates marked PLAN come from the content plan the brand approved, in the order it planned them: choose at least ${PICKS - freeMax} of your three from them, earlier ones first unless their lines show a reason not to, and say in each one's reason which pillar it fills.`
+        : "",
+      combine: candidates.some((c) => c.combine)
+        ? " A candidate marked COMBINE is two live articles of the brand's that answer one question: choosing it means a person keeps one and folds the other in, never a new article. Choose at most one."
         : "",
       candidates: untag(
         weighed
           .map((w, k) =>
-            [w.candidate.refresh ? `${k + 1}. REFRESH "${w.candidate.question}" (a live article)` : `${k + 1}. "${w.candidate.question}" (subject: ${w.candidate.subjectName})`, ...w.lines.map((l) => `${l.id} ${l.text}`)].join("\n"),
+            [candidateHead(k + 1, w.candidate), ...w.lines.map((l) => `${l.id} ${l.text}`)].join("\n"),
           )
           .join("\n\n"),
       ),
     });
     const timeoutMs = Math.min(PICK_MS, opts.deadlineMs - Date.now() - 2_000);
-    const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+    const raw = await (deps.generate ?? generateTextWithDeadline)(withWritingLanguage(prompt, writingLanguageOf(tenant)), {
       timeoutMs,
       json: true,
       temperature: 0.3,
       thinkingBudget: 512,
       usage: aiUsage(ctx, "next_up", { db: deps.db, tenant }),
     }).catch(() => null);
-    picks = readPicks(raw, weighed, names, refreshShare);
+    picks = readPicks(raw, weighed, names, refreshShare, freeMax);
   }
-  // Too few that hold: fill with the least answered questions, said plainly (never a refresh).
-  for (const w of weighed) {
-    if (picks.length >= PICKS) break;
-    if (!w.candidate.refresh && !picks.some((p) => p.questionId === w.candidate.questionId)) picks.push(codePick(w));
+  // Too few that hold: fill in the candidates' order, said plainly (never a refresh or a combine),
+  // the roadmap's first while only `freeMax` picks may be free.
+  for (const strict of [true, false]) {
+    for (const w of weighed) {
+      if (picks.length >= PICKS) break;
+      if (w.candidate.refresh || w.candidate.combine || picks.some((p) => p.questionId === w.candidate.questionId)) continue;
+      if (strict && !w.candidate.slot && picks.filter((p) => !p.slot).length >= freeMax) continue;
+      picks.push(codePick(w));
+    }
   }
 
   const closePicks = picks.some((p) => p.closeTo);

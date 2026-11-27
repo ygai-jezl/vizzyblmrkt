@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Stop watching removes from brand search whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { situationKey } from "@/lib/brandMap/keys";
 import { readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
-import { approveFromRequest, isNotFromRequest, saveFromRequest, sameStrategy, strategyView } from "./adminApi";
-import { readBrandStrategyDoc, saveProposal, type ProposedStrategy } from "./store";
+import { monitorCompetitor, removeCompetitor, updateCompetitor } from "@/lib/competitors/store";
+import { agentBrandStrategy } from "./agentApi";
+import { approveFromRequest, isNotFromRequest, notCompetitorFromRequest, saveFromRequest, sameStrategy, strategyView } from "./adminApi";
+import { noteMonitored, readBrandStrategyDoc, saveFound, saveProposal, type ProposedStrategy } from "./store";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_a", role: "admin" };
 const MEMBER: TenantContext = { ...A, userId: "usr_m", role: "member" };
@@ -109,5 +113,137 @@ describe("the Strategy tab's view", () => {
     const s = { ...PROPOSAL, proposedFocusIds: [], competitorGroups: [], at: "a", by: "x" } as never;
     expect(sameStrategy(s, { ...(s as object), at: "b", by: "y" } as never)).toBe(true);
     expect(sameStrategy(s, null)).toBe(false);
+    // Joined to Competitors, the list is live: a competitor found or watched since never counts as a change.
+    const found = { ...(s as object), competitorGroups: [{ kind: "most", competitors: [{ name: "Rivalco" }] }], ungrouped: [{ name: "Newco" }] } as never;
+    expect(sameStrategy(s, found)).toBe(false);
+    expect(sameStrategy(s, found, true)).toBe(true);
+    expect(sameStrategy(s, { ...(found as object), audiences: ["Someone else"] } as never, true)).toBe(false);
+    // An approved copy made joined is compared without its lists, even with the switch off now.
+    expect(sameStrategy(s, { ...(found as object), competitorsLive: true } as never)).toBe(true);
+  });
+
+  it("off, lists only what the strategy holds, as before", async () => {
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    const { db } = await brand();
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco" }, { db });
+    const v = await strategyView(A, view(db));
+    expect(v.joined).toBe(false);
+    expect(v.competitors).toEqual([]);
+  });
+});
+
+describe("the Strategy tab joined to Competitors", () => {
+  beforeEach(() => {
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "true");
+  });
+  const find = (name: string) => ({ name, site: `${name.toLowerCase()}.example`, foundTimes: 1, evidence: [], ticked: false, from: "finder" as const, group: "big" as const });
+
+  it("lists the watched competitors at once, before any Propose, then the finder's suggestions", async () => {
+    const db = new FakeFirestore();
+    await saveBrandMap(A, { baseRev: 0, decided: { identity: { name: "Acme", statement: "AI visibility tracking" } } }, { db, nowMs: T0 });
+    const watched = await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco" }, { db });
+    await monitorCompetitor({ ...A, tenantId: "ten_B" }, { website: "theirs.example", name: "Theirs" }, { db });
+    let v = await strategyView(A, view(db));
+    expect(v).toMatchObject({ joined: true, state: "none" });
+    expect(v.competitors.map((c) => [c.name, c.group, c.monitored])).toEqual([["Rivalco", null, true]]);
+    // Grouped on Brand › Competitors: the tab shows it, and nothing about the strategy moved.
+    await updateCompetitor(A, watched.ok ? watched.value.competitor.id : "", { group: "most" }, { db });
+    await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Rivalco")] }, { db, now: () => new Date(T0) });
+    v = await strategyView(A, view(db));
+    expect(v.competitors.map((c) => [c.name, c.group, c.monitored])).toEqual([
+      ["Rivalco", "most", true],
+      ["Alpha", "big", false],
+    ]);
+  });
+
+  it("Not a competitor: refuses input it can't read, then takes the suggestion off for good", async () => {
+    const { db } = await brand();
+    await saveFound(A, { mode: "quick", found: [find("Alpha")] }, { db, now: () => new Date(T0) });
+    for (const bad of [null, { name: "" }, { name: "Alpha", site: "alpha.example", tenantId: "ten_B" }, { name: "Two\nlines".repeat(20) }]) {
+      const r = await notCompetitorFromRequest(A, bad, view(db));
+      expect(r.status).toBe(400);
+    }
+    const r = await notCompetitorFromRequest(A, { name: "Alpha", site: "alpha.example" }, view(db));
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { strategy: { competitors: Array<{ name: string }> } };
+    expect(body.strategy.competitors).toEqual([]);
+    expect((await notCompetitorFromRequest(A, { name: "Alpha", site: null }, view(db))).status).toBe(404);
+  });
+
+  it("approving keeps the live list, and a competitor watched after doesn't mark it changed", async () => {
+    const { db, rev } = await brand();
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco", group: "most" }, { db, now: () => new Date(T0) });
+    const approved = (await (await approveFromRequest(A, { baseRev: rev }, view(db))).json()) as { strategy: { state: string } };
+    expect(approved.strategy.state).toBe("approved");
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.approved?.competitorGroups.map((g) => g.competitors.map((c) => c.name))).toEqual([["Rivalco"]]);
+    // Watched later: listed after, by when it was added.
+    await monitorCompetitor(A, { website: "newco.example", name: "Newco" }, { db, now: () => new Date(T0 + 1000) });
+    const v = await strategyView(A, view(db));
+    expect(v.state).toBe("approved");
+    expect(v.competitors.map((c) => c.name)).toEqual(["Rivalco", "Newco"]);
+  });
+
+  it("an approval made joined still reads approved after the switch is turned off, to the tab and to Vizzy", async () => {
+    vi.stubEnv("BRAND_STRATEGY_CHAT_ENABLED", "true");
+    const { db, rev } = await brand();
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco", group: "most" }, { db });
+    await approveFromRequest(A, { baseRev: rev }, view(db));
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.approved?.competitorsLive).toBe(true);
+    expect(doc?.draft?.competitorsLive).toBe(false);
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "false");
+    expect((await strategyView(A, view(db))).state).toBe("approved");
+    const agent = await agentBrandStrategy(A, { db, now: () => new Date(T0) });
+    expect(agent.body).toMatchObject({ changedSinceApproved: false });
+  });
+
+  it("a suggestion watched from here and then not watched leaves the list, and isn't logged left out", async () => {
+    const { db, rev } = await brand();
+    const found = await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Beta")] }, { db, now: () => new Date(T0) });
+    const watched = await monitorCompetitor(A, { website: "alpha.example", name: "Alpha", group: "big" }, { db, now: () => new Date(T0) });
+    await noteMonitored(A, { name: "Alpha", site: "alpha.example" }, { db });
+    expect((await strategyView(A, view(db))).competitors.map((c) => `${c.name}:${c.monitored}`)).toEqual(["Alpha:true", "Beta:false"]);
+    await removeCompetitor(A, watched.ok ? watched.value.competitor.id : "", { db });
+    expect((await strategyView(A, view(db))).competitors.map((c) => c.name)).toEqual(["Beta"]);
+    const doc = await readBrandStrategyDoc(A, { db });
+    await approveFromRequest(A, { baseRev: doc!.rev }, view(db));
+    const after = await readBrandStrategyDoc(A, { db });
+    expect(after?.decisions.filter((d) => d.kind === "competitor_left_out").map((d) => d.ref)).toEqual(["Beta"]);
+    expect(found.ok && rev).toBeTruthy();
+  });
+
+  it("approves nothing when the competitors can't be read, and says so", async () => {
+    const { db, rev } = await brand();
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco" }, { db });
+    await saveFound(A, { mode: "quick", found: [find("Alpha")] }, { db, now: () => new Date(T0) });
+    const before = await readBrandStrategyDoc(A, { db });
+    const real = db.collection.bind(db);
+    db.collection = ((name: string) => {
+      const c = real(name);
+      const down = () => {
+        throw new Error("down");
+      };
+      return name === "competitors" ? { ...c, where: down, limit: down, get: down } : c;
+    }) as typeof db.collection;
+    const r = await approveFromRequest(A, { baseRev: before!.rev }, view(db));
+    db.collection = real;
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ error: "competitors_unreadable" });
+    const after = await readBrandStrategyDoc(A, { db });
+    expect(after?.approved).toBeNull();
+    expect(after?.rev).toBe(before!.rev);
+    expect(after?.decisions.some((d) => d.kind === "competitor_left_out")).toBe(false);
+    expect(rev).toBeGreaterThan(0);
+  });
+
+  it("shows the draft's list as it is, with ticks, to a brand without Competitors", async () => {
+    vi.stubEnv("GRANTED_ONLY_FEATURES", "competitors");
+    const { db } = await brand();
+    await saveFound(A, { mode: "quick", found: [find("Alpha")] }, { db, now: () => new Date(T0) });
+    const v = await strategyView(A, view(db));
+    expect(v).toMatchObject({ joined: true, canMonitor: false });
+    expect(v.competitors.map((c) => [c.name, c.monitored, c.id])).toEqual([["Alpha", false, null]]);
   });
 });

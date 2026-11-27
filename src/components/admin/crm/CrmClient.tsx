@@ -40,6 +40,7 @@ export function CrmClient({
   canAddPerson = false,
   newPerson = false,
   newPersonDraft = null,
+  views = null,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -71,6 +72,8 @@ export function CrmClient({
   newPerson?: boolean;
   /** The page arrived from a form Vizzy filled in (?draft=), by the draft's id. */
   newPersonDraft?: string | null;
+  /** Views on People (CRM_VIEWS_ENABLED), and a saved view the page arrived with (?view=). */
+  views?: { initialViewId: string | null } | null;
 }) {
   /** AUDIENCE_ONE_VIEW_ENABLED: one People tab in place of Signups and Product users. */
   const oneView = Boolean(audience?.oneView);
@@ -128,6 +131,7 @@ export function CrmClient({
           fields={fields}
           newPerson={newPerson}
           newPersonDraft={newPersonDraft}
+          views={views ? { isAdmin, initialViewId: views.initialViewId } : null}
         />
       ) : tab === "contacts" ? (
         <ContactsView

@@ -29,14 +29,14 @@ export type ConnectorActor =
   | { kind: "agent"; agent: "vizzy"; forRole: TenantRole | undefined }
   /**
    * One of the brand's own scheduled jobs (an article refresh review, BLOG_REFRESH_ENABLED; Next up
-   * reading a kind of data through readByUse, ADR-0019). What it reads is kept for the whole team
+   * reading a kind of data through readByUse, ADR-0019; How it went's monthly look). What it reads is kept for the whole team
    * and Vizzy to see, so it may read only a connection that already feeds planning (members and
    * Vizzy may both read it), and only live.
    */
   | { kind: "job"; job: ConnectorJob };
 
-/** The brand's scheduled jobs that read connections. */
-export type ConnectorJob = "article_review" | "next_up";
+/** The brand's scheduled jobs that read connections (strategy_month: How it went, STRATEGY_RESULTS_ENABLED). */
+export type ConnectorJob = "article_review" | "next_up" | "strategy_month";
 
 /** The person acting in an admin route. A context with no role is treated as a member. */
 export function humanActor(ctx: TenantContext): ConnectorActor {

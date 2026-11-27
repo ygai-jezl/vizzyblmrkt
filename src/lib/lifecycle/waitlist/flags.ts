@@ -28,6 +28,15 @@ export function isWaitlistEnginePilot(tenantId: string): boolean {
 }
 
 /**
+ * A person's pick of an email test winner (Promote, on a launch's Analytics tab) reaches the
+ * journey the launch sends from on either engine, and Vizzy reads each test and its winner. Off:
+ * the pick changes the original journey only, as before.
+ */
+export function isWaitlistAbWinnerEnabled(): boolean {
+  return process.env.WAITLIST_AB_WINNER_ENABLED === "true";
+}
+
+/**
  * Client + server — the screens for waitlist journeys on the lifecycle engine:
  * the lifecycle editor's waitlist mode and the launch's "Email engine" panel.
  * Read at BUILD time in client components (NEXT_PUBLIC_).

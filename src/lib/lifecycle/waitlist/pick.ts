@@ -16,7 +16,7 @@ export function pickWaitlistItem(a: {
   signupId: string;
   sent: Array<Pick<SentItem, "poolId" | "itemId" | "status">>;
   rc: RecipientContext;
-  /** Promoted A/B winners, by pool id (the journey's `abWinners`). */
+  /** Promoted A/B winners, by pool id: the journey's `abWinners` that still hold (liveWinners). */
   winners?: Record<string, string>;
   excluded?: ReadonlySet<string>;
 }): PoolItem | null {

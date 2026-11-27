@@ -114,6 +114,14 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
     });
   }, [subscribe, view.id, receive]);
 
+  // New deck's outline notice shows once: take ?outline=1 off the address, keeping ?slide=n.
+  useEffect(() => {
+    if (!outlineNotice) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("outline");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [outlineNotice]);
+
   // Leaving with unsaved changes uses the browser's own prompt.
   useEffect(() => {
     if (!dirty) return;
@@ -380,7 +388,6 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
 
         <aside className="min-w-0">
           <SideTabs
-            key={slide.id}
             slide={slide}
             audience={view.audience}
             checks={checks}

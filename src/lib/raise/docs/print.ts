@@ -14,7 +14,8 @@ export const PRINT_SLIDE_CLASS = "rd-print-slide";
 export const DECK_PRINT_CSS = [
   "@page { size: 13.333in 7.5in; margin: 0; }",
   "@media print {",
-  `  html, body { margin: 0 !important; padding: 0 !important; background: #FFFFFF !important; }`,
+  // The admin's own layout can fix the page's height or hide its overflow: neither may cut pages off.
+  `  html, body { margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; background: #FFFFFF !important; }`,
   `  body > :not(#${PRINT_ROOT_ID}) { display: none !important; }`,
   `  #${PRINT_ROOT_ID} { display: block; }`,
   `  .${PRINT_SLIDE_CLASS} { width: 13.333in; height: 7.5in; overflow: hidden; break-after: page; page-break-after: always; break-inside: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,

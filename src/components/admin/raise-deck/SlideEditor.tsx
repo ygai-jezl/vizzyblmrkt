@@ -92,9 +92,7 @@ export function SlideEditor({ slide, n, stage, canEdit, now, onChange, onFocusFi
         </div>
       ) : null}
 
-      {spec.compare ? (
-        <CompareFields slide={slide} canEdit={canEdit} set={set} />
-      ) : null}
+      {spec.compare ? <CompareFields slide={slide} canEdit={canEdit} now={now} set={set} onRemoveBlock={onRemoveBlock} /> : null}
 
       {spec.people > 0 ? <PeopleFields slide={slide} canEdit={canEdit} set={set} /> : null}
 
@@ -112,15 +110,30 @@ export function SlideEditor({ slide, n, stage, canEdit, now, onChange, onFocusFi
   );
 }
 
-function CompareFields({ slide, canEdit, set }: { slide: Slide; canEdit: boolean; set: (p: Partial<Slide>) => void }) {
+function CompareFields({ slide, canEdit, now, set, onRemoveBlock }: { slide: Slide; canEdit: boolean; now: Date; set: (p: Partial<Slide>) => void; onRemoveBlock: (blockId: string) => void }) {
   const c = slide.compare ?? { leftTitle: "", rightTitle: "", rows: [] };
   const put = (next: typeof c) => set({ compare: next });
+  // A cell may hold a number: it shows as a chip, as in the headline.
+  const cell = (i: number, side: "left" | "right") => (
+    <TokenText
+      id={`rd-${slide.id}-${side}-${i}`}
+      label={`${side === "left" ? EDITOR_WORDS.leftTitle : EDITOR_WORDS.rightTitle} ${i + 1}`}
+      hideLabel
+      value={c.rows[i]![side]}
+      blocks={slide.blocks}
+      onChange={(v) => put({ ...c, rows: c.rows.map((x, k) => (k === i ? { ...x, [side]: v } : x)) })}
+      onRemoveBlock={onRemoveBlock}
+      readOnly={!canEdit}
+      maxLength={L.compareCell}
+      now={now}
+    />
+  );
   if (!canEdit) {
     return (
       <div className="grid gap-2 text-sm sm:grid-cols-2">
         <strong>{c.leftTitle}</strong>
         <strong>{c.rightTitle}</strong>
-        {c.rows.flatMap((r, i) => [<span key={`l${i}`}>{r.left}</span>, <span key={`r${i}`}>{r.right}</span>])}
+        {c.rows.flatMap((_, i) => [<div key={`l${i}`}>{cell(i, "left")}</div>, <div key={`r${i}`}>{cell(i, "right")}</div>])}
       </div>
     );
   }
@@ -130,11 +143,11 @@ function CompareFields({ slide, canEdit, set }: { slide: Slide; canEdit: boolean
       <div className="grid gap-2 sm:grid-cols-2">
         <input aria-label={EDITOR_WORDS.leftTitle} placeholder={EDITOR_WORDS.leftTitle} value={c.leftTitle} maxLength={L.compareTitle} onChange={(e) => put({ ...c, leftTitle: e.target.value })} className={`${FIELD} font-semibold`} />
         <input aria-label={EDITOR_WORDS.rightTitle} placeholder={EDITOR_WORDS.rightTitle} value={c.rightTitle} maxLength={L.compareTitle} onChange={(e) => put({ ...c, rightTitle: e.target.value })} className={`${FIELD} font-semibold`} />
-        {c.rows.map((r, i) => (
+        {c.rows.map((_, i) => (
           <div key={i} className="contents">
-            <input aria-label={`${EDITOR_WORDS.leftTitle} ${i + 1}`} value={r.left} maxLength={L.compareCell} onChange={(e) => put({ ...c, rows: c.rows.map((x, k) => (k === i ? { ...x, left: e.target.value } : x)) })} className={FIELD} />
+            {cell(i, "left")}
             <div className="flex items-center gap-2">
-              <input aria-label={`${EDITOR_WORDS.rightTitle} ${i + 1}`} value={r.right} maxLength={L.compareCell} onChange={(e) => put({ ...c, rows: c.rows.map((x, k) => (k === i ? { ...x, right: e.target.value } : x)) })} className={FIELD} />
+              <div className="flex-1">{cell(i, "right")}</div>
               <button type="button" className={SMALL} onClick={() => put({ ...c, rows: c.rows.filter((_, k) => k !== i) })}>
                 {EDITOR_WORDS.removeRow}
               </button>

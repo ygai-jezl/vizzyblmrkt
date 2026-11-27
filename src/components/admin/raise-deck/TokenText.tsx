@@ -18,6 +18,8 @@ export interface TokenTextProps {
   onRemoveBlock?: (blockId: string) => void;
   multiline?: boolean;
   readOnly?: boolean;
+  /** The label is read out but not shown (a cell in a grid with its own headings). */
+  hideLabel?: boolean;
   maxLength: number;
   placeholder?: string;
   now: Date;
@@ -28,11 +30,11 @@ export interface TokenTextProps {
  * text as a chip that can't be typed over, so the figure always comes from its block. Text with no
  * numbers is a plain field.
  */
-export function TokenText({ id, label, value, blocks, onChange, onFocus, onRemoveBlock, multiline, readOnly, maxLength, placeholder, now }: TokenTextProps) {
+export function TokenText({ id, label, value, blocks, onChange, onFocus, onRemoveBlock, multiline, readOnly, hideLabel, maxLength, placeholder, now }: TokenTextProps) {
   const segs = editSegments(value);
   const hasTokens = segs.some((s) => s.kind === "block");
   const labelEl = (
-    <label htmlFor={id} className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+    <label htmlFor={id} className={hideLabel ? "sr-only" : "block text-xs font-medium text-neutral-600 dark:text-neutral-400"}>
       {label}
     </label>
   );

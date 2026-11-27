@@ -19,4 +19,8 @@ describe("the print stylesheet for Save as PDF", () => {
     expect(DECK_PRINT_CSS).toContain("#raise-print-root { display: block; }");
     expect(DECK_PRINT_CSS).toContain("@media screen { #raise-print-root { display: none; } }");
   });
+
+  it("never lets the page's own height or overflow cut pages off", () => {
+    expect(DECK_PRINT_CSS).toContain("height: auto !important; overflow: visible !important;");
+  });
 });

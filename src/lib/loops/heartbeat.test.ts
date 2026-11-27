@@ -308,7 +308,10 @@ describe("calls since the last report", () => {
 
 describe("calls by purpose, as the meter counts them", () => {
   const ctx: TenantContext = { tenantId: "ten_lumen", region: "us", source: "system" };
-  beforeEach(() => vi.stubEnv("USAGE_METER_ENABLED", "true"));
+  beforeEach(() => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+  });
 
   it("counts a grounded call once, though it records its searches and its tokens", async () => {
     const db = new FakeFirestore();
@@ -424,6 +427,59 @@ describe("a brand's heartbeat", () => {
     // No calls from the weeks it was away, and no unused from the weeks before the first it reports.
     expect(cells.filter((c) => c.id.startsWith("fh:_calls:"))).toEqual([]);
     for (const c of cells.filter((x) => x.id.startsWith("fh:next_up:"))) expect(c.n).not.toHaveProperty("unused");
+  });
+
+  it("sends no week from before a brand's first report: image counts kept while only image style versions were on stay out", async () => {
+    const img = { c: { [NATURAL]: { post_image: { v0: { none: { made: 4 } } } } }, r: { loop_learn: { budget: 1 } } };
+    for (let w = weekBefore(W), i = 0; i < 3; i++, w = weekBefore(w)) seedWeek(lumen, w, img);
+    const buffer = new FleetBuffer();
+    expect(await heartbeat(lumen, row("ten_lumen"), state(), buffer, { db, controlDb: db, now: NOW })).toEqual({ weeks: 1, late: 0 });
+    const cells = Object.fromEntries(buffer.cells().map((c) => [c.id, c.n]));
+    expect(cells[fleetCellId.kind("image_style", W)]).toBeUndefined();
+    expect(cells[fleetCellId.orgs(W)]).not.toHaveProperty("refused");
+    // Kept, so no later report's window reaches back before it either.
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: W, reportsFromWeek: W });
+  });
+
+  it("keeps where reporting started again after a gap, so the second visit's windows hold no gap week either", async () => {
+    const back = (n: number) => {
+      let w = W;
+      for (let i = 0; i < n; i++) w = weekBefore(w);
+      return w;
+    };
+    // Images made only in a week inside the gap, the week before the first one reported after it.
+    seedWeek(lumen, back(4), { c: { [NATURAL]: { post_image: { v0: { none: { made: 4 } } } } } });
+    const first = new FleetBuffer();
+    expect((await heartbeat(lumen, row("ten_lumen"), state({ lane: { heartbeatWeek: back(8) } }), first, { db, controlDb: db, now: NOW })).weeks).toBe(2);
+    const lane = await readLaneState(lumen, db);
+    expect(lane).toMatchObject({ heartbeatWeek: back(2), reportsFromWeek: back(3) });
+    const second = new FleetBuffer();
+    expect((await heartbeat(lumen, row("ten_lumen"), state({ lane }), second, { db, controlDb: db, now: NOW })).weeks).toBe(2);
+    for (const c of [...first.cells(), ...second.cells()]) expect(c.id, c.id).not.toMatch(/^fh:image_style:/);
+    // The visit after keeps the week it started from.
+    expect((await readLaneState(lumen, db)).reportsFromWeek).toBe(back(3));
+  });
+
+  it("counts no look in use while image style versions are off, whatever the pointers still hold", async () => {
+    const pointers = { scopes: { [NATURAL]: { v: 1, setBy: "learned" as const, adoptedAt: "2026-10-01T00:00:00.000Z" } } };
+    db.seed("loop_days", loopDayId.version(lumen.tenantId, NATURAL, 1), {
+      tenantId: lumen.tenantId,
+      d: { c: { post_image: { learned: { made: 20 } } }, looks: { "10": { call: "better" } } },
+    });
+    seedWeek(lumen, W, words("next_up", { made: 1 }));
+    // Each run starts from the same lane and a mark of its own, so both report the week.
+    const run = async () => {
+      const buffer = new FleetBuffer();
+      await heartbeat(lumen, row("ten_lumen"), state({ pointers }), buffer, { db, controlDb: new FakeFirestore(), now: NOW });
+      return Object.fromEntries(buffer.cells().map((c) => [c.id, c.n]));
+    };
+    // Only LOOPS_ENABLED on: images use the brand record's look, so Image style reaches no stage.
+    expect((await run())[fleetCellId.kind("image_style", W)]).toBeUndefined();
+    // With versions on, the same pointers are a look in use that a check has read.
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    expect((await run())[fleetCellId.kind("image_style", W)]).toMatchObject({ st: { checked: { all: 1 } } });
   });
 
   it("records the week on the brand first, so a run cut off before the mark moves undercounts and never counts twice", async () => {

@@ -15,7 +15,8 @@ vi.mock("@/lib/social/x/client", () => ({
 vi.mock("./feedback/reconcile", () => ({ reconcileTenantRewards: vi.fn(async () => 0) }));
 vi.mock("./learnFromPostEdit", () => ({ learnFromPublishedPost: vi.fn(async () => "learned") }));
 
-import { processScheduledPosts, schedulePost } from "./scheduler";
+import { processScheduledPosts, schedulePost, setPostSpintax } from "./scheduler";
+import { publishToX } from "@/lib/social/x/client";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Made } from "@/lib/types/loopStamp";
@@ -67,6 +68,18 @@ describe("publishing counts what happened to Vizzy's draft", () => {
     db.seed(COLLECTION, x, { ...(db.raw(COLLECTION, x) as object), status: "pending", scheduledAt: PAST });
     await processScheduledPosts(ctx, 25, db);
     expect(cellOf(db)).toEqual({ v0: { none: { kept: 1, edited: 1 } } });
+  });
+
+  it("counts edited, not kept, when a person's spintax template went out in place of Vizzy's words", async () => {
+    vi.stubEnv("DISTRIBUTE_SOCIAL_ENABLED", "true");
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    await scheduleDue(db, "n_x", "x", AI, stamp);
+    await setPostSpintax(ctx, "ws_1", "plan_1", "n_x", "{Fresh sourdough|Warm rye} every Friday at Hearth Bakery, order by Thursday.", db);
+    expect(await processScheduledPosts(ctx, 25, db)).toMatchObject({ done: 1 });
+    // The words that went out are the template's variant, as the X call shows.
+    expect(JSON.stringify(vi.mocked(publishToX).mock.calls[0]![0])).not.toContain("Three things Hearth Bakery checks");
+    expect(cellOf(db)).toEqual({ v0: { none: { edited: 1 } } });
   });
 
   it("counts no_draft, never kept or edited, with no draft kept, and nothing for a person's own post", async () => {

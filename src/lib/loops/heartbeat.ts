@@ -1,3 +1,4 @@
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { activePlanOf } from "@/lib/plans/catalog";
 import { isPlansEnabled, isUsageMeterEnabled } from "@/lib/plans/flags";
 import { meterMonth, usageThisMonth } from "@/lib/plans/meter";
@@ -254,6 +255,12 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
       for (const [r, n] of Object.entries(w.liked)) thing(n, row, "why", "liked", r);
       for (const [r, n] of Object.entries(w.disliked)) thing(n, row, "why", "disliked", r);
       for (const [why, n] of Object.entries(w.declinedWhy)) thing(n, row, "declined", why);
+      // The organisations behind Thumbs down by reason and Declines by reason, so each shows only
+      // from 10 of them, not from 10 that made things: one that gave a thumbs down (a reason, or
+      // more votes than likes), and one that gave a reason for a decline.
+      const downs = Object.values(w.out).reduce((n, sig) => n + Math.max(0, (sig.voted ?? 0) - (sig.liked ?? 0)), 0);
+      if (downs > 0 || Object.values(w.disliked).some((n) => n > 0)) org(row, "why", "orgs");
+      if (Object.values(w.declinedWhy).some((n) => n > 0)) org(row, "declined", "orgs");
       for (const [r, n] of Object.entries(w.unstamped)) thing(n, row, "u", r);
       for (const [s, n] of Object.entries(w.cards)) thing(n, row, "cards", s);
     }
@@ -494,19 +501,25 @@ export async function callsSince(ctx: TenantContext, lane: Pick<LaneState, "mete
 
 /**
  * What a brand's report may take in (decision 4, and USED_NOTE: nothing is counted across brands
- * while the loops are off or the brand is out). `week`: the first week a report's window holds, the
- * week after its time opted out (`optedOutThrough`), or the first week it reports when it skipped
- * weeks it never reported (the switch was off, or the lane fell more than HEARTBEAT.CATCH_UP_WEEKS
- * behind); null for no limit. `freshCalls`: its calls count as a first report's (none), as its
- * meter's totals since its last report hold calls from that time. Pure.
+ * while the loops are off or the brand is out). `week`: the first week a report's window holds,
+ * the latest of the week after its time opted out (`optedOutThrough`), the week reporting started
+ * again (`reportsFromWeek`, kept on `ls:`), and this visit's first week when the brand never
+ * reported before or skipped weeks it never reported (the switch was off, or the lane fell more
+ * than HEARTBEAT.CATCH_UP_WEEKS behind); null for no limit. `restart`: that first week, for `ls:`
+ * to keep as `reportsFromWeek`, so every later report's window starts no earlier. `freshCalls`:
+ * its calls count as a first report's (none), as its meter's totals since its last report hold
+ * calls from that time. Pure.
  */
-export function reportsFrom(lane: Pick<LaneState, "heartbeatWeek" | "optedOutThrough">, first: string): { week: string | null; freshCalls: boolean } {
+export function reportsFrom(
+  lane: Pick<LaneState, "heartbeatWeek" | "optedOutThrough" | "reportsFromWeek">,
+  first: string,
+): { week: string | null; freshCalls: boolean; restart: string | null } {
   const out = lane.optedOutThrough ? weekAfter(lane.optedOutThrough) : null;
-  const skipped = lane.heartbeatWeek && weekAfter(lane.heartbeatWeek) < first ? first : null;
-  const week = [out, skipped].filter((w): w is string => Boolean(w)).sort().pop() ?? null;
+  const restart = !lane.heartbeatWeek || weekAfter(lane.heartbeatWeek) < first ? first : null;
+  const week = [out, restart, lane.reportsFromWeek ?? null].filter((w): w is string => Boolean(w)).sort().pop() ?? null;
   // Just back: the last weeks it marked done were its time out.
   const back = Boolean(lane.optedOutThrough && lane.heartbeatWeek && lane.optedOutThrough >= lane.heartbeatWeek);
-  return { week, freshCalls: back || Boolean(skipped) };
+  return { week, freshCalls: back || Boolean(restart), restart };
 }
 
 export interface HeartbeatResult {
@@ -565,10 +578,15 @@ export async function heartbeat(
   const from = reportsFrom(state.lane, weeks[0]!);
   // Weeks before `from.week` enter no report: they add no stage, unused thing, refusal or card.
   const readWeeks = from.week ? windowWeeks.filter((w) => w >= from.week!) : windowWeeks;
-  const scopes = IMAGE_STYLE_SCOPES.filter((s) => {
-    const p = state.pointers.scopes[s];
-    return p && p.v >= 1 && p.setBy !== "person";
-  });
+  // With image style versions off, images use the look on the brand record (decision 22), so no
+  // learned look is in use: none is read, and a look left on the pointers counts no stage.
+  const versionsOn = isImageStyleVersionsOn();
+  const scopes = versionsOn
+    ? IMAGE_STYLE_SCOPES.filter((s) => {
+        const p = state.pointers.scopes[s];
+        return p && p.v >= 1 && p.setBy !== "person";
+      })
+    : [];
   let docs: Awaited<ReturnType<typeof readLoopDays>>;
   try {
     docs = await readLoopDays(ctx, [...readWeeks.map((w) => loopDayId.folded(ctx.tenantId, w)), ...scopes.map((s) => loopDayId.version(ctx.tenantId, s, state.pointers.scopes[s]!.v))], deps.db);
@@ -579,7 +597,7 @@ export async function heartbeat(
   }
   const folded = new Map(readWeeks.map((w, i) => [w, docs[i]?.d]));
   const totals = new Map(scopes.map((s, i) => [s as string, docs[readWeeks.length + i]?.d]));
-  const looks = looksInUse(state.pointers, totals);
+  const looks = versionsOn ? looksInUse(state.pointers, totals) : [];
   // Back from opting out, or from weeks it never reported: the calls since are its first report's,
   // none, so the meter's totals from that time are kept and never sent.
   const meter = from.freshCalls ? { meterSeen: state.lane.meterSeen } : state.lane;
@@ -617,6 +635,7 @@ export async function heartbeat(
       ctx,
       {
         heartbeatWeek: last,
+        ...(from.restart ? { reportsFromWeek: from.restart } : {}),
         beat: { week: last, at: deps.now.toISOString(), reached: newest.reached, stuck: newest.stuck },
         ...(calls ? { meterSeen: calls.seen, meterMonth: calls.month } : {}),
       },

@@ -5,6 +5,7 @@ import type { PaletteColor, PaletteGroup, PaletteSource } from "@/lib/types/tena
 import { isBrandColorsUiEnabled, isBrandKitLogosUiEnabled } from "@/lib/content/brandKit";
 import { HEX6, mergeColors } from "@/lib/content/create/colorPalette";
 import { place } from "@/lib/nav/places";
+import { handUpGroupToken } from "./kitTokens";
 
 /**
  * The Brand Kit "Colours" card (Account → Brand). Two persisted zones — the primary flat
@@ -14,7 +15,8 @@ import { place } from "@/lib/nav/places";
  * into kit.palettes) or adds colours into the primary palette. Controlled: all persisted edits
  * flow up through onChange; the parent's existing "Save brand kit" button persists them. A
  * group's stamp token (learning loops step 5, the colours routes' `stampToken`) goes up through
- * onStampToken once any of its colours are kept, so the save checks it.
+ * onStampToken the first time any of its colours are kept, and the group then drops it, so the
+ * save checks it and no later save is sent it again.
  */
 
 const PALETTE_MAX = 24; // BrandKitSchema.palette
@@ -137,10 +139,19 @@ export function BrandColours({ palette, palettes, pdfPath, onChange, onStampToke
     setMsg(`Kept “${group.name}” as a palette.`);
   }
 
-  /** Colours from a tray group into the palette, with the group's stamp token for the save. */
+  /**
+   * Colours from a tray group into the palette, with the group's stamp token for the save. The
+   * token goes up once: the group drops it, so another click from it after a save sends none.
+   */
   function addFromTray(p: PendingGroup, colors: PaletteColor[]) {
     addToPalette(colors);
-    if (p.stampToken) onStampToken?.(p.stampToken);
+    const token = p.stampToken;
+    if (!token) return;
+    onStampToken?.(token);
+    setTray((t) => {
+      const g = t[p.source];
+      return g ? { ...t, [p.source]: handUpGroupToken(g, token) } : t;
+    });
   }
 
   function updateTrayColors(source: PaletteSource, colors: PaletteColor[]) {

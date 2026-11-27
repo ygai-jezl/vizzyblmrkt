@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { stampHeaders } from "@/lib/loops/stampHeader";
 import type { BrandKit } from "@/lib/types/tenant";
 import { BrandColours } from "./brand-kit/BrandColours";
+import { NO_KIT_TOKENS, kitReplaced, kitTokensToSend, withColourToken, type KitTokens } from "./brand-kit/kitTokens";
 
 /**
  * Account → Brand. Upload a brand-guidelines PDF → AI-extract a structured brand kit
@@ -22,10 +23,10 @@ function lines(s: string): string[] {
 
 export function BrandSettings() {
   const [kit, setKit] = useState<BrandKit>({});
-  // The stamp tokens of what was made for the kit (the extract, and colours kept from a source),
-  // sent with the next save (learning loops step 5).
-  const [stampTokens, setStampTokens] = useState<string[]>([]);
-  const addStampToken = useCallback((token: string) => setStampTokens((t) => (t.includes(token) ? t : [...t, token])), []);
+  // The stamp tokens of what was made for the kit (the newest extract, and colours kept from a
+  // source since), sent with the next save once (learning loops step 5).
+  const [stampTokens, setStampTokens] = useState<KitTokens>(NO_KIT_TOKENS);
+  const addStampToken = useCallback((token: string) => setStampTokens((t) => withColourToken(t, token)), []);
   const [fontsText, setFontsText] = useState("");
   const [dosText, setDosText] = useState("");
   const [dontsText, setDontsText] = useState("");
@@ -36,8 +37,10 @@ export function BrandSettings() {
   const [colorsDirty, setColorsDirty] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function applyKit(k: BrandKit) {
+  /** Replaces the kit, palette included, so only that extract's token is still sent. */
+  function applyKit(k: BrandKit, extractToken: string | null = null) {
     setKit(k);
+    setStampTokens(kitReplaced(extractToken));
     setFontsText((k.fonts ?? []).join("\n"));
     setDosText((k.dos ?? []).join("\n"));
     setDontsText((k.donts ?? []).join("\n"));
@@ -66,8 +69,7 @@ export function BrandSettings() {
         });
         const data = (await res.json().catch(() => ({}))) as { brandKit?: BrandKit; stampToken?: string };
         if (res.ok && data.brandKit) {
-          applyKit(data.brandKit);
-          if (data.stampToken) addStampToken(data.stampToken);
+          applyKit(data.brandKit, typeof data.stampToken === "string" ? data.stampToken : null);
           setMsg("Brand kit extracted — review and save.");
         } else {
           setMsg("Extraction failed — try another PDF or fill the fields manually.");
@@ -76,7 +78,7 @@ export function BrandSettings() {
         setBusy(null);
       }
     },
-    [addStampToken],
+    [],
   );
 
   async function onUpload(file: File) {
@@ -113,13 +115,13 @@ export function BrandSettings() {
     try {
       const res = await fetch("/api/admin/account/brand", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...stampHeaders(stampTokens) },
+        headers: { "Content-Type": "application/json", ...stampHeaders(kitTokensToSend(stampTokens)) },
         body: JSON.stringify(payload),
       });
       setMsg(res.ok ? "Saved." : "Save failed.");
       if (res.ok) {
         setColorsDirty(false);
-        setStampTokens([]);
+        setStampTokens(NO_KIT_TOKENS);
       }
     } finally {
       setBusy(null);

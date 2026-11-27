@@ -177,8 +177,6 @@ export default function WhatYouGrowLearnedHelp({ loops = isLoopsEnabled(), image
         {loops ? " That also leaves your brand out of the counts across brands." : null}
       </P>
 
-      {loops ? <CountsAcrossBrands holdback /> : null}
-
       <H2 id="where-it-is-kept">Where it is kept</H2>
       <UL>
         <li>Looks, their versions and their counts are kept with your brand&apos;s data, in its region: the United States, Europe or Asia.</li>
@@ -205,6 +203,8 @@ export default function WhatYouGrowLearnedHelp({ loops = isLoopsEnabled(), image
           Ask &quot;Is learning working for us?&quot; It never reads another brand&apos;s counts.
         </P>
       ) : null}
+
+      {loops ? <CountsAcrossBrands holdback /> : null}
 
       <H2 id="messages">Messages</H2>
       <Messages

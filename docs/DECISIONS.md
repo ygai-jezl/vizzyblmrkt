@@ -55,7 +55,8 @@ Decided:
    field confirms, Next up picks, brand map dismissals, invite waves and version restores. LinkedIn
    and X posts count at publish and other pieces once, at the first approval of each AI original, so
    a post never counts twice. Step 2's learn lines count `learned` or `refused.<reason>`, so the
-   Memory Bank shows in the stages. The meter keeps `callsByPurpose` in the same merged write.
+   Memory Bank shows in the stages. The meter keeps `callsByPurpose` in the same merged write, only
+   while `LOOPS_ENABLED` is on, as only the heartbeat reads it.
    Batch senders count through a per run `CountBuffer`, written once per brand at the end of the run.
    The canvas route counts made only when a kind saved a new draft (`saved: "created"`,
    `countCanvasMade`): a form or suggestion already waiting, a person already in People, a brand
@@ -94,11 +95,13 @@ Decided:
    reason), shares and industry splits show only from 10 contributing organisations
    (`LOOP_RULES.cellOrgs`): those whose week put numbers in the row (`week.orgs`), not every one seen
    in the 28 days; an image style's holdback line from 10 behind that style (`styles.<style>`); the
-   longest wait for a check from 10 that wait. Work's Used reader floors on the same cell. Counts of
-   organisations per stage, stuck per plan, by refusal reason and with a Go back card show below 10,
-   to the people who run the copy only, and never set defaults; refusal reasons count each
-   organisation once for the copy (`_orgs.refused`), however many kinds refused it. Declines by
-   reason say "none" only when no kind was below the floor.
+   longest wait for a check from 10 that wait; thumbs down by reason from 10 that gave a thumbs
+   down (`why.orgs`), and declines by reason from 10 that gave a reason (`declined.orgs`). Work's
+   Used reader floors on the same cell. Counts of organisations per stage, stuck per plan, by
+   refusal reason and with a Go back card show below 10, to the people who run the copy only, and
+   never set defaults; refusal reasons count each organisation once for the copy
+   (`_orgs.refused`), however many kinds refused it. Declines by reason never say "none": until a
+   kind has 10 organisations that gave a reason they read "fewer than 10 organisations".
 8. **Settings › Loops, for operators only.** `/admin/account/loops`, the last tab, shown while
    `LOOPS_ENABLED` is on and `isLoopsOperator(ctx)` is true, and `notFound()` otherwise. It reads the
    `fh:` rows of the 2 closed weeks in one batched read, with every kind by its label (`kindLabel`)
@@ -130,7 +133,10 @@ Decided:
     (the drawer is passed `imageVersions`). `docs/self-host.md` says
     "Loops counts stay inside this copy": `fleet_cells` and `loop_lane` are written to the copy's own
     `(default)` database and sent nowhere else, and a copy that holds other people's brands says so
-    in its privacy policy and DPA first.
+    in its privacy policy and DPA first. `npm run selfhost` keeps `LOOPS_ENABLED` off on a new copy
+    (`KEPT_OFF`, `addon: null` in `scripts/selfhost/spec.mjs`), because it counts what every brand
+    makes and keeps; the copy's owner turns it on once their privacy page says so and
+    `LOOPS_OPERATOR_EMAILS` is set.
 
 Where the build follows the code, not the plan (the plan's intent kept):
 
@@ -178,8 +184,8 @@ Where the build follows the code, not the plan (the plan's intent kept):
   `fh:_orgs` as one plain number per brand and week, opted out brands included, not on the lane's
   own document, since the section reads only `fh:` rows and listed already counts every brand. The
   longest wait floors on the organisations that wait, not on this week's.
-- The plan listed step 5 as ADR-0023, then 0024: dev took 0022 to 0025, work in progress holds 0026,
-  the verdict moved to 0027 and step 4 to 0028.
+- The plan listed step 5 as ADR-0023, then 0024: dev took 0022 to 0026 (0026 is the agent record,
+  merged), Work's open PR holds 0020, the verdict moved to 0027 and step 4 to 0028.
 - After merging the agent record (ADR-0026): a record whose line counts at the transition
   (`countsAt: "transition"`: launch and product journeys, a journey's own style, the email and image
   style suggestions and Vizzy's notes) keeps the stamp the canvas route (or `agentSuggestNotes`)
@@ -206,19 +212,31 @@ Where the build follows the code, not the plan (the plan's intent kept):
   whose `_orgs` row holds only brands listed, visited or a fold alarm shows its coverage and the
   behind banner. With only `LOOPS_ENABLED` on, What YouGrow learned is summed up as the counts
   across brands (`COUNTS_ONLY_SUMMARY`).
+- After review round 4: a published post counts kept or edited against the words that went out,
+  the spintax variant when it has a template, not only its body. A brand kit stamp token goes with
+  at most one save: a tray group hands its token up once and drops it, Account › Brand keeps only
+  the newest extract's token, and a kit replaced by an extract drops the colour tokens before it
+  (`src/components/admin/brand-kit/kitTokens.ts`). `ls:` keeps `reportsFromWeek`, the week a brand
+  first reported or reported again after a gap, so no report's window, on that visit or a later
+  one, holds a week before it. While image style versions are off, no learned look is in use:
+  the heartbeat and `get_learning` read no `lv:` totals and count no stage from a look the
+  pointers still hold. The holdback block always says something: no images in the 28 days,
+  image learning off on this copy, or votes only on images with no learned look yet. On the help
+  page, the counts across brands sit after Ask Vizzy, where the Help board puts them.
 
 Enforced where:
 
 - `src/lib/loops/flags.test.ts`, `operators.test.ts`, `registry.test.ts` and
   `scripts/config/feature-switches.test.ts`: the switch, the operator gate and the stuck rule's numbers.
 - `src/lib/loops/stampedWriters.test.ts`, `made.test.ts`, `handBack.test.ts`, `writers.test.ts`,
-  `src/lib/tenant/workspaceContent.stamps.test.ts`, the canvas route and kind tests and the brand
-  kit colours route test: the writers, the overlay, made once per saved draft and the token round
-  trip; `src/lib/email/sends.test.ts`, `src/lib/lifecycle/runner.test.ts` and
+  `src/lib/tenant/workspaceContent.stamps.test.ts`, the canvas route and kind tests, the brand
+  kit colours route test and `src/components/admin/brand-kit/kitTokens.test.ts`: the writers, the
+  overlay, made once per saved draft and the token round trip, each token with one save; `src/lib/email/sends.test.ts`, `src/lib/lifecycle/runner.test.ts` and
   `src/lib/agents/creative.holdback.test.ts`: `records_off` and `stamp_lost`;
   `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
 - `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts` and `learnLog.test.ts`: each
-  count once, coverage and unused; `src/lib/agentRecord/loopsCount.test.ts` and
+  count once, coverage and unused; `src/lib/distribute/scheduler.counts.test.ts`: a post against
+  the words that went out; `src/lib/plans/meter.test.ts`: calls by purpose only while the switch is on; `src/lib/agentRecord/loopsCount.test.ts` and
   `src/lib/brandStrategy/check.test.ts`: each recorded draft's answer once, made once through the
   canvas route's count, and the strategy check's rows; `src/lib/content/blog/hubActions.test.ts`
   and `src/lib/lifecycle/personalise.test.ts`: an article made once however often it is checked,
@@ -463,7 +481,8 @@ Where the build follows the code, not the plan (the plan's intent kept):
   no longer on the list. This one has no switch.
 - The plan counted 8 exemptions before the note's; with it there are 9. Step 4 is ADR-0028, not the
   plan's 0022: connectors took 0019, the pieces merged into dev before it took 0022 to 0025,
-  work in progress holds 0026, and the verdict moved to 0027. It was ADR-0023 until that merge.
+  the agent record, then in progress and now merged, took 0026, and the verdict moved to 0027. It
+  was ADR-0023 until that merge.
 
 Enforced where:
 

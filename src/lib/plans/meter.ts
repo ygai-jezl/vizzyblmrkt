@@ -4,6 +4,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import type { ResourceCount } from "@/lib/types/usageMeter";
 import type { AiUsage } from "@/lib/agents/gemini";
 import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { isUsageMeterEnabled } from "./flags";
 import { isLimitedResource, monthlyLimitOf } from "./limits";
 import type { ResourceId, ResourcePurpose } from "./resources";
@@ -15,8 +16,9 @@ import type { ResourceId, ResourcePurpose } from "./resources";
  * resource asks its meter first (`check`), then tells it what was spent (`record`).
  *
  * A record is one merged write of increments (never a read and a transaction), so many calls at
- * once never wait on each other. It adds the units by purpose and, from learning loops step 5, one
- * call by purpose (`callsByPurpose`), which the loops' heartbeat reads for uses of each purpose. The check counts first and the call runs after, as the other
+ * once never wait on each other. It adds the units by purpose and, from learning loops step 5 and
+ * only while LOOPS_ENABLED is on, one call by purpose (`callsByPurpose`), which the loops'
+ * heartbeat reads for uses of each purpose. The check counts first and the call runs after, as the other
  * monthly caps do, so calls at once can go a little past a cap. A failed write never fails the
  * work it was counting.
  */
@@ -161,8 +163,9 @@ export function usageMeter<R extends ResourceId>(
                 calls: 1,
                 lostCalls: lost ? 1 : 0,
                 byPurpose: { [purpose]: n },
-                // In the same merged increment: a call of this purpose, whatever it spent.
-                ...(recordOpts.sameCall ? {} : { callsByPurpose: { [purpose]: 1 } }),
+                // In the same merged increment: a call of this purpose, whatever it spent. Only
+                // while LOOPS_ENABLED is on, as only the loops' heartbeat reads it: off is today exactly.
+                ...(recordOpts.sameCall || !isLoopsEnabled() ? {} : { callsByPurpose: { [purpose]: 1 } }),
                 ...(model ? { byModel: { [model]: n } } : {}),
               },
             },

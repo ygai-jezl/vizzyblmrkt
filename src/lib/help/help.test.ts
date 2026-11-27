@@ -1359,6 +1359,9 @@ describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
     expect(counts).toContain("turn off **Help check that learning works**");
     expect(section(on, "About 1 image in 20")).toContain("also leaves your brand out of the counts across brands");
     expect(section(on, "Ask Vizzy")).toContain("own learning counts for the last 90 days");
+    // Where the Help board puts it: after Ask Vizzy, right before Messages.
+    const headings = on.split("\n").filter((l) => l.startsWith("## ")).map((l) => l.slice(3));
+    expect(headings.slice(headings.indexOf("Where it is kept"))).toEqual(["Where it is kept", "Ask Vizzy", "Counts across brands", "Messages"]);
     const off = page(false);
     expect(off).not.toContain("Counts across brands");
     expect(off).not.toContain("counts across brands");

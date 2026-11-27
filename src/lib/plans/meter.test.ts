@@ -13,6 +13,8 @@ const brand = (over: Partial<Tenant> = {}) => ({ id: "ten_A", featureLimits: {},
 
 beforeEach(() => {
   vi.stubEnv("USAGE_METER_ENABLED", "true");
+  // Calls by purpose are kept only for the loops' heartbeat, while LOOPS_ENABLED is on.
+  vi.stubEnv("LOOPS_ENABLED", "true");
   vi.spyOn(console, "info").mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -57,6 +59,15 @@ describe("the usage meter", () => {
     const old = { total: 5, calls: 1, lostCalls: 0, byPurpose: { trending: 5 } };
     expect(addCounts(old, { ...old, callsByPurpose: { trending: 1 } }).callsByPurpose).toEqual({ trending: 1 });
     expect("callsByPurpose" in addCounts(old, old)).toBe(false);
+  });
+
+  it("keeps no calls by purpose with LOOPS_ENABLED off, so the meter's record is what it was", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "");
+    const db = new FakeFirestore();
+    await usageMeter(A, "model_tokens", "blog_write", { db, now: NOV, tenant: brand() }).record(900);
+    const tokens = (await usageThisMonth(A, { db, now: NOV })).model_tokens;
+    expect(tokens).toMatchObject({ total: 900, calls: 1, byPurpose: { blog_write: 900 } });
+    expect(tokens).not.toHaveProperty("callsByPurpose");
   });
 
   it("adds up records made at the same time", async () => {

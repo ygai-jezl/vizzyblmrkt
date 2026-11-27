@@ -339,13 +339,67 @@ describe("a closed week, every block of screen 6", () => {
       plan: "pro",
       window: fourWeeks({ c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 6, voted: 30, liked: 0, "disliked.fake": 15, "disliked.colours": 15 } } } } } }),
     };
-    seedWeek(fake, W, [...Array.from({ length: 11 }, () => maker), voter]);
-    // 20 in all, not 20 for each reason (which would read 15 and 15).
-    expect(dataOf(await open(fake)).downs[0]!.reasons).toEqual([
-      { k: "Wrong colours", v: "10" },
-      { k: "Looks fake", v: "10" },
-    ]);
+    seedWeek(fake, W, [maker, ...Array.from({ length: 10 }, () => voter)]);
+    // 20 in all for each, not 20 for each reason (which would read 150 and 150).
+    expect(dataOf(await open(fake)).downs[0]!).toMatchObject({
+      orgs: "10",
+      reasons: [
+        { k: "Wrong colours", v: "100" },
+        { k: "Looks fake", v: "100" },
+      ],
+    });
     expect(LOOPS_COPY.downsNote).toBe(`This week. At most ${LOOP_RULES.orgOutputsCap} thumbs down per organisation per kind, rounded to 2 figures`);
+  });
+
+  it("floors thumbs down and declines by reason on the organisations that gave them, not on those that made images", async () => {
+    const fake = new FakeFirestore();
+    const maker: Org = { plan: "free", window: fourWeeks({ c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 6 } } } } } }) };
+    // Ten bakeries only make post images; Hearth Bakery alone votes 8 down with reasons and declines 2.
+    const voter: Org = {
+      plan: "free",
+      window: fourWeeks({
+        c: { "image_style.natural_photo": { post_image: { v1: { learned: { made: 6, voted: 8, liked: 0, "disliked.colours": 5, "disliked.fake": 3, "declined.not_relevant": 2 } } } } },
+      }),
+    };
+    seedWeek(fake, W, [...Array.from({ length: 10 }, () => maker), voter]);
+    const d = dataOf(await open(fake));
+    expect(d.downs).toEqual([{ kind: "Image style, all 5 kinds", pool: true, orgs: null, reasons: [] }]);
+    expect(d.cards).toContain(`Declines by reason: ${LOOPS_COPY.fewer}.`);
+    // The images themselves still show: 11 organisations made them.
+    expect(d.stamps[0]!.cells?.orgs).toBe("11");
+
+    // From 10 that gave them, they show, under those 10.
+    const many = new FakeFirestore();
+    seedWeek(many, W, [maker, ...Array.from({ length: 10 }, () => voter)]);
+    const m = dataOf(await open(many));
+    expect(m.downs[0]).toMatchObject({ orgs: "10", reasons: [{ k: "Wrong colours", v: "50" }, { k: "Looks fake", v: "30" }] });
+    expect(m.cards).toContain("Declines by reason: Not relevant 20.");
+  });
+
+  it("says why the holdback can't read when votes came only on images with no learned look, or no image was counted", () => {
+    // Twelve bakeries voting on their first images: no style has a learned look yet, so every image is arm none.
+    const image = {
+      orgs: 12,
+      week: { orgs: 12 },
+      st: { stamped: { all: 12, p: { free: 12 } }, signalled: { all: 12, p: { free: 12 } } },
+      out: { none: { made: 120, voted: 60, liked: 20 } },
+      scope: { natural_photo: { none: { made: 120, voted: 60, liked: 20 } } },
+      why: { orgs: 12, disliked: { colours: 15 } },
+      cov: { stamped: 120 },
+    };
+    const orgs = { orgs: 12, p: { free: 12 }, visited: 12, listed: 12 };
+    const d = loopsData({ week: W, orgs, rows: new Map([["image_style", image]]) }, { meterOn: true, today: NOW, docsUrl: "" });
+    expect(d.holdback).toEqual([LOOPS_COPY.holdbackNoLook]);
+    expect(d.downs[0]!.reasons).toContainEqual({ k: "Wrong colours", v: "15" });
+    const noVotes = { ...image, out: { none: { made: 120 } }, scope: { natural_photo: { none: { made: 120 } } } };
+    expect(loopsData({ week: W, orgs, rows: new Map([["image_style", noVotes]]) }, { meterOn: true, today: NOW, docsUrl: "" }).holdback).toEqual(["No image votes this week."]);
+    // An empty pool: no box stands empty under its heading.
+    const edit = { orgs: 12, week: { orgs: 12 }, st: { stamped: { all: 12, p: { pro: 12 } } }, out: { none: { made: 40 } }, cov: { stamped: 40 } };
+    const rows = new Map([["edit_mode", edit]]);
+    expect(loopsData({ week: W, orgs, rows }, { meterOn: true, today: NOW, docsUrl: "" }).holdback).toEqual(["No images were made in the last 28 days."]);
+    expect(loopsData({ week: W, orgs, rows }, { meterOn: true, today: NOW, docsUrl: "", imagesCounted: false }).holdback).toEqual([
+      "Image learning isn't on for this copy, so images aren't counted here.",
+    ]);
   });
 
   it("shows stamp coverage from 10 organisations, and fewer than 10 below", async () => {
@@ -360,11 +414,8 @@ describe("a closed week, every block of screen 6", () => {
     const fake = new FakeFirestore();
     seedWeek(fake, W, copy());
     const d = dataOf(await open(fake));
-    // Edit mode's 5 organisations are below the floor, so their declines can't show and "none" isn't said of them.
-    expect(d.cards).toEqual([
-      "Organisations with a Go back card in the last 28 days: none.",
-      "Declines by reason: none from kinds with 10 or more organisations; other kinds have fewer than 10 organisations.",
-    ]);
+    // No kind has 10 organisations that gave a reason for a decline, so none shows, and "none" isn't said.
+    expect(d.cards).toEqual(["Organisations with a Go back card in the last 28 days: none.", "Declines by reason: fewer than 10 organisations."]);
     expect(d.holdback[0]).toMatch(/^Natural photo: about \d+ months at 260 votes a month across 12 organisations \(the remake check alone: (?:about \d+ months?|under a month)\)\.$/);
     expect(d.holdback[1]).toBe("From this week's counts, at the pace of the organisations behind each style; a style shows only from 10 of them.");
     expect(d.industries).toEqual([{ k: "Unknown", v: "17", faint: false }]);

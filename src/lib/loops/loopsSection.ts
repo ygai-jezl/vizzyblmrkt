@@ -1,3 +1,4 @@
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { sourceRepoUrl } from "@/lib/developers/flags";
 import { FEATURE_LABELS, PLANS, type PlanFeature } from "@/lib/plans/catalog";
 import { isUsageMeterEnabled } from "@/lib/plans/flags";
@@ -56,6 +57,10 @@ export const LOOPS_COPY = {
   fewerShort: "fewer than 10",
   cardsTitle: "Go back cards",
   holdbackTitle: "When the holdback could read",
+  holdbackNoImages: `No images were made in the last ${LOOP_RULES.stallDays} days.`,
+  holdbackOff: "Image learning isn't on for this copy, so images aren't counted here.",
+  holdbackNoVotes: "No image votes this week.",
+  holdbackNoLook: "No style has a learned look in use yet, so nothing is held back to compare.",
   industriesTitle: "Industries",
   industriesHead: ["Industry", "Organisations"],
   differsNone:
@@ -215,7 +220,12 @@ export async function loopsSection(input: { week?: string | null; now: Date; db?
   return {
     weeks: links,
     state: "data",
-    data: loopsData(read[at]!, { meterOn: isUsageMeterEnabled(), today: input.now, docsUrl: `${sourceRepoUrl()}/blob/main/docs/ONTOLOGY.md#learning` }),
+    data: loopsData(read[at]!, {
+      meterOn: isUsageMeterEnabled(),
+      imagesCounted: isImageStyleVersionsOn(),
+      today: input.now,
+      docsUrl: `${sourceRepoUrl()}/blob/main/docs/ONTOLOGY.md#learning`,
+    }),
   };
 }
 
@@ -478,13 +488,14 @@ function downRows(views: ReadonlyMap<string, KindView>): DownRow[] {
   return rows.map((row) => {
     const kv = views.get(row)!;
     const kind = row === IMAGE_POOL ? `${kindLabel(row)}, all ${POOL_KINDS} kinds` : kindLabel(row);
-    if (!kv.things) return { kind, pool: row === IMAGE_POOL, orgs: null, reasons: [] };
+    // From 10 organisations that gave a thumbs down, not 10 that made things (`why.orgs`).
+    if (!kv.things || !showsThings(kv.downOrgs)) return { kind, pool: row === IMAGE_POOL, orgs: null, reasons: [] };
     const given = Object.entries(kv.things.disliked).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const downs = Object.values(kv.things.out).reduce((n, s) => n + Math.max(0, (s.voted ?? 0) - (s.liked ?? 0)), 0);
     const none = roundTwo(Math.max(0, downs - given.reduce((n, [, k]) => n + k, 0)));
     const reasons: Chip[] = given.map(([k, n]) => ({ k: voteReasonLabel("image", "down", k) ?? keyWords(k), v: String(n) }));
     if (none > 0) reasons.push({ k: LOOPS_COPY.noReasonGiven, v: String(none), none: true });
-    return { kind, pool: row === IMAGE_POOL, orgs: String(kv.weekOrgs), reasons };
+    return { kind, pool: row === IMAGE_POOL, orgs: String(kv.downOrgs), reasons };
   });
 }
 
@@ -523,19 +534,17 @@ function cardLines(views: ReadonlyMap<string, KindView>): string[] {
   let orgs = 0;
   const cards: Record<string, number> = {};
   const declined: Record<string, number> = {};
-  let shown = false;
   let cardsShown = false;
-  /** A row with numbers this week from fewer than 10 organisations, whose declines can't show. */
+  /** A kind with declines by reason from fewer than 10 organisations that gave one, which can't show. */
   let hidden = false;
   for (const row of ROW_KINDS) {
     const kv = views.get(row)!;
     orgs += kv.cardOrgs;
-    if (!kv.things) {
-      if (kv.weekOrgs > 0) hidden = true;
-      continue;
-    }
-    shown = true;
-    addCounts(declined, kv.things.declined);
+    // Declines by reason show from 10 organisations that gave a reason (`declined.orgs`), not 10
+    // that made things, so one organisation's reasons never show behind others' images.
+    if (kv.things && showsThings(kv.declineOrgs)) addCounts(declined, kv.things.declined);
+    else if (kv.declineOrgs > 0) hidden = true;
+    if (!kv.things) continue;
     if (kv.cardOrgs > 0 || Object.keys(kv.things.cards).length) {
       cardsShown = true;
       addCounts(cards, kv.things.cards);
@@ -548,17 +557,9 @@ function cardLines(views: ReadonlyMap<string, KindView>): string[] {
     else if (what.length) out.push(`What happened to them this week: ${what.map(([k, n]) => `${keyWords(k).toLowerCase()} ${n}`).join(", ")}.`);
   }
   const why = Object.entries(declined).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  // A kind below the floor may have declines too, so "none" is said only when no kind was left out.
+  // Until a kind has 10 organisations that gave a reason, none is shown, nor "none": 0 is under 10 too.
   const rest = hidden ? `; other kinds have ${LOOPS_COPY.fewer}` : "";
-  out.push(
-    !shown
-      ? `Declines by reason: ${LOOPS_COPY.fewer}.`
-      : why.length
-        ? `Declines by reason: ${why.map(([k, n]) => `${keyWords(k)} ${n}`).join(", ")}${rest}.`
-        : hidden
-          ? `Declines by reason: none from kinds with 10 or more organisations; other kinds have ${LOOPS_COPY.fewer}.`
-          : "Declines by reason: none this week.",
-  );
+  out.push(why.length ? `Declines by reason: ${why.map(([k, n]) => `${keyWords(k)} ${n}`).join(", ")}${rest}.` : `Declines by reason: ${LOOPS_COPY.fewer}.`);
   return out;
 }
 
@@ -570,9 +571,10 @@ const WEEKS_A_MONTH = 52 / 12;
  * check (liked, from votes) and the guard (remade, from images made), whichever needs longer,
  * at the votes learner's band. A style shows only from 10 organisations behind its own numbers.
  */
-function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
+function holdbackLines(views: ReadonlyMap<string, KindView>, imagesCounted: boolean): string[] {
   const kv = views.get(IMAGE_POOL);
-  if (!kv || kv.orgs === 0) return [];
+  // An empty pool still says why, so the box never stands empty under its heading.
+  if (!kv || kv.orgs === 0) return [imagesCounted ? LOOPS_COPY.holdbackNoImages : LOOPS_COPY.holdbackOff];
   if (!kv.things) return ["Fewer than 10 organisations made images, so this can't be worked out yet."];
   const band = BY_LEARNER.votes.band;
   const styles = Object.entries(kv.things.scope)
@@ -602,7 +604,11 @@ function holdbackLines(views: ReadonlyMap<string, KindView>): string[] {
       out.push(`${name}: ${monthsWords(guard)} for the remake check at ${roundTwo(images)} images a month ${across}${check !== null ? ` (the likes check alone: ${monthsWords(check)})` : " (no votes this week)"}.`);
     }
   }
-  if (!styles.length) return ["No image votes this week."];
+  if (!styles.length) {
+    // Votes on images made with no learned look yet (arm none) are votes too: nothing is held back from them.
+    const voted = Object.values(kv.things.out).some((sig) => (sig.voted ?? 0) > 0);
+    return [voted ? LOOPS_COPY.holdbackNoLook : LOOPS_COPY.holdbackNoVotes];
+  }
   if (few) out.push(out.length ? "Other styles: fewer than 10 organisations each." : "Every style: fewer than 10 organisations each.");
   out.push("From this week's counts, at the pace of the organisations behind each style; a style shows only from 10 of them.");
   return out;
@@ -669,8 +675,11 @@ function coverageRows(ov: OrgsView, meterOn: boolean): { rows: LoopsData["covera
   };
 }
 
-/** The section's numbers and words for one closed week. Pure. */
-export function loopsData(week: LoopsWeekRows, opts: { meterOn: boolean; today: Date; docsUrl: string }): LoopsData {
+/**
+ * The section's numbers and words for one closed week. `imagesCounted`: image style versions are
+ * on, so the image pool is counted at all (on unless said). Pure.
+ */
+export function loopsData(week: LoopsWeekRows, opts: { meterOn: boolean; today: Date; docsUrl: string; imagesCounted?: boolean }): LoopsData {
   const ov = orgsView(week.orgs);
   const views = new Map(ROW_KINDS.map((r) => [r, kindView(week.rows.get(r))]));
   // Organisations by refusal reason from the copy's own row: each once, however many kinds refused it.
@@ -690,7 +699,7 @@ export function loopsData(week: LoopsWeekRows, opts: { meterOn: boolean; today: 
     downs: downRows(views),
     stamps: stampRows(views),
     cards: cardLines(views),
-    holdback: holdbackLines(views),
+    holdback: holdbackLines(views, opts.imagesCounted ?? true),
     industries: industryRows(ov),
     differs: differLines(ov, views),
     notLearning: notLearning(opts.today),

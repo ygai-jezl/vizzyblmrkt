@@ -9,9 +9,10 @@ import { STAGES, STUCK_STEPS, type Stage, type StuckStep } from "./stages";
  * - Numbers of things (outputs made, kept, liked or declined, declines and thumbs by reason,
  *   unstamped saves, coverage and unused), shares and industry splits show only from
  *   LOOP_RULES.cellOrgs (10) contributing organisations: those whose week put numbers in the row
- *   (`week.orgs`), not every organisation seen in the 28 days, and for an image style those
- *   behind that style (`styles.<style>`). Below that they are null, and a screen says "fewer
- *   than 10".
+ *   (`week.orgs`), not every organisation seen in the 28 days, for an image style those behind
+ *   that style (`styles.<style>`), for thumbs down by reason those that gave a thumbs down
+ *   (`why.orgs`), and for declines by reason those that gave a reason (`declined.orgs`). Below
+ *   that they are null or empty, and a screen says "fewer than 10".
  * - Counts of organisations show below 10 in four places, to the people who run the copy only
  *   (the owner's answer to question 4): per step, stuck per plan, by refusal reason and with a Go
  *   back card. They never set defaults. Every other count of organisations (the wait for a check,
@@ -66,6 +67,10 @@ export interface KindView {
   weekOrgs: number;
   /** The image pool: organisations behind each style's numbers this week, the floor for that style. */
   styleOrgs: Counts;
+  /** Organisations whose week gave a thumbs down: the floor for thumbs down by reason. */
+  downOrgs: number;
+  /** Organisations whose week gave a reason for a decline: the floor for declines by reason. */
+  declineOrgs: number;
   /** Organisations stuck at Stamped whose things went out with no AI draft kept to compare (shown below 10, as stuck is). */
   stuckNoDraft: number;
   /** Organisations stuck at each step, each once whatever plans its brands are on (shown below 10, as stuck is); 0 in a row written before. */
@@ -92,10 +97,10 @@ export interface KindThings {
   /** The image pool: by style, then arm, then made, voted, liked and remade. */
   scope: Record<string, Record<string, Counts>>;
   own: Counts;
-  /** Thumbs up and down by reason. */
+  /** Thumbs up and down by reason; thumbs down empty below 10 organisations that gave one (`downOrgs`). */
   liked: Counts;
   disliked: Counts;
-  /** Declines by why. */
+  /** Declines by why; empty below 10 organisations that gave a reason (`declineOrgs`). */
   declined: Counts;
   /** Saves with no stamp, by reason (`stamp_lost` included). */
   unstamped: Counts;
@@ -115,6 +120,8 @@ const byStage = (f: (s: Stage) => number): Record<Stage, number> => Object.fromE
 export function kindView(n: unknown): KindView {
   const orgs = num(at(n, "orgs"));
   const weekOrgs = num(at(n, "week", "orgs"));
+  const downOrgs = num(at(n, "why", "orgs"));
+  const declineOrgs = num(at(n, "declined", "orgs"));
   const stageByPlan = (s: Stage) => counts(at(n, "st", s, "p"));
   const stages = byStage((s) => num(at(n, "st", s, "all")));
 
@@ -164,8 +171,8 @@ export function kindView(n: unknown): KindView {
       scope,
       own: counts(at(n, "own"), true),
       liked: counts(at(n, "why", "liked"), true),
-      disliked: counts(at(n, "why", "disliked"), true),
-      declined: counts(at(n, "declined"), true),
+      disliked: showsThings(downOrgs) ? counts(at(n, "why", "disliked"), true) : {},
+      declined: showsThings(declineOrgs) ? Object.fromEntries(Object.entries(counts(at(n, "declined"), true)).filter(([k]) => k !== "orgs")) : {},
       unstamped: counts(at(n, "u"), true),
       cards: Object.fromEntries(Object.entries(counts(at(n, "cards"), true)).filter(([k]) => k !== "orgs")),
       coverage: all > 0 ? stamped / all : null,
@@ -185,6 +192,8 @@ export function kindView(n: unknown): KindView {
     orgs,
     weekOrgs,
     styleOrgs: counts(at(n, "styles")),
+    downOrgs,
+    declineOrgs,
     stuckNoDraft: num(at(n, "stuck", "stamped", "nodraft")),
     stuckAll: Object.fromEntries(STUCK_STEPS.map((step) => [step, num(at(n, "stuck", step, "all"))])) as Record<StuckStep, number>,
     stages,

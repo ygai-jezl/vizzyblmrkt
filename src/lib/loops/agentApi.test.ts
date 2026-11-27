@@ -79,10 +79,20 @@ async function ask(q: Parameters<typeof agentLearning>[1] = {}, ctx = hearth): P
 }
 const entry = (b: Body, kind: string) => b.kinds.find((k) => k.kind === kind);
 
+/** Image style versions on: learned looks are in use (learning loops step 4). */
+function versionsOn() {
+  vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+  vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+  vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+}
+
 beforeEach(() => {
   db = new FakeFirestore();
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe("which weeks", () => {
   it("defaults to the last 90 days: the open week so far and the 12 closed weeks before it", async () => {
@@ -214,6 +224,7 @@ describe("status, stuck and the learner", () => {
 
 describe("the image looks", () => {
   it("lists each look in use with its counts, the pause and the opt out, and leaves the words to get_image_style", async () => {
+    versionsOn();
     db.seed(LOOP_DAYS, loopDayId.brand(hearth.tenantId), {
       tenantId: hearth.tenantId,
       d: {
@@ -262,10 +273,34 @@ describe("the image looks", () => {
     expect(Object.keys(b.meanings)).toEqual(expect.arrayContaining(["likedShare", "remadeShare"]));
     expect(b.note).toContain("get_image_style");
   });
+
+  it("with image style versions off lists no look in use and reads none, whatever the pointers still hold", async () => {
+    db.seed(LOOP_DAYS, loopDayId.brand(hearth.tenantId), {
+      tenantId: hearth.tenantId,
+      d: { scopes: { [NATURAL]: { v: 1, setBy: "learned", adoptedAt: "2026-12-01T09:00:00.000Z" } } },
+    });
+    db.seed(LOOP_DAYS, loopDayId.version(hearth.tenantId, NATURAL, 1), {
+      tenantId: hearth.tenantId,
+      d: { throughWeek: week(1), c: { post_image: { learned: { made: 20 } } }, looks: { "10": { call: "better" } } },
+    });
+    const reads: string[][] = [];
+    const read = (ids: readonly string[]) => {
+      reads.push([...ids]);
+      return readLoopDays(hearth, ids, db);
+    };
+    const r = await agentLearning(hearth, {}, { db, now: NOW, read });
+    // Images use the look on the brand record, so the pool is no kind in use by default.
+    expect(entry(r.body as Body, IMAGE_POOL)).toBeUndefined();
+    expect(reads.flat().some((id) => id.startsWith("lv:"))).toBe(false);
+    const pool = entry(await ask({ kinds: ["image_style"] }), IMAGE_POOL)!;
+    expect(pool.status).toBe("nothing_made");
+    expect(pool.looks).toEqual([]);
+  });
 });
 
 describe("what it reads", () => {
   it("reads only this brand's lb:, lt:, lw: and lv: documents, in at most two bounded reads, never another brand's", async () => {
+    versionsOn();
     const lumen = "ten_lumen";
     db.seed(LOOP_DAYS, loopDayId.brand(hearth.tenantId), { tenantId: hearth.tenantId, d: { scopes: Object.fromEntries(["natural_photo", "illustration", "brand"].map((s) => [`image_style.${s}`, { v: 1, setBy: "learned", adoptedAt: "2026-12-01T09:00:00.000Z" }])) } });
     folded(2, words("next_up", { made: 1 }));

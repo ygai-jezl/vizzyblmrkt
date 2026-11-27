@@ -1,3 +1,4 @@
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { meaningsOf, numberKeys } from "@/lib/metrics/meanings";
 import { isRateLimited, type TenantContext } from "@/lib/tenant";
@@ -324,7 +325,12 @@ export async function agentLearning(ctx: TenantContext, q: LearningQuery = {}, d
   data.set(open, addUp(first.slice(1 + closed.length)));
 
   // 2. The looks in use, and the shards of closed weeks the lane hasn't folded yet, in one more.
-  const scopes = IMAGE_STYLE_SCOPES.filter((s) => (pointers.scopes[s]?.v ?? 0) >= 1 && pointers.forgot?.[s]?.at !== pointers.scopes[s]?.adoptedAt);
+  // With image style versions off, images use the look on the brand record (decision 22), so no
+  // learned look is in use: none is read or listed, whatever the pointers still hold.
+  const versionsOn = isImageStyleVersionsOn();
+  const scopes = versionsOn
+    ? IMAGE_STYLE_SCOPES.filter((s) => (pointers.scopes[s]?.v ?? 0) >= 1 && pointers.forgot?.[s]?.at !== pointers.scopes[s]?.adoptedAt)
+    : [];
   const oldest = oldestKeptWeek(now);
   const unfolded = closed.filter((w) => data.get(w) === undefined && w >= oldest);
   const second = [...scopes.map((s) => loopDayId.version(ctx.tenantId, s, pointers.scopes[s]!.v)), ...unfolded.flatMap(shardsOf)];
@@ -344,7 +350,7 @@ export async function agentLearning(ctx: TenantContext, q: LearningQuery = {}, d
   const shownAt = weeks.length - shown;
   const shownRows = byRow.slice(shownAt);
   const stuckRows = byRow.slice(-1 - STAGE_WEEKS, -1);
-  const looks: LookInUse[] = looksInUse(pointers, totals);
+  const looks: LookInUse[] = versionsOn ? looksInUse(pointers, totals) : [];
   const lastClosedEnd = isoWeekStart(open);
 
   // Made per image kind in the pool, and made and unused per words kind, from weeks with 2 closed after them.

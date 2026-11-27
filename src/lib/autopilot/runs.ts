@@ -39,6 +39,8 @@ export interface NewRun {
   step: RunStep;
   question: AutopilotRun["question"];
   workspaceId?: string | null;
+  /** The strategy and plan of the pick it starts from (STRATEGY_RESULTS_ENABLED). */
+  basedOn?: AutopilotRun["basedOn"];
 }
 
 /** Start a run, or find it when this id was started already. */
@@ -68,6 +70,7 @@ export async function createRun(ctx: TenantContext, input: NewRun, deps: RunDeps
     by: input.trigger === "person" ? (ctx.userId ?? null) : null,
     createdAt: at,
     updatedAt: at,
+    ...(input.basedOn ? { basedOn: input.basedOn } : {}),
   };
   const { doc } = await repoOf(ctx, deps).upsert(input.id, () => fields, () => null);
   return doc;

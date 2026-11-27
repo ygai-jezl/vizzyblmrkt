@@ -949,6 +949,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # How it went: once a month, each approved strategy's focus situations and the rest of the map are
+  # added up (questions answered, live articles, their articles, the roadmap, what people did, and
+  # each kind of result from whatever connections are shared with the team and Vizzy), shown on the
+  # Strategy tab and read by Vizzy (needs BRAND_STRATEGY_ENABLED).
+  - variable: STRATEGY_RESULTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
   # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
   # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its

@@ -27,6 +27,8 @@ import { mayStartReview } from "@/lib/content/blog/refreshGate";
 import { MAX_CANDIDATES } from "./candidates";
 import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
+import { basedOnFor } from "@/lib/brandStrategy/basedOn";
+import { isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, skippedSlotQuestions } from "@/lib/contentStrategy/nextUp";
 import { PAGE_KIND_LABEL, ROADMAP_SHARE, type ContentPlan, type PickSlot } from "@/lib/types/contentStrategy";
 import { withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
@@ -305,6 +307,17 @@ function codePick(w: Weighed): NextUpPick {
   };
 }
 
+/**
+ * A pick with its focus and what it came from (STRATEGY_RESULTS_ENABLED). A roadmap candidate's
+ * focus situation is read from the same question in the free list, which carries it. Pure.
+ */
+export function withBasedOn(pick: NextUpPick, weighed: Weighed[], listed: Candidate[], strategy: Strategy | null, plan: ContentPlan | null): NextUpPick {
+  const c = weighed.find((w) => w.candidate.questionId === pick.questionId)?.candidate;
+  const situationId = c?.situationId ?? listed.find((q) => q.questionId === pick.questionId)?.situationId ?? null;
+  const basedOn = basedOnFor({ strategy, plan, situationId, slotId: pick.slot?.id ?? null });
+  return { ...pick, focus: Boolean(c?.focus || situationId), ...(basedOn ? { basedOn } : {}) };
+}
+
 async function eachLimited<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let i = 0;
@@ -492,6 +505,9 @@ export async function pickNextUp(
       picks.push(codePick(w));
     }
   }
+
+  // How it went (STRATEGY_RESULTS_ENABLED): each pick says the strategy and plan it came from, and keeps its focus.
+  if (isStrategyResultsEnabled()) picks = picks.map((p) => withBasedOn(p, weighed, listed, strategy, plan));
 
   const closePicks = picks.some((p) => p.closeTo);
   const reviewsOpen = closePicks

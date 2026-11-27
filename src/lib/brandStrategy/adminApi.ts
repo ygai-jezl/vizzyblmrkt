@@ -19,7 +19,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import { BRAND_STRATEGY_LIMITS as L, StrategyEditSchema, competitorsOf, type BrandStrategyDoc, type CompetitorGroupKind, type Strategy, type StrategyCompetitor } from "@/lib/types/brandStrategy";
 import { liveCompetitors, suggestionsOf, type LiveCompetitor } from "./competitors";
 import { findCompetitors, type FinderDeps } from "./finder";
-import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled, isStrategyResultsEnabled } from "./flags";
 import { proposeStrategy, type ProposeDeps } from "./propose";
 import { approveStrategy, decideIsNot, deleteBrandStrategy, dismissFound, dismissStrategyCheck, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
 
@@ -35,11 +35,15 @@ export const finderAdmin = (req: Request) => brandMapAdmin(req, { on: isCompetit
 export const joinedReader = (req: Request) => brandMapReader(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
 export const joinedAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
 export const checkAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCheckEnabled, offError: "strategy_check_disabled" });
+export const resultsReader = (req: Request) => brandMapReader(req, { on: isStrategyResultsEnabled, offError: "strategy_results_disabled" });
+export const resultsAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyResultsEnabled, offError: "strategy_results_disabled" });
 
 /** Propose with Vizzy: one model call, a few an hour per brand. */
 export const PROPOSE_LIMIT = { prefix: "strategy_propose", burstLimit: 2, hourlyLimit: 6 };
 /** The competitor finder: up to four grounded searches a run. */
 export const FIND_LIMIT = { prefix: "strategy_find", burstLimit: 2, hourlyLimit: 6 };
+/** How it went added up by hand: it reads the brand's connections now. */
+export const MONTH_LIMIT = { prefix: "strategy_month", burstLimit: 2, hourlyLimit: 6 };
 
 export interface ViewDeps {
   db?: FirestoreLike;

@@ -7,7 +7,7 @@ vi.mock("@/lib/plans/meter", async (importOriginal) => {
   return { ...real, aiUsage: (ctx: never, purpose: string, opts: never) => (meter.purposes.push(purpose), real.aiUsage(ctx, purpose as never, opts)) };
 });
 
-const { mergeLines, parseOps, quoteHas, reviseDeck, reviseSchema, settledNeeds } = await import("./revise");
+const { mergeLines, numbersIn, parseOps, quoteHas, reviseDeck, reviseSchema, settledNeeds } = await import("./revise");
 const { createRaiseDoc, readRaiseDoc } = await import("./store");
 const { renderText } = await import("./text");
 const { ACME, NOW, block, preSeedSlides, weeksOf } = await import("./testing/fixtures");
@@ -325,6 +325,21 @@ describe("helpers", () => {
     expect(quoteHas(100000, "\u20b91,00,000")).toBe(true);
     expect(quoteHas(15, "1,5 kg")).toBe(false);
     expect(quoteHas(550, "5\u20ac50")).toBe(false);
+  });
+
+  it("never runs two numbers into one across a space, a line break or a year", () => {
+    expect(quoteHas(1, "$1,200\n100 customers")).toBe(false);
+    expect(quoteHas(1200, "$1,200\n100 customers")).toBe(true);
+    expect(quoteHas(100, "$1,200\n100 customers")).toBe(true);
+    expect(quoteHas(12, "Users: 12,000\n500 paying")).toBe(false);
+    expect(quoteHas(2025250, "in 2025 250 brands")).toBe(false);
+    expect(quoteHas(250, "in 2025 250 brands")).toBe(true);
+    expect(quoteHas(30250, "12:30 250", "de")).toBe(false);
+    expect(quoteHas(1.2001, "1.200 100 Kunden", "de")).toBe(false);
+    expect(quoteHas(0.51, "0,5\n100 clients", "fr")).toBe(false);
+    expect(quoteHas(0.5, "0,5\n100 clients", "fr")).toBe(true);
+    expect(quoteHas(27, "am 27.11.2026", "de")).toBe(false);
+    expect(numbersIn("We're raising £250,000 for 2 more shops by 2027.")).toEqual([250000, 2, 2027]);
   });
 
   it("reads a language's own digits", () => {

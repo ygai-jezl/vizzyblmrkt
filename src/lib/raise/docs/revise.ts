@@ -131,26 +131,78 @@ function asciiDigits(quote: string, locale: string): string {
 }
 
 /**
+ * Every number in someone's words, read in one pass with the brand language's marks. A number is
+ * digits with a thousands mark between groups of three (the same mark all the way: the other of
+ * "." and ",", a space of any width, or an apostrophe; or lakh), then a decimal part. A decimal
+ * mark is the language's own, or the other of "." and "," before anything but three digits, as in
+ * "12.5" in German or "1,5" in English. A run with a leading zero ("007"), a run glued to another
+ * by a mark (the "27.11.2026" of a date, "1,234,5"), the minutes of a time and a line break are
+ * never read into one number; runs a space apart that aren't one number are read one by one. Pure.
+ */
+export function numbersIn(quote: string, locale = "en"): number[] {
+  const text = asciiDigits(quote, locale);
+  const dec = decimalMark(locale);
+  const other = dec === "," ? "." : ",";
+  const marks = new Set([other, " ", "\u00a0", "\u202f", "'", "\u2019"]);
+  const out: number[] = [];
+  const re = /\d[\d.,'\u2019 \u00a0\u202f]*/g;
+  for (const m of text.matchAll(re)) {
+    const before = text[(m.index ?? 0) - 1];
+    // Inside a longer number, a time ("12:30") or a date ("27/11"): not a number of its own.
+    if (before && /[\d.,:/]/.test(before)) continue;
+    // Trailing marks are punctuation ("we have 12. Then"), never part of the number.
+    const raw = m[0].replace(/[.,'\u2019 \u00a0\u202f]+$/, "");
+    const value = readNumber(raw, dec, other, marks);
+    if (value !== null) {
+      out.push(value);
+      continue;
+    }
+    // Not one number: numbers a space apart, such as "in 2025 250 brands", each read on its own.
+    for (const piece of raw.split(/[ \u00a0\u202f]+/)) {
+      const v = piece === raw ? null : readNumber(piece.replace(/[.,'\u2019]+$/, ""), dec, other, marks);
+      if (v !== null) out.push(v);
+    }
+  }
+  return out;
+}
+
+/** One run of digits and marks as a number, or null when it isn't one number. */
+function readNumber(raw: string, dec: string, other: string, marks: ReadonlySet<string>): number | null {
+  const parts = raw.split(/([^\d])/);
+  const digits = parts.filter((_, k) => k % 2 === 0);
+  const seps = parts.filter((_, k) => k % 2 === 1);
+  if (digits.some((d) => d === "")) return null;
+  if (!seps.length) return /^0\d/.test(raw) ? null : Number(raw);
+  // The last mark is the decimal mark when it is the language's, or the other one before anything but three digits.
+  const last = seps[seps.length - 1]!;
+  const tail = digits[digits.length - 1]!;
+  const decimal = last === dec || (last === other && tail.length !== 3 && seps.length === 1);
+  const groups = decimal ? seps.slice(0, -1) : seps;
+  const intParts = decimal ? digits.slice(0, -1) : digits;
+  if (groups.length) {
+    const mark = groups[0]!;
+    if (!marks.has(mark) || groups.some((g) => g !== mark)) return null;
+    const lakh = mark === "," && intParts.length >= 3 && intParts.slice(1, -1).every((d) => d.length === 2) && intParts[intParts.length - 1]!.length === 3;
+    const three = intParts.slice(1).every((d) => d.length === 3);
+    if (intParts[0]!.length > 3 || !(three || lakh)) return null;
+  }
+  const whole = intParts.join("");
+  if (/^0\d/.test(whole)) return null;
+  return Number(decimal ? `${whole}.${tail}` : whole);
+}
+
+/**
  * Whether the person's own words hold this number, read with the decimal mark of the brand's
- * language (`locale`), never as part of a longer number or as the whole part of a decimal. A
- * thousands mark (the other of "." and ",", a space or an apostrophe) counts only before a group
- * of three digits, or in lakh. In English "$6,200 a month" holds 6200 and "0.125%" holds 0.125;
- * in French or German "12,5 %" holds 12.5 (never 12 or 125) and "6.200 €" holds 6200 (never
- * 6.2). "about 6k" doesn't hold 6000, so Vizzy asks for the figure rather than turning words into
- * a number.
+ * language (`locale`), never as part of a longer number or as the whole part of a decimal: one of
+ * numbersIn's numbers is it exactly. In English "$6,200 a month" holds 6200 and "0.125%" holds
+ * 0.125; in French or German "12,5 %" holds 12.5 (never 12 or 125) and "6.200 €" holds 6200
+ * (never 6.2). "about 6k" doesn't hold 6000, so Vizzy asks for the figure rather than turning
+ * words into a number.
  */
 export function quoteHas(value: number, quote: string, locale = "en"): boolean {
-  const dec = decimalMark(locale);
-  const group = dec === "," ? "\\." : ",";
-  let said = asciiDigits(quote, locale)
-    .replace(/(\d)[\s\u00a0\u202f'\u2019](?=\d{3}(?!\d))/g, "$1")
-    .replace(new RegExp(`(\\d)${group}(?=\\d{3}(?!\\d)|\\d{2}${group})`, "g"), "$1");
-  if (dec === ",") said = said.replace(/(\d),(?=\d)/g, "$1.");
-  const digits = String(Math.abs(value));
-  if (!/^\d+(?:\.\d+)?$/.test(digits)) return false;
-  const [whole, frac] = digits.split(".");
-  const pattern = frac ? `${whole}\\.${frac}0*` : `${whole}(?:\\.0+)?`;
-  return new RegExp(`(?<![\\d.])${pattern}(?!\\.?\\d)`).test(said);
+  const want = Math.abs(value);
+  if (!Number.isFinite(want)) return false;
+  return numbersIn(quote, locale).some((n) => n === want);
 }
 
 // ----- Helpers ---------------------------------------------------------------------------------

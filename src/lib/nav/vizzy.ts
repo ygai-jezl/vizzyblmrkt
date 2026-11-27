@@ -2,6 +2,7 @@ import type { NavKey } from "./model";
 import { isInsightsHubEnabled } from "./flags";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { personInView } from "@/lib/audience/paths";
+import { raiseDocInView } from "@/lib/raise/docs/paths";
 
 /**
  * Starter questions for the Ask Vizzy panel, by the area in view. Written as the
@@ -126,17 +127,21 @@ export function journeyInView(pathname: string): string | null {
  * With `personInContext` (Vizzy can read a person's situation or their fields, a server prop), it
  * also names the person whose page is in view — by our id for them, never a name — and ""
  * everywhere else, so "this person" never means someone from an earlier page.
+ *
+ * With `raiseInContext` (Vizzy can work on decks, VIZZY_RAISE_ENABLED, a server prop), it names
+ * the deck in view on Content › Raise kit by its id, and "" everywhere else, the same way.
  */
 export function shellChatContext(
   pathname: string,
   page: string,
-  opts: { phase4: boolean; journeyInContext?: boolean; personInContext?: boolean },
-): { page: string; campaignId: string | null; workspaceId?: string | null; planId?: string | null; journeyId?: string; personId?: string } {
+  opts: { phase4: boolean; journeyInContext?: boolean; personInContext?: boolean; raiseInContext?: boolean },
+): { page: string; campaignId: string | null; workspaceId?: string | null; planId?: string | null; journeyId?: string; personId?: string; raiseDocId?: string } {
   return {
     page,
     campaignId: opts.journeyInContext ? (launchInView(pathname) ?? "") : launchInView(pathname),
     ...(opts.phase4 ? programmeInView(pathname) : {}),
     ...(opts.journeyInContext ? { journeyId: journeyInView(pathname) ?? "" } : {}),
     ...(opts.personInContext ? { personId: personInView(pathname) ?? "" } : {}),
+    ...(opts.raiseInContext ? { raiseDocId: raiseDocInView(pathname) ?? "" } : {}),
   };
 }

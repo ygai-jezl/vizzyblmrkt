@@ -48,6 +48,7 @@ import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isVizzyRaiseEnabled } from "@/lib/raise/docs/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
@@ -212,6 +213,7 @@ export default async function AdminLayout({
             names={crumbNames}
             journeyInContext={isEmailStyleEnabled() && isEmailJourneyStyleEnabled() && ctx.role === "admin"}
             personInContext={isPersonInContextEnabled()}
+            raiseInContext={isVizzyRaiseEnabled()}
             personBrief={isPersonBriefEnabled()}
             people={people}
             fields={isFieldsEnabled()}

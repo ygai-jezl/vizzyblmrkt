@@ -178,3 +178,16 @@ describe("the person in view", () => {
     for (const s of PERSON_FIELD_SUGGESTIONS) expect(s).not.toMatch(/stalled|journey|email/i);
   });
 });
+
+describe("the deck in view", () => {
+  const DECK = "/admin/raise/rd_abcdefghij12";
+
+  it("is named only while Vizzy can work on decks, by its id, and cleared everywhere else", () => {
+    expect(shellChatContext(DECK, "Content › Raise kit › Deck", { phase4: false })).not.toHaveProperty("raiseDocId");
+    expect(shellChatContext(DECK, "Content › Raise kit › Deck", { phase4: false, raiseInContext: true })).toMatchObject({ raiseDocId: "rd_abcdefghij12" });
+    expect(shellChatContext(`${DECK}/present`, "Page", { phase4: false, raiseInContext: true })).toMatchObject({ raiseDocId: "rd_abcdefghij12" });
+    for (const path of ["/admin/raise", "/admin", "/admin/workspace", "/admin/raise/new", "/admin/raise/rd_SHOUTING1234", "/admin/crm/people/rd_abcdefghij12"]) {
+      expect(shellChatContext(path, "Page", { phase4: false, raiseInContext: true })).toMatchObject({ raiseDocId: "" });
+    }
+  });
+});

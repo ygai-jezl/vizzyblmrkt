@@ -16,6 +16,8 @@ const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenan
 vi.mock("@/lib/competitors/articleTick", () => (loaded.add("competitor-articles"), articles));
 const strategyCheck = vi.hoisted(() => ({ runStrategyChecks: vi.fn(async () => ({ brands: 2, open: 1, failed: 0 })) }));
 vi.mock("@/lib/brandStrategy/check", () => (loaded.add("strategy-check"), strategyCheck));
+const strategyMonth = vi.hoisted(() => ({ runStrategyMonths: vi.fn(async () => ({ brands: 1, kept: 1, held: 0, failed: 0 })) }));
+vi.mock("@/lib/brandStrategy/month", () => (loaded.add("strategy-month"), strategyMonth));
 const search = vi.hoisted(() => ({ runSearchSweeps: vi.fn(async () => ({ scanned: 1, indexed: 2 })) }));
 vi.mock("@/lib/search/sweep", () => (loaded.add("search"), search));
 const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1, ready: 2, failed: 0, waiting: 1 })) }));
@@ -291,6 +293,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["competitors", "@/lib/competitors/tick", competitors],
     ["competitor-articles", "@/lib/competitors/articleTick", articles],
     ["strategy-check", "@/lib/brandStrategy/check", strategyCheck],
+    ["strategy-month", "@/lib/brandStrategy/month", strategyMonth],
     ["search", "@/lib/search/sweep", search],
     ["signals", "@/lib/signals/tick", signals],
     ["autopilot", "@/lib/autopilot/tick", autopilot],
@@ -390,6 +393,40 @@ describe("each job's code loads only when its switch is on", () => {
     const own = await post(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
     expect(await own.json()).toMatchObject({ ok: true, mode: "tenant" });
     expect(raiseFollowups.runRaiseFollowups).not.toHaveBeenCalled();
+  });
+
+  it("loads How it went's monthly look only with STRATEGY_RESULTS_ENABLED and the strategy on, within its own 25 s budget, whatever Competitors says", async () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+    let post = await freshRoute();
+    expect(await (await post(machine())).json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+    expect([...loaded]).toEqual([]);
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", strategyMonth: { brands: 1, kept: 1, held: 0, failed: 0 } });
+    expect([...loaded]).toEqual(["strategy-month"]);
+    expect(jobLines().some((l) => /^\[tick\] strategy-month \d+ms$/.test(l))).toBe(true);
+    const [{ deadlineMs }] = strategyMonth.runStrategyMonths.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(25_000 + 1000);
+    expect(deadlineMs - before).toBeGreaterThan(20_000);
+    // A run that looked at no brand adds nothing, and one that fails never fails the call.
+    strategyMonth.runStrategyMonths.mockResolvedValueOnce({ brands: 0, kept: 0, held: 0, failed: 0 });
+    expect(await (await post(machine())).json()).toEqual({ ok: true, mode: "all_tenants" });
+    strategyMonth.runStrategyMonths.mockRejectedValueOnce(new Error("boom"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const failed = await post(machine());
+      expect(failed.status).toBe(200);
+    } finally {
+      warn.mockRestore();
+    }
+    // Off with the strategy off, whatever its own switch says.
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "false");
+    post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).toEqual([]);
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {

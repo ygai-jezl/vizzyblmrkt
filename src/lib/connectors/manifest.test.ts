@@ -37,6 +37,12 @@ describe("connector manifests", () => {
     for (const p of parseManifest(m).produces) for (const k of p.measures) expect(Object.keys(MEANINGS), k).toContain(k);
   });
 
+  it("each connector declares the kind of data it gives, so features read it by kind (ADR-0019)", () => {
+    expect(parseManifest(searchConsoleManifest).uses).toEqual(["vizzy.read", "signals.search"]);
+    expect(parseManifest(ga4Manifest).uses).toEqual(["vizzy.read", "signals.traffic"]);
+    expect(parseManifest(cloudflareManifest).uses).toEqual(["vizzy.read", "signals.bots"]);
+  });
+
   it.each(MANIFESTS.map((m) => [(m as { id: string }).id, m]))("%s calls only bare https hosts", (_id, m) => {
     const parsed = parseManifest(m);
     for (const h of parsed.api.hosts) expect(h).toMatch(/^[a-z0-9.-]+$/);

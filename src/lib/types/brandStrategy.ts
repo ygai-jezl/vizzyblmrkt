@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isHttpsUrl } from "./brandMap";
 import { SituationId } from "./brandMapRecords";
+import { OUTCOME_KINDS } from "@/lib/metrics/outcomes";
 
 /**
  * The brand strategy (BRAND_STRATEGY_ENABLED): one record per brand, `brand_strategy/bst_<tenantId>`
@@ -388,6 +389,122 @@ export const StrategyCheckSchema = z.object({
 });
 export type StrategyCheck = z.infer<typeof StrategyCheckSchema>;
 
+// ----- How it went (STRATEGY_RESULTS_ENABLED) ---------------------------------------------------
+
+export const STRATEGY_MONTH_LIMITS = {
+  /** Months kept, newest first. */
+  months: 12,
+  /** Fewer are kept when 12 would pass this many bytes. */
+  bytes: 12_000,
+  /** The focus situations (5 at most) and the rest of the map. */
+  rows: L.focusMax + 1,
+} as const;
+
+/** The row for every decided situation that isn't a focus one, and every live article on none of them. */
+export const MONTH_REST_ID = "rest";
+
+const M = STRATEGY_MONTH_LIMITS;
+/** A plain count: articles, questions, decisions. */
+const MonthCount = z.number().int().min(0).max(100_000).catch(0).default(0);
+/** A result's number, which can be large (impressions). */
+const Result = z.number().min(0).max(1_000_000_000_000);
+const OutcomeKindSchema = z.enum(OUTCOME_KINDS);
+
+/** The numbers a month kept for a row, by meaning, only for the kinds it measured. */
+export const MonthNumbersSchema = z
+  .object({
+    searchClicks: Result.optional(),
+    searchImpressions: Result.optional(),
+    ga4Sessions: Result.optional(),
+    ga4KeyEvents: Result.optional(),
+    aiCitations: Result.optional(),
+  })
+  .catch({})
+  .default({});
+export type MonthNumbers = z.infer<typeof MonthNumbersSchema>;
+
+/**
+ * One focus situation, or the rest of the map, as a month saw it. Its words aren't kept, to keep
+ * twelve months small: they are read from the brand map when shown.
+ */
+export const MonthRowSchema = z.object({
+  /** A focus situation's id, or MONTH_REST_ID. */
+  id: z.string().min(1).max(64),
+  questions: MonthCount,
+  answered: MonthCount,
+  /** Live articles on it at the end of the month, and how many went live in it. */
+  live: MonthCount,
+  newLive: MonthCount,
+  /** Their articles on it published in the month; null when their articles aren't read for the brand. */
+  theirs: z.number().int().min(0).max(100_000).nullable().catch(null).default(null),
+  m: MonthNumbersSchema,
+});
+export type MonthRow = z.infer<typeof MonthRowSchema>;
+
+/** Where a month's numbers for one kind came from. */
+export const MonthSourceSchema = z.object({
+  connectionId: z.string().max(64),
+  connector: z.string().max(80),
+  /** The number shown, by meaning. */
+  measure: z.string().max(60),
+  siteOnly: z.boolean().catch(false).default(false),
+});
+export type MonthSource = z.infer<typeof MonthSourceSchema>;
+
+/**
+ * One month of How it went, added up once, early the next month, and never changed after. Each says
+ * where its numbers came from and what it couldn't measure, so two months are compared only where
+ * they had the same source. Stored without the values its defaults give back (a zero count, false,
+ * null, an empty list), so it reads the same and stays small.
+ */
+export const StrategyMonthSchema = z.object({
+  /** "2026-11". */
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  /** When it was added up. */
+  at: Stamp,
+  /** The approved strategy it looked at, and whether that was approved partway through the month. */
+  strategyAt: Stamp.nullable().catch(null).default(null),
+  partway: z.boolean().catch(false).default(false),
+  /** The approved content plan, when there was one. */
+  planAt: Stamp.nullable().catch(null).default(null),
+  rows: tolerantArray(MonthRowSchema, M.rows),
+  /** Totals for kinds measured for the whole site only (Cloudflare's visits). */
+  site: z.object({ cfVisits: Result.optional() }).catch({}).default({}),
+  /** The plan's roadmap entries to write that were due in the month, and how many of them are answered by a live article. */
+  roadmap: z.object({ due: MonthCount, done: MonthCount }).nullable().catch(null).default(null),
+  /** What people did in the month, counted from the strategy's and the plan's decisions. */
+  did: z
+    .object({
+      starsKept: MonthCount,
+      starsRemoved: MonthCount,
+      claimsEdited: MonthCount,
+      picksSkipped: MonthCount,
+      checksActed: MonthCount,
+      checksDismissed: MonthCount,
+      /** A log was full and its oldest entry was in the month, so some may have dropped off. */
+      capped: z.boolean().catch(false).default(false),
+    })
+    .prefault({}),
+  sources: z
+    .object({ search: MonthSourceSchema.optional(), visits: MonthSourceSchema.optional(), key_actions: MonthSourceSchema.optional(), ai_answers: MonthSourceSchema.optional() })
+    .catch({})
+    .default({}),
+  /** The kinds not measured, and why. */
+  missing: tolerantArray(z.object({ kind: OutcomeKindSchema, why: z.enum(["not_shared", "failed", "not_connected"]) }), OUTCOME_KINDS.length),
+  /** Kinds whose read had more rows than were read, so their numbers may be low. */
+  more: z.array(OutcomeKindSchema).max(OUTCOME_KINDS.length).catch([]).default([]),
+  /**
+   * The days the connected results cover (YYYY-MM-DD, the tools' own zones): the 28 days to the
+   * day the month was added up, not the calendar month. Null when nothing was measured.
+   */
+  resultsFor: z
+    .object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
+    .nullable()
+    .catch(null)
+    .default(null),
+});
+export type StrategyMonth = z.infer<typeof StrategyMonthSchema>;
+
 // ----- The record ------------------------------------------------------------------------------
 
 export const BrandStrategyDocSchema = z.object({
@@ -417,6 +534,12 @@ export const BrandStrategyDocSchema = z.object({
     .prefault({}),
   /** The weekly check (STRATEGY_CHECK_ENABLED); null until it first looks, and on records stored before it. */
   check: StrategyCheckSchema.nullable().catch(null).default(null),
+  /** How it went (STRATEGY_RESULTS_ENABLED), newest first; empty until the first month, and on records stored before it. */
+  months: tolerantArray(StrategyMonthSchema, STRATEGY_MONTH_LIMITS.months),
+  /** After a monthly look failed: not tried again before this. */
+  monthsRetryAt: Stamp.nullable().catch(null).default(null),
+  /** Looks held back because a connected tool couldn't be read (2 at most, then the month is kept with it marked failed); 0 once a month is kept. */
+  monthsRetries: z.number().int().min(0).max(10).catch(0).default(0),
   createdAt: Stamp.catch("").default(""),
   updatedAt: Stamp.catch("").default(""),
 });

@@ -7,6 +7,7 @@ import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
 import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
+import { briefWithPick } from "@/lib/brandStrategy/basedOn";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
   const fields = planFromIntake(parsed.data);
   // A subject and question named by id are checked against the saved map before they're kept.
   if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog);
+  // Written from one of Next up's picks: the brief says what the pick came from, read from the stored pick.
+  if (fields.blog) fields.blog = await briefWithPick(ctx, fields.blog);
   const plan = await createContentPlan(ctx, workspaceId, fields);
   // A plan made with its article's address: Found live checks it at its next look.
   if (plan.strategy.hubUrl) await wakeLiveWatch(ctx);

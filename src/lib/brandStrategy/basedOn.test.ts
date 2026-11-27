@@ -7,7 +7,7 @@ import { pickStep } from "@/lib/autopilot/draftSteps";
 import { getRun } from "@/lib/autopilot/runs";
 import type { AutopilotRun, NextUpPick } from "@/lib/types/autopilot";
 import { BlogBriefSchema } from "@/lib/types/contentPlan";
-import { basedOnFor } from "./basedOn";
+import { basedOnFor, briefWithPick, keptBasedOn } from "./basedOn";
 
 // Linking the work to the strategy (STRATEGY_RESULTS_ENABLED). Made-up brands and questions.
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_a", role: "admin" };
@@ -88,5 +88,27 @@ describe("a run started from a pick", () => {
     // A question the brand's Next up doesn't hold gets nothing, even if another brand's does.
     const other = await startFind(A, { ...body, questionId: "q_bbbbbbb1" }, deps);
     expect((await getRun(A, (other.body as { run: { id: string } }).run.id, { db }))?.basedOn).toBeUndefined();
+  });
+});
+
+describe("an article written from a Next up pick (Write it)", () => {
+  it("takes what the stored pick came from, by the brief's question, only with the switch on", async () => {
+    const db = new FakeFirestore();
+    await seedPicks(db, A, [pick({ basedOn: BASED })]);
+    expect(await briefWithPick(A, { primaryRef: "q_aaaaaaa1" }, { db })).toEqual({ primaryRef: "q_aaaaaaa1", basedOn: BASED });
+    // A question Next up doesn't hold, a brief with no question, or another brand: nothing added.
+    expect(await briefWithPick(A, { primaryRef: "q_zzzzzzz9" }, { db })).toEqual({ primaryRef: "q_zzzzzzz9" });
+    expect(await briefWithPick(A, {}, { db })).toEqual({});
+    expect(await briefWithPick({ ...A, tenantId: "ten_B" }, { primaryRef: "q_aaaaaaa1" }, { db })).toEqual({ primaryRef: "q_aaaaaaa1" });
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "false");
+    expect(await briefWithPick(A, { primaryRef: "q_aaaaaaa1" }, { db })).toEqual({ primaryRef: "q_aaaaaaa1" });
+  });
+
+  it("never takes a basedOn the page sends: a saved brief keeps the stored one, or none", () => {
+    const forged = { ...BASED, situationId: "sit_zzzzzz99" };
+    expect(keptBasedOn({ primaryRef: "q_aaaaaaa1", basedOn: forged }, { basedOn: BASED })).toEqual({ primaryRef: "q_aaaaaaa1", basedOn: BASED });
+    expect(keptBasedOn({ primaryRef: "q_aaaaaaa1", basedOn: forged }, null)).toEqual({ primaryRef: "q_aaaaaaa1" });
+    const plain: { primaryRef: string; basedOn?: typeof BASED } = { primaryRef: "q_aaaaaaa1" };
+    expect(keptBasedOn(plain, { basedOn: BASED })).toEqual({ primaryRef: "q_aaaaaaa1", basedOn: BASED });
   });
 });

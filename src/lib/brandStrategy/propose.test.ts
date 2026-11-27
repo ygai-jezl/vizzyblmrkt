@@ -105,6 +105,45 @@ describe("checking a proposed strategy", () => {
     expect(dropped.isNot).toBe(3);
     expect(proposal.goal).toMatchObject({ text: "200 waitlist sign-ups from organic search by March", measure: "sign-ups", from: "onboarding", measureKey: null });
   });
+
+  it("leaves out a line that writes the prompt's own labels, and keeps a goal whose measure only had them", () => {
+    const { proposal, dropped } = checkStrategy(
+      {
+        claims: [
+          { side: "you", text: "Owns S2 better than anyone", proof: [] },
+          { side: "you", text: "Answers what the board asks, per K1", proof: ["K1"] },
+          { side: "you", text: "Answers what the board asks", proof: ["K1"] },
+        ],
+        isNot: [
+          { text: "Not a suite like C1", competitor: "C1" },
+          { text: "Not an SEO suite", why: "C1 sells one", competitor: "C1" },
+        ],
+        goal: { text: "18 live articles on your focus situations", measure: "live articles across S1, S4, and S3" },
+      },
+      INPUT,
+      "2026-11-25T10:00:00.000Z",
+    );
+    expect(proposal.claims.map((c) => c.text)).toEqual(["Answers what the board asks"]);
+    expect(dropped.claims).toBe(2);
+    // The line itself goes; a reason that only explains it is left blank.
+    expect(proposal.isNotProposals).toEqual([{ text: "Not an SEO suite", why: "", competitor: "Rivalco", state: "proposed" }]);
+    expect(dropped.isNot).toBe(1);
+    expect(proposal.goal).toMatchObject({ text: "18 live articles on your focus situations", measure: "" });
+
+    const goalLeaks = checkStrategy({ goal: { text: "Win P1 traffic by March", measure: "sign-ups" } }, INPUT, "").proposal.goal;
+    expect(goalLeaks).toBeNull();
+  });
+
+  it("keeps a brand's own words that only look like a label the prompt didn't hand over", () => {
+    // INPUT hands S1 to S4 and P1, K1, R1, C1: S9 and P2 were never labels in this call.
+    const { proposal } = checkStrategy(
+      { claims: [{ side: "you", text: "Backs up to S9 storage and P2 relays", proof: [] }], goal: { text: "Launch the A4 print range", measure: "orders" } },
+      INPUT,
+      "",
+    );
+    expect(proposal.claims.map((c) => c.text)).toEqual(["Backs up to S9 storage and P2 relays"]);
+    expect(proposal.goal).toMatchObject({ text: "Launch the A4 print range", measure: "orders" });
+  });
 });
 
 describe("what competitors write, in Propose", () => {

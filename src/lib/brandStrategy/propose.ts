@@ -14,7 +14,7 @@ import { PROFILE_DAYS, competitorProfiles, type CompetitorProfile, type Profiles
 import { listCompetitors } from "@/lib/competitors/store";
 import { cleanTitle } from "@/lib/competitors/titles";
 import { formatLabel, stageLabel } from "@/lib/competitors/view";
-import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { aiTellsIn, dashesIn, labelsIn } from "@/lib/content/writingRules";
 import { siteOf, sitesOf, tenantDomains } from "@/lib/knowledge/site";
 import { answeredLabels } from "@/lib/onboarding/choices";
 import { listBusinessFacts } from "@/lib/onboarding/store";
@@ -432,11 +432,20 @@ export function strategyPrompt(input: StrategyInput, today: string): string {
   });
 }
 
-/** A line of copy that keeps to house style and holds no address, or "" when it can't. */
-function lineOf(raw: unknown, max: number): string {
+/**
+ * A line of copy that keeps to house style and holds no address, nor any of the prompt's own
+ * labels (an S situation, or P, K, R, C or A evidence, such as "across S1, S4 and S6"): or ""
+ * when it can't.
+ */
+function lineOf(raw: unknown, max: number, labels: ReadonlySet<string>): string {
   const s = clean(typeof raw === "string" ? raw : "");
-  if (!s || s.length > max || hasAddress(s) || dashesIn(s).length || aiTellsIn(s).length) return "";
+  if (!s || s.length > max || hasAddress(s) || dashesIn(s).length || aiTellsIn(s).length || labelsIn(s, labels).length) return "";
   return s;
+}
+
+/** The labels a Propose call hands the model: S1 to Sn for its situations, and every evidence id. */
+function labelsOf(input: Pick<StrategyInput, "situations" | "evidence">): Set<string> {
+  return new Set([...input.situations.map((_, i) => `S${i + 1}`), ...input.evidence.map((e) => e.id)]);
 }
 
 const idsOf = (raw: unknown): string[] => (Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string").map((x) => x.trim().toUpperCase()) : []);
@@ -451,6 +460,8 @@ export interface Checked {
 export function checkStrategy(raw: unknown, input: StrategyInput, at: string): Checked {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const dropped = { focus: 0, claims: 0, isNot: 0 };
+  const labels = labelsOf(input);
+  const line = (x: unknown, max: number) => lineOf(x, max, labels);
 
   // Focus: S numbers of decided situations, 3 to 5.
   const focus: string[] = [];
@@ -475,7 +486,7 @@ export function checkStrategy(raw: unknown, input: StrategyInput, at: string): C
   const seen = new Set<string>();
   let theirs = 0;
   for (const c of Array.isArray(r.claims) ? (r.claims as Array<Record<string, unknown>>) : []) {
-    const text = lineOf(c?.text, L.claimText);
+    const text = line(c?.text, L.claimText);
     const side = c?.side === "them" ? "them" : "you";
     const refs = idsOf(c?.proof);
     const valid = refs.map((x) => byId.get(x)).filter((e): e is EvidenceItem => Boolean(e));
@@ -517,20 +528,20 @@ export function checkStrategy(raw: unknown, input: StrategyInput, at: string): C
   const have = new Set(input.identity.isNot.map(fold));
   const isNotProposals: IsNotProposal[] = [];
   for (const x of Array.isArray(r.isNot) ? (r.isNot as Array<Record<string, unknown>>) : []) {
-    const text = lineOf(x?.text, L.isNotText);
+    const text = line(x?.text, L.isNotText);
     if (!text || have.has(fold(text)) || isNotProposals.length >= MAX_IS_NOT) {
       dropped.isNot += 1;
       continue;
     }
     have.add(fold(text));
     const ref = typeof x?.competitor === "string" ? byId.get(x.competitor.trim().toUpperCase()) : undefined;
-    isNotProposals.push({ text, why: lineOf(x?.why, L.why), competitor: ref?.kind === "competitor" ? (ref.name ?? ref.title) : null, state: "proposed" });
+    isNotProposals.push({ text, why: line(x?.why, L.why), competitor: ref?.kind === "competitor" ? (ref.name ?? ref.title) : null, state: "proposed" });
   }
 
   // The quarter's goal: started from what the brand's people said, when they said anything.
   const g = (r.goal && typeof r.goal === "object" ? r.goal : {}) as Record<string, unknown>;
-  const goalText = lineOf(g.text, L.goalText);
-  const measure = lineOf(g.measure, L.measureText);
+  const goalText = line(g.text, L.goalText);
+  const measure = line(g.measure, L.measureText);
   const goal: StrategyGoal | null = goalText
     ? { text: goalText, measure, measureKey: measureKeyOf(measure), from: input.profile.length || input.goals.length ? "onboarding" : "vizzy", setAt: at }
     : null;

@@ -2,7 +2,25 @@ import { describe, expect, it } from "vitest";
 import type { KindCoverage } from "@/lib/metrics/outcomes";
 import { BrandStrategyDocSchema, StrategyMonthSchema, STRATEGY_MONTH_LIMITS, type StrategyDecision, type StrategyMonth } from "@/lib/types/brandStrategy";
 import type { PlanDecision } from "@/lib/types/contentStrategy";
-import { arrowFor, monthBefore, monthBounds, monthDue, monthLook, previousMonth, storedMonth, tooEarly, weeksIn, withMonth, type MonthInput } from "./monthRules";
+import {
+  arrowFor,
+  firstApprovedAt,
+  firstMonth,
+  lookDayOf,
+  mondayOfWeek,
+  monthBefore,
+  monthBounds,
+  monthCounts,
+  monthDue,
+  monthLook,
+  previousMonth,
+  storedMonth,
+  tooEarly,
+  weeksIn,
+  withMonth,
+  type MonthInput,
+  type MonthRecord,
+} from "./monthRules";
 
 // How it went's rules, with fixed numbers. A made-up physio clinic: its buying situations, articles,
 // competitors and numbers are all invented.
@@ -134,7 +152,7 @@ describe("the month's look", () => {
 });
 
 describe("when a month is due", () => {
-  const record = (over: Partial<{ approved: { at: string } | null; months: Array<{ month: string }>; monthsRetryAt: string | null }> = {}) => ({ approved: { at: "2026-10-20T09:00:00.000Z" }, months: [], monthsRetryAt: null, ...over });
+  const record = (over: Partial<MonthRecord> = {}): MonthRecord => ({ approved: { at: "2026-10-20T09:00:00.000Z" }, months: [], monthsRetryAt: null, ...over });
   const at = (iso: string) => Date.parse(iso);
   it("from the 2nd, the month before, once, for a strategy approved before this month", () => {
     expect(monthDue(record(), at("2026-12-01T23:00:00.000Z"))).toBeNull();
@@ -146,6 +164,26 @@ describe("when a month is due", () => {
     expect(monthDue(record(), at("2027-01-05T00:10:00.000Z"))).toBe("2026-12");
   });
 
+  it("starts with the first full month after the first approval, so no first month is partial", () => {
+    expect(firstMonth("2026-11-20T09:00:00.000Z")).toBe("2026-12");
+    expect(firstMonth("2026-12-01T00:00:00.000Z")).toBe("2026-12");
+    expect(firstMonth("2026-12-01T09:00:00.000Z")).toBe("2027-01");
+    expect(lookDayOf("2026-12")).toBe("2027-01-02");
+    // Approved on 20 Nov: November never counts, December is added up from 2 Jan.
+    const nov20 = record({ approved: { at: "2026-11-20T09:00:00.000Z" } });
+    expect(monthDue(nov20, at("2026-12-02T00:10:00.000Z"))).toBeNull();
+    expect(monthDue(nov20, at("2027-01-02T00:10:00.000Z"))).toBe("2026-12");
+    expect(monthCounts(nov20, "2026-11")).toBe(false);
+  });
+
+  it("decides from the first approval, so approving a change after a month ended never loses it", () => {
+    const changed = record({ approved: { at: "2026-12-10T09:00:00.000Z" }, history: [{ at: "2026-10-20T09:00:00.000Z" }] });
+    expect(firstApprovedAt(changed)).toBe("2026-10-20T09:00:00.000Z");
+    expect(monthDue(changed, at("2026-12-15T00:10:00.000Z"))).toBe("2026-11");
+    expect(monthCounts(changed, "2026-11")).toBe(true);
+    expect(firstApprovedAt(record({ approved: null, history: [{ at: "2026-10-20T09:00:00.000Z" }] }))).toBeNull();
+  });
+
   it("waits for a failed look's retry time", () => {
     expect(monthDue(record({ monthsRetryAt: "2026-12-03T00:10:00.000Z" }), at("2026-12-02T12:00:00.000Z"))).toBeNull();
     expect(monthDue(record({ monthsRetryAt: "2026-12-03T00:10:00.000Z" }), at("2026-12-03T00:11:00.000Z"))).toBe("2026-11");
@@ -155,6 +193,8 @@ describe("when a month is due", () => {
     expect(monthBounds("2026-02")).toEqual({ from: "2026-02-01", to: "2026-02-28", startIso: "2026-02-01T00:00:00.000Z", endIso: "2026-03-01T00:00:00.000Z" });
     expect(previousMonth(at("2026-01-15T00:00:00.000Z"))).toBe("2025-12");
     expect([...weeksIn("2026-11")]).toEqual(["2026-W45", "2026-W46", "2026-W47", "2026-W48", "2026-W49"]);
+    expect([...weeksIn("2026-11")].map(mondayOfWeek)).toEqual(["2026-11-02", "2026-11-09", "2026-11-16", "2026-11-23", "2026-11-30"]);
+    expect(mondayOfWeek("2027-W01")).toBe("2027-01-04");
   });
 });
 
@@ -210,8 +250,9 @@ describe("keeping months", () => {
 });
 
 describe("arrows against the month before", () => {
-  const nov = monthLook(input());
-  const oct = monthLook({ ...input(), month: "2026-10", outcomes: { ...input().outcomes, byPage: { k1: { searchClicks: 90, searchImpressions: 900 }, k4: { searchClicks: 20, searchImpressions: 100 } } } });
+  const days = (to: string) => ({ search: { from: "2026-01-01", to } });
+  const nov = monthLook(input({ outcomes: { ...input().outcomes, periods: days("2026-12-01") } }));
+  const oct = monthLook({ ...input(), month: "2026-10", outcomes: { ...input().outcomes, periods: days("2026-11-01"), byPage: { k1: { searchClicks: 90, searchImpressions: 900 }, k4: { searchClicks: 20, searchImpressions: 100 } } } });
 
   it("show only when both months had the same source for that kind", () => {
     expect(arrowFor(nov, oct, "sit_aaaaaa01", "search")).toBe("up");
@@ -229,9 +270,27 @@ describe("arrows against the month before", () => {
     expect(monthBefore([nov, { ...oct, month: "2026-09" }], "2026-11")).toBeNull();
   });
 
-  it("says it is too early to tell until a full month after approval", () => {
-    expect(tooEarly("2026-11-14T09:00:00.000Z", Date.parse("2026-12-13T09:00:00.000Z"))).toBe(true);
-    expect(tooEarly("2026-11-14T09:00:00.000Z", Date.parse("2026-12-14T09:00:00.000Z"))).toBe(false);
-    expect(tooEarly(null, Date.parse("2026-12-14T09:00:00.000Z"))).toBe(true);
+  it("show only when the results cover matching days: none for a look retried days later, or a month without its days", () => {
+    const late = (to: string) => ({ ...nov, resultsFor: { from: "2026-11-01", to } });
+    expect(arrowFor(late("2026-12-04"), oct, "sit_aaaaaa01", "search")).toBe("up");
+    expect(arrowFor(late("2026-12-05"), oct, "sit_aaaaaa01", "search")).toBeNull();
+    expect(arrowFor({ ...nov, resultsFor: null }, oct, "sit_aaaaaa01", "search")).toBeNull();
+    expect(arrowFor(nov, { ...oct, resultsFor: null }, "sit_aaaaaa01", "search")).toBeNull();
+  });
+
+  it("show for no row, the rest of the map too, when the focus changed between the months", () => {
+    const fewer = { ...oct, rows: oct.rows.filter((r) => r.id !== "sit_aaaaaa02") };
+    expect(arrowFor(nov, fewer, "sit_aaaaaa01", "search")).toBeNull();
+    expect(arrowFor(nov, fewer, "rest", "search")).toBeNull();
+    // The same focus in another order is the same focus.
+    expect(arrowFor(nov, { ...oct, rows: [...oct.rows].reverse() }, "rest", "search")).toBe("up");
+  });
+
+  it("is too early to tell until the first month's look day, and never once a month is kept", () => {
+    const nov14 = { approved: { at: "2026-11-14T09:00:00.000Z" }, months: [] };
+    expect(tooEarly(nov14, Date.parse("2027-01-01T23:00:00.000Z"))).toBe(true);
+    expect(tooEarly(nov14, Date.parse("2027-01-02T00:10:00.000Z"))).toBe(false);
+    expect(tooEarly({ ...nov14, months: [{ month: "2026-12" }] }, Date.parse("2026-12-20T00:00:00.000Z"))).toBe(false);
+    expect(tooEarly({ approved: null, months: [] }, Date.parse("2027-01-02T00:10:00.000Z"))).toBe(true);
   });
 });

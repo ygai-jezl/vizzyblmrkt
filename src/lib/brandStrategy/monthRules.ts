@@ -66,15 +66,60 @@ export function weeksIn(month: string): Set<string> {
   return out;
 }
 
+/** What deciding a month needs of the record. */
+export interface MonthRecord {
+  approved: { at: string } | null;
+  /** The approved strategies before the current one: the first approval is the earliest of them all. */
+  history?: ReadonlyArray<{ at: string }>;
+  months: Array<Pick<StrategyMonth, "month">>;
+  monthsRetryAt: string | null;
+}
+
+/** When the strategy was first approved: the earliest of the current approval and those kept before it. Null with none approved. */
+export function firstApprovedAt(doc: Pick<MonthRecord, "approved" | "history">): string | null {
+  if (!doc.approved) return null;
+  return [doc.approved.at, ...(doc.history ?? []).map((h) => h.at)].filter((at) => Number.isFinite(Date.parse(at))).sort()[0] ?? null;
+}
+
 /**
- * The month due a look at `nowMs`, or null: from the 2nd of a month, the month before, once, for a
- * strategy approved before this month began, and not before a failed look's retry time.
+ * The first month How it went looks at: the first full calendar month that starts on or after the
+ * first approval (approved 20 Nov: December, added up from 2 Jan). No first month is ever partial.
  */
-export function monthDue(doc: { approved: { at: string } | null; months: Array<Pick<StrategyMonth, "month">>; monthsRetryAt: string | null }, nowMs: number): string | null {
+export function firstMonth(firstAt: string): string {
+  const d = new Date(firstAt);
+  const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const month = start >= d.getTime() ? start : Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  return new Date(month).toISOString().slice(0, 7);
+}
+
+/** The day a month is added up: the 2nd of the month after it (YYYY-MM-DD). */
+export function lookDayOf(month: string): string {
+  return new Date(Date.parse(monthBounds(month).endIso) + DAY_MS).toISOString().slice(0, 10);
+}
+
+/** Whether a month may be looked at at all: on or after the first full month after the first approval. */
+export function monthCounts(doc: Pick<MonthRecord, "approved" | "history">, month: string): boolean {
+  const first = firstApprovedAt(doc);
+  return first !== null && month >= firstMonth(first);
+}
+
+/** The Monday an ISO week ("2026-W49") starts on (YYYY-MM-DD). */
+export function mondayOfWeek(week: string): string {
+  const [y, w] = week.split("-W").map(Number) as [number, number];
+  const jan4 = Date.UTC(y, 0, 4);
+  const day = new Date(jan4).getUTCDay() || 7;
+  return new Date(jan4 - (day - 1) * DAY_MS + (w - 1) * 7 * DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * The month due a look at `nowMs`, or null: from the 2nd of a month, the month before, once, when
+ * it counts (monthCounts), and not before a failed look's retry time.
+ */
+export function monthDue(doc: MonthRecord, nowMs: number): string | null {
   if (!doc.approved) return null;
   if (new Date(nowMs).getUTCDate() < 2) return null;
   const month = previousMonth(nowMs);
-  if (!(Date.parse(doc.approved.at) < Date.parse(monthBounds(month).endIso))) return null;
+  if (!monthCounts(doc, month)) return null;
   if (doc.months.some((m) => m.month === month)) return null;
   if (doc.monthsRetryAt && Date.parse(doc.monthsRetryAt) > nowMs) return null;
   return month;
@@ -248,15 +293,37 @@ export function withMonth(months: readonly StrategyMonth[], month: StrategyMonth
 
 export type Arrow = "up" | "down" | "same";
 
+/** Results days further apart than this aren't compared: a look retried later reads other days. */
+const DRIFT_DAYS = 3;
+
+/** The two months had the same focus situations, so every row, the rest of the map too, is about the same thing. */
+const sameFocus = (a: StrategyMonth, b: StrategyMonth) => {
+  const ids = (m: StrategyMonth) => m.rows.filter((r) => r.id !== MONTH_REST_ID).map((r) => r.id).sort().join(",");
+  return ids(a) === ids(b);
+};
+
+/** Both months say which days their results cover, and those days end no more than 3 days apart (by calendar month). */
+function sameWindow(a: StrategyMonth, b: StrategyMonth): boolean {
+  if (!a.resultsFor || !b.resultsFor) return false;
+  const shift = (day: string, months: number) => {
+    const d = new Date(`${day}T00:00:00.000Z`);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate());
+  };
+  // The later month's window should end a month after the earlier one's.
+  return Math.abs(Date.parse(`${a.resultsFor.to}T00:00:00.000Z`) - shift(b.resultsFor.to, 1)) <= DRIFT_DAYS * DAY_MS;
+}
+
 /**
  * How a row's number for one kind moved against the month before, or null when it can't be said:
- * only when both months had the same source for that kind (the same connection and number), so
- * connecting a tool partway never reads as a jump. Pure.
+ * only when both months had the same focus situations, the same source for that kind (the same
+ * connection and number) and results for matching days (ending within 3 days of a month apart), so
+ * connecting a tool, changing the focus or a retried look never reads as a jump. Pure.
  */
 export function arrowFor(month: StrategyMonth, before: StrategyMonth | null | undefined, rowId: string, kind: OutcomeKind): Arrow | null {
   const now = month.sources[kind];
   const then = before?.sources[kind];
   if (!now || !then || now.siteOnly || now.connectionId !== then.connectionId || now.measure !== then.measure) return null;
+  if (!sameFocus(month, before!) || !sameWindow(month, before!)) return null;
   const key = now.measure as keyof MonthNumbers;
   const a = month.rows.find((r) => r.id === rowId)?.m[key];
   const b = before!.rows.find((r) => r.id === rowId)?.m[key];
@@ -280,10 +347,13 @@ export function monthBefore(months: readonly StrategyMonth[], month: string): St
   return months.find((m) => m.month === before) ?? null;
 }
 
-/** "Too early to tell": less than a full calendar month since the strategy was approved. Pure. */
-export function tooEarly(approvedAt: string | null, nowMs: number): boolean {
-  if (!approvedAt) return true;
-  const a = new Date(approvedAt);
-  if (Number.isNaN(a.getTime())) return true;
-  return nowMs < Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + 1, a.getUTCDate(), a.getUTCHours(), a.getUTCMinutes());
+/**
+ * "Too early to tell": no month is kept yet and the first month's look day hasn't come. Once a month
+ * is kept it is never too early. Pure.
+ */
+export function tooEarly(doc: Pick<MonthRecord, "approved" | "history" | "months">, nowMs: number): boolean {
+  if (doc.months.length) return false;
+  const first = firstApprovedAt(doc);
+  if (!first) return true;
+  return new Date(nowMs).toISOString().slice(0, 10) < lookDayOf(firstMonth(first));
 }

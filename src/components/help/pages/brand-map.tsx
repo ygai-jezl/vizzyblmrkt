@@ -17,6 +17,7 @@ import { NOT_ARTICLES_LABEL, PLAN_ERRORS } from "@/components/admin/brand-kit/co
 
 /** How it went's lines for a kind not measured, as the Strategy tab says them. */
 const KEY_ACTIONS_LINE = OUTCOME_WORDS.missing({ kind: "key_actions", state: "not_connected", could: [{ connectorId: "google-analytics", name: "Google Analytics 4", href: "", siteOnly: false }] });
+const REST_QUESTIONS = `${HOW_IT_WENT_WORDS.restQuestions.charAt(0).toLowerCase()}${HOW_IT_WENT_WORDS.restQuestions.slice(1)}`;
 const SHARE_LINE = OUTCOME_WORDS.missing({ kind: "search", state: "not_shared", connectionId: "", connectorId: "search-console", connector: "Google Search Console", href: "" });
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled(), aiAnswers = isAiAnswersPlanningEnabled() }: HelpBodyProps = {}) {
@@ -275,16 +276,20 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             Where your copy of YouGrow adds up how the strategy went, <strong>How it went</strong> shows each month from the 2nd
             of the next, with a month picker: your focus situations beside <strong>{REST_TEXT}</strong>, each with its articles
             live (and how many went live that month), its questions answered, one column for each kind of result it can measure
-            and their articles that month. Until a full month has passed since you approved, it reads{" "}
-            <strong>{HOW_IT_WENT_WORDS.tooEarly}</strong> An arrow shows how a number moved against the month before, only when
-            both months had the same source, so connecting a tool partway never reads as a jump. Under the table it counts the
-            roadmap entries that were due and how many went live, and what your team changed in the strategy that month.
+            and their articles that month. It starts with the first full calendar month after you first approve (approve on 20
+            November and December comes first, added up on 2 January), and until then it reads{" "}
+            <strong>{HOW_IT_WENT_WORDS.tooEarly}</strong> Each month is added up once and never changed. An arrow shows how a
+            number moved against the month before, only when both months had the same focus situations, the same source and
+            results for matching days, so connecting a tool or changing your focus never reads as a jump. In{" "}
+            <strong>{REST_TEXT}</strong>, {REST_QUESTIONS} Under the table it counts the roadmap entries that were due and how
+            many went live, and what your team changed in the strategy that month.
           </P>
           <P>
             It measures from whatever you&apos;ve connected on <Open href="/admin/account/connections">Settings › Connections</Open>{" "}
             and shared with your team and Vizzy: Google Search Console for search, Google Analytics for visits and sign-ups,
             Cloudflare for visits to your whole site (it can&apos;t say which situations bring them), and a tool that tracks how
-            often AI engines cite your pages. One connection counts for each kind, so nothing is counted twice. <strong>{OUTCOME_WORDS.lead}</strong>{" "}
+            often AI engines cite your pages. One connection counts for each kind, so nothing is counted twice. When a connected tool can&apos;t be read, the month
+            waits a day and tries again, twice at most, then is kept with that kind marked as not read. <strong>{OUTCOME_WORDS.lead}</strong>{" "}
             says what each missing one would add, such as &quot;{KEY_ACTIONS_LINE}&quot;, or &quot;{SHARE_LINE}&quot; for one
             that is connected but not shared, each with its link. With nothing connected, it shows your articles and answered
             questions only. Vizzy reads the latest month and what to connect.

@@ -103,7 +103,10 @@ function MonthTable({ month, before }: { month: ShownMonth; before: ShownMonth |
               <td className="py-1 pr-3">
                 {n(r.live)} <span className="text-[11px] text-neutral-500">(+{n(r.newLive)})</span>
               </td>
-              <td className="py-1 pr-3">{r.questions > 0 ? W.answered(r.answered, r.questions) : <span className="text-neutral-500">{W.noQuestions}</span>}</td>
+              <td className="py-1 pr-3" title={r.id === "rest" ? W.restQuestions : undefined}>
+                {r.questions > 0 ? W.answered(r.answered, r.questions) : <span className="text-neutral-500">{W.noQuestions}</span>}
+                {r.id === "rest" && r.questions > 0 ? <span className="text-neutral-500">*</span> : null}
+              </td>
               {kinds.map((k) => (
                 <td key={k} className="py-1 pr-3">
                   {cell(r.id, k)}
@@ -159,7 +162,7 @@ export function BrandMapHowItWent() {
         <p className="text-xs text-neutral-500">{W.noStrategy}</p>
       ) : view.tooEarly ? (
         <p className="text-xs text-neutral-500">
-          <span className="font-medium">{W.tooEarly}</span> {W.tooEarlyWhen(dayWords(view.approvedAt), dayWords(view.nextLookOn))}
+          <span className="font-medium">{W.tooEarly}</span> {W.tooEarlyWhen(dayWords(view.firstApprovedAt ?? view.approvedAt), dayWords(view.nextLookOn))}
         </p>
       ) : !month ? (
         <p className="text-xs text-neutral-500">{W.noMonthYet(dayWords(view.nextLookOn))}</p>
@@ -168,6 +171,7 @@ export function BrandMapHowItWent() {
           {month.partway && month.strategyAt ? <p className="text-[11px] text-neutral-500">{W.partway(dayWords(month.strategyAt))}</p> : null}
           <MonthTable month={month} before={before} />
           <div className="space-y-0.5 text-xs text-neutral-600 dark:text-neutral-300">
+            <p className="text-[11px] text-neutral-500">* {W.restQuestions}</p>
             {month.resultsFor ? <p className="text-[11px] text-neutral-500">{W.resultsFor(dayWords(month.resultsFor.from), dayWords(month.resultsFor.to))}</p> : null}
             {site ? <p>{W.site(site.visits, site.connector)}</p> : null}
             {month.roadmap && month.roadmap.due ? <p>{W.roadmap(month.roadmap.done, month.roadmap.due)}</p> : null}

@@ -1150,6 +1150,9 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     expect(text).toContain('"Connect Google Analytics 4 to see which focus situations bring sign-ups."');
     expect(text).toContain('"Share Google Search Console with your team and Vizzy to see which focus situations people find you for in search."');
     expect(text).toContain("**What we can measure:**");
+    expect(text).toContain("approve on 20 November and December comes first, added up on 2 January");
+    expect(text).toContain("In **Rest of your map**, a question on two of your situations counts in each.");
+    expect(text).toContain("the month waits a day and tries again, twice at most");
   });
 
   it("explains the Content plan while its switch is on, and leaves it out while it is off", () => {

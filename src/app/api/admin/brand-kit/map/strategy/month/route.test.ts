@@ -15,9 +15,9 @@ vi.mock("@/lib/brandStrategy/monthView", () => view);
 const route = await import("./route");
 
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
-const req = (method: string, origin?: string) =>
-  new Request("http://localhost/api/admin/brand-kit/map/strategy/month", { method, headers: { "content-type": "application/json", ...(origin ? { origin } : {}) } });
-const post = (origin?: string) => route.POST(req("POST", origin));
+const req = (method: string, origin?: string, body?: string) =>
+  new Request("http://localhost/api/admin/brand-kit/map/strategy/month", { method, headers: { "content-type": "application/json", ...(origin ? { origin } : {}) }, ...(body !== undefined ? { body } : {}) });
+const post = (origin?: string, body?: string) => route.POST(req("POST", origin, body));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,11 +69,16 @@ describe("POST /api/admin/brand-kit/map/strategy/month", () => {
     expect(view.runMonthFromRequest).not.toHaveBeenCalled();
   });
 
-  it("runs the look for the caller's own brand, with the brand from the session only", async () => {
+  it("runs the look, or a preview, for the caller's own brand, with the brand from the session only", async () => {
     vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
     const r = await post();
     expect(r.status).toBe(200);
-    expect(view.runMonthFromRequest).toHaveBeenCalledWith(admin);
+    expect(view.runMonthFromRequest).toHaveBeenCalledWith(admin, {});
+    await post(undefined, JSON.stringify({ preview: true }));
+    expect(view.runMonthFromRequest).toHaveBeenLastCalledWith(admin, { preview: true });
+    // A body that isn't JSON is refused before anything runs.
+    expect((await post(undefined, "{not json")).status).toBe(400);
+    expect(view.runMonthFromRequest).toHaveBeenCalledTimes(2);
     expect(limits.isRateLimited).toHaveBeenCalledWith("tenant:ten_A", expect.objectContaining({ prefix: "strategy_month" }), expect.anything());
   });
 });

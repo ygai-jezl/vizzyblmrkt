@@ -143,11 +143,13 @@ describe("Vizzy's get_brand_strategy with the weekly check (STRATEGY_CHECK_ENABL
 });
 
 describe("Vizzy's get_brand_strategy with How it went (STRATEGY_RESULTS_ENABLED)", () => {
+  // Approved on 25 Nov: December is the first full month, added up on 2 Jan.
   const NOV = {
-    month: "2026-11",
-    at: "2026-12-02T00:10:00.000Z",
+    month: "2026-12",
+    at: "2027-01-02T00:10:00.000Z",
     strategyAt: "2026-11-25T10:00:02.000Z",
-    partway: true,
+    partway: false,
+    resultsFor: { from: "2026-12-05", to: "2027-01-01" },
     rows: [
       { id: "sit_aaaaaa01", questions: 12, answered: 1, live: 4, newLive: 2, theirs: 3, m: { searchClicks: 120, searchImpressions: 3400 } },
       { id: "rest", questions: 40, answered: 9, live: 7, newLive: 1, theirs: 5, m: { searchClicks: 210, searchImpressions: 9000 } },
@@ -167,10 +169,11 @@ describe("Vizzy's get_brand_strategy with How it went (STRATEGY_RESULTS_ENABLED)
     await approved(db);
     await forTenant(A, db).brandStrategy.claim(brandStrategyDocId(A.tenantId), () => ({ months: [NOV] }));
     vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
-    const body = (await agentBrandStrategy(A, { db, ...at(Date.parse("2026-12-28T10:00:00.000Z")), catalog: allConnectors })).body as Record<string, unknown> & { meanings: Record<string, unknown> };
+    const body = (await agentBrandStrategy(A, { db, ...at(Date.parse("2027-01-10T10:00:00.000Z")), catalog: allConnectors })).body as Record<string, unknown> & { meanings: Record<string, unknown> };
     expect(body.howItWent).toMatchObject({
-      month: "2026-11",
-      approvedPartway: true,
+      month: "2026-12",
+      approvedPartway: false,
+      resultsFor: { from: "2026-12-05", to: "2027-01-01" },
       rows: [
         { situation: "A client asks why a rival is named", focus: true, focusQuestions: 12, focusLiveArticles: 1, focusArticlesLive: 4, focusArticlesNew: 2, focusTheirArticles: 3, focusSearchClicks: 120, focusSearchImpressions: 3400 },
         { situation: "Rest of your map", focus: false, focusArticlesLive: 7, focusSearchClicks: 210 },
@@ -197,7 +200,7 @@ describe("Vizzy's get_brand_strategy with How it went (STRATEGY_RESULTS_ENABLED)
     expect(keys).toEqual(expect.arrayContaining(["focusArticlesLive", "focusSearchClicks", "siteVisits", "roadmapDone", "starsKept", "checksDismissed"]));
   });
 
-  it("says it is too early to tell within a month of approval, and adds nothing with the switch off", async () => {
+  it("says it is too early to tell before the first full month, and adds nothing with the switch off", async () => {
     const db = new FakeFirestore();
     await approved(db);
     vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");

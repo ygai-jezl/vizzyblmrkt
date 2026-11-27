@@ -84,7 +84,7 @@ export function againstCompetitors(check: StrategyCheck | null, nowIso: string, 
 export const HOW_IT_WENT_NOTE =
   "Plain counts, added up by code once a month for the month before: each focus situation of the approved strategy beside the rest of the map. " +
   "Each kind of result comes from one connection, named in `sources`, so nothing is counted twice. A kind in `notMeasured` wasn't measured that month: never guess it. " +
-  "`siteVisits` is the whole site, never a situation's. Connected results cover the days in `resultsFor`, not the calendar month. Say what the numbers show; a person decides what to change.";
+  "`siteVisits` is the whole site, never a situation's. Connected results cover the days in `resultsFor`, not the calendar month. In the rest of the map, a question on two of its situations counts in each. Say what the numbers show; a person decides what to change.";
 
 export const MEASURING_NOTE =
   "What each kind of result can be measured from now. For a kind with `measuredBy: null`, `whatToSay` is the line to give and `link` where a person connects or shares it.";
@@ -109,7 +109,12 @@ const ROW_MEANING: Record<string, MeaningKey> = {
 export function howItWent(v: StrategyMonthsView) {
   const m = v.months[0];
   if (v.tooEarly || !m) {
-    return { month: null, tooEarly: v.tooEarly, nextLookOn: v.nextLookOn, note: v.tooEarly ? "Too early to tell: a month hasn't passed since the strategy was approved." : "No month has been added up yet." };
+    return {
+      month: null,
+      tooEarly: v.tooEarly,
+      nextLookOn: v.nextLookOn,
+      note: v.tooEarly ? "Too early to tell: How it went starts with the first full month after the strategy was first approved, added up on `nextLookOn`." : "No month has been added up yet.",
+    };
   }
   return {
     month: m.month,

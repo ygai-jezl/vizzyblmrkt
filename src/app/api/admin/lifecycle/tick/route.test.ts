@@ -16,7 +16,7 @@ const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenan
 vi.mock("@/lib/competitors/articleTick", () => (loaded.add("competitor-articles"), articles));
 const strategyCheck = vi.hoisted(() => ({ runStrategyChecks: vi.fn(async () => ({ brands: 2, open: 1, failed: 0 })) }));
 vi.mock("@/lib/brandStrategy/check", () => (loaded.add("strategy-check"), strategyCheck));
-const strategyMonth = vi.hoisted(() => ({ runStrategyMonths: vi.fn(async () => ({ brands: 1, kept: 1, failed: 0 })) }));
+const strategyMonth = vi.hoisted(() => ({ runStrategyMonths: vi.fn(async () => ({ brands: 1, kept: 1, held: 0, failed: 0 })) }));
 vi.mock("@/lib/brandStrategy/month", () => (loaded.add("strategy-month"), strategyMonth));
 const search = vi.hoisted(() => ({ runSearchSweeps: vi.fn(async () => ({ scanned: 1, indexed: 2 })) }));
 vi.mock("@/lib/search/sweep", () => (loaded.add("search"), search));
@@ -395,7 +395,7 @@ describe("each job's code loads only when its switch is on", () => {
     expect(raiseFollowups.runRaiseFollowups).not.toHaveBeenCalled();
   });
 
-  it("loads How it went's monthly look only with STRATEGY_RESULTS_ENABLED and the strategy on, within its own budget, whatever Competitors says", async () => {
+  it("loads How it went's monthly look only with STRATEGY_RESULTS_ENABLED and the strategy on, within its own 25 s budget, whatever Competitors says", async () => {
     vi.stubEnv("BRAND_MAP_ENABLED", "true");
     vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
     let post = await freshRoute();
@@ -405,13 +405,14 @@ describe("each job's code loads only when its switch is on", () => {
     post = await freshRoute();
     const before = Date.now();
     const res = await post(machine());
-    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", strategyMonth: { brands: 1, kept: 1, failed: 0 } });
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", strategyMonth: { brands: 1, kept: 1, held: 0, failed: 0 } });
     expect([...loaded]).toEqual(["strategy-month"]);
     expect(jobLines().some((l) => /^\[tick\] strategy-month \d+ms$/.test(l))).toBe(true);
     const [{ deadlineMs }] = strategyMonth.runStrategyMonths.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
-    expect(deadlineMs - before).toBeLessThanOrEqual(10_000 + 1000);
+    expect(deadlineMs - before).toBeLessThanOrEqual(25_000 + 1000);
+    expect(deadlineMs - before).toBeGreaterThan(20_000);
     // A run that looked at no brand adds nothing, and one that fails never fails the call.
-    strategyMonth.runStrategyMonths.mockResolvedValueOnce({ brands: 0, kept: 0, failed: 0 });
+    strategyMonth.runStrategyMonths.mockResolvedValueOnce({ brands: 0, kept: 0, held: 0, failed: 0 });
     expect(await (await post(machine())).json()).toEqual({ ok: true, mode: "all_tenants" });
     strategyMonth.runStrategyMonths.mockRejectedValueOnce(new Error("boom"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

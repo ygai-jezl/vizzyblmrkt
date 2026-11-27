@@ -538,6 +538,8 @@ export const BrandStrategyDocSchema = z.object({
   months: tolerantArray(StrategyMonthSchema, STRATEGY_MONTH_LIMITS.months),
   /** After a monthly look failed: not tried again before this. */
   monthsRetryAt: Stamp.nullable().catch(null).default(null),
+  /** Looks held back because a connected tool couldn't be read (2 at most, then the month is kept with it marked failed); 0 once a month is kept. */
+  monthsRetries: z.number().int().min(0).max(10).catch(0).default(0),
   createdAt: Stamp.catch("").default(""),
   updatedAt: Stamp.catch("").default(""),
 });

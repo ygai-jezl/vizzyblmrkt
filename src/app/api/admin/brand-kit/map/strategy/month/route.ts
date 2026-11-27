@@ -13,12 +13,22 @@ export async function GET(req: Request) {
 }
 
 /**
- * Add up last month's How it went for your own brand now (STRATEGY_RESULTS_ENABLED), in place of the
- * one kept: the dev check's way to run the monthly look by hand. Admins only, a few an hour.
+ * How it went by hand, for your own brand (STRATEGY_RESULTS_ENABLED): add up last month when it is due
+ * and not kept, or with {"preview": true} see this month so far without keeping it. Admins only, a
+ * few an hour.
  */
 export async function POST(req: Request) {
   const g = await resultsAdmin(req);
   if (!g.ok) return g.response;
+  const text = await req.text().catch(() => "");
+  let body: unknown = {};
+  if (text.trim()) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+    }
+  }
   if (await overLimit(g.ctx, MONTH_LIMIT)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  return runMonthFromRequest(g.ctx);
+  return runMonthFromRequest(g.ctx, body);
 }

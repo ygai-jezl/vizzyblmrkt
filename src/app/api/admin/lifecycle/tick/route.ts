@@ -84,8 +84,11 @@ const FRESHNESS_BUDGET_MS = 20_000;
 const REFRESH_BUDGET_MS = 90_000;
 /** The weekly strategy check (STRATEGY_CHECK_ENABLED): a few reads for each of up to 3 brands. */
 const STRATEGY_CHECK_BUDGET_MS = 10_000;
-/** How it went's monthly look (STRATEGY_RESULTS_ENABLED): a few reads for each of up to 3 brands. */
-const STRATEGY_MONTH_BUDGET_MS = 10_000;
+/**
+ * How it went's monthly look (STRATEGY_RESULTS_ENABLED): up to 3 brands, each started only with time
+ * left for the slowest connector's live read (up to 20 s), like connected data's lane.
+ */
+const STRATEGY_MONTH_BUDGET_MS = 25_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
 /** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */

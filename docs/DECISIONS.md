@@ -222,9 +222,16 @@ change or secret.
    the question only, so asking and answering move a status and embed nothing.
 10. **Every meaning cut-off is an `{ old, new }` pair** picked by its read switch: `LOOKS_LIKE`,
     `NEAR_SUBJECT`, `CANDIDATE_MIN_SIM` (and `OPEN_MIN_SIM`), `DUP_QUESTION_SIM`, `DUP_NOTE_SIM`,
-    `MIN_SIM` and both `COVERED_SIM`. The `new` values equal the old ones until
-    `scripts/measure-question-dupes.ts --model new` is run on dev with the made-up texts; the read
-    switches stay off until then. Real brands' comparisons go to the private plans branch only.
+    `MIN_SIM` and both `COVERED_SIM`. The `new` values were set from
+    `scripts/measure-question-dupes.ts --model new` run on dev with the made-up texts (3 to 8 pairs
+    a group) on **2026-11-27**: `LOOKS_LIKE` 0.91, `NEAR_SUBJECT` 0.7, `CANDIDATE_MIN_SIM` 0.55,
+    `DUP_QUESTION_SIM` 0.93, `DUP_NOTE_SIM` 0.83, `MIN_SIM` and both `COVERED_SIM` 0.66. Each keeps
+    the job its `old` value does: the two floors (`CANDIDATE_MIN_SIM`, `NEAR_SUBJECT`) stay low;
+    the two that drop a question (`DUP_QUESTION_SIM`, `DUP_NOTE_SIM`) keep no wrong drop with the old
+    margin; `LOOKS_LIKE` sits in the new gap on its strict side; the competitor pairs sit just above
+    the highest article that doesn't answer, so nothing is called uncovered by mistake. A match by
+    shared words keeps `NEAR_SUBJECT_WORDS` (0.6) whichever store is on. The numbers are in each
+    constant's comment. Real brands' comparisons go to the private plans branch only.
 11. **Writes go to both stores until the retire switch.** Removing a subject, situation, note or a
     competitor's articles, ticking that a note names a customer, and reading a listing page again
     take their entries out of brand search at once, forced as erasing a connection's searches is,

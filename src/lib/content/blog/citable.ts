@@ -11,6 +11,7 @@ import { focusedBrief, isChoosingQuestion, isSloganLabel } from "./focus";
 import { isBlogDatesUiEnabled } from "@/lib/brandMap/flags";
 import { hasAsciiTable } from "./asciiTables";
 import { fold } from "@/lib/brandMap/changes";
+import { isNotEnglish } from "@/lib/i18n/writingLanguage";
 
 /**
  * The CITABLE check — a blog article read against the seven things that make a page
@@ -128,14 +129,15 @@ export function seenNotes(brief: BlogBrief): string[] {
   ];
 }
 
-function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: ArticleMap | null): CitableItem[] {
+function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: ArticleMap | null, english = true): CitableItem[] {
   const out: CitableItem[] = [];
   const add = (id: string, label: string, status: CitableStatus, detail: string, fix = "") =>
     out.push({ id, letter: "V", label, status, detail, fix: status === "pass" ? "" : fix });
 
   const notes = seenNotes(brief);
   const claims = [...new Set([...o.plain.matchAll(new RegExp(EXPERIENCE.source, "gi"))].map((m) => m[0].toLowerCase()))];
-  if (notes.length) {
+  // Claims of experience are found by their English words: an article in another language skips this item.
+  if (english && notes.length) {
     add(
       "v_experience",
       "Speaks from experience",
@@ -143,7 +145,7 @@ function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: 
       claims.length ? `Uses what your team has seen (${plural(notes.length, "note")}).` : `${plural(notes.length, "note")} from your team, not used yet.`,
       "Work the brand's notes into the sections where they bear most, in the first person plural, keeping every specific and adding none.",
     );
-  } else {
+  } else if (english) {
     add(
       "v_experience",
       "Speaks from experience",
@@ -193,7 +195,7 @@ function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: 
   );
 
   const wrong = o.sections.some((sec) => WRONG.test(sec.heading) || LIMITS_QUESTION.test(sec.heading));
-  add(
+  if (english) add(
     "v_wrong",
     "Says where it goes wrong",
     wrong ? "pass" : "warn",
@@ -258,6 +260,9 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   // reads (the Voice items). The article says which shape it was written in, and is read
   // against the brief its writer was given (no alternatives it wasn't asked about).
   const editorial = context.meta?.style === "editorial";
+  // An article in another language (CONTENT_LANGUAGE_ENABLED) skips the checks that look for English words.
+  const english = !isNotEnglish(context.meta?.language);
+  const relates = (text: string) => !english || RELATION_PHRASE.test(text);
   const given = context.brief ?? EMPTY_BLOG_BRIEF;
   const brief = editorial ? focusedBrief(given, o.title ?? given.primaryQuestion) : given;
   const add = (
@@ -336,7 +341,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
     "i_question",
     "I",
     "Title is the buyer's question",
-    !o.title ? "fail" : /\?\s*$/.test(o.title) || QUESTION_START.test(o.title) ? "pass" : "warn",
+    !o.title ? "fail" : /[?？؟]\s*$/.test(o.title) || QUESTION_START.test(o.title) ? "pass" : "warn",
     !o.title ? "No H1 title." : `“${o.title.slice(0, 90)}”`,
     "Word the H1 as the question the buyer asks.",
   );
@@ -387,7 +392,8 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   const map = context.map ?? null;
   const brand = map?.identity.name ? said(map.identity.name) : brief.publisherName || "the brand";
   if (map && map.identity.isNot.length) {
-    const headed = o.sections.some((sec) => LIMITS_QUESTION.test(sec.heading)) || o.faq.some((f) => LIMITS_QUESTION.test(f.question));
+    // The headings are read for English words; an article in another language is read for what the map says it is not.
+    const headed = english && (o.sections.some((sec) => LIMITS_QUESTION.test(sec.heading)) || o.faq.some((f) => LIMITS_QUESTION.test(f.question)));
     const says = !headed && map.identity.isNot.some((t) => fold(o.plain).includes(fold(t)));
     add(
       "i_limits",
@@ -611,9 +617,9 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       "e_entities",
       "E",
       "States how things relate",
-      RELATION_PHRASE.test(o.bluf) ? "pass" : "warn",
+      relates(o.bluf) ? "pass" : "warn",
       "The brief lists no entities; the opening " +
-        (RELATION_PHRASE.test(o.bluf) ? "says what the subject is." : "does not say plainly what the subject is."),
+        (relates(o.bluf) ? "says what the subject is." : "does not say plainly what the subject is."),
       "In the opening answer, say plainly what the subject is and which category it belongs to.",
     );
   } else {
@@ -621,7 +627,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       "e_entities",
       "E",
       "States how things relate",
-      named.length >= Math.ceil(brief.entities.length / 2) && RELATION_PHRASE.test(o.plain)
+      named.length >= Math.ceil(brief.entities.length / 2) && relates(o.plain)
         ? "pass"
         : "warn",
       `Names ${named.length} of ${brief.entities.length} entities from the brief.`,
@@ -638,7 +644,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       : "Markup needs a title, a Last updated date and an FAQ to mirror.",
   );
 
-  if (editorial) items.push(...voiceItems(markdown, o, brief, map));
+  if (editorial) items.push(...voiceItems(markdown, o, brief, map, english));
 
   if (context.heroCheck) {
     const h = context.meta?.hero;

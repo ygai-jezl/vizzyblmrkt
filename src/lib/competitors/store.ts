@@ -68,7 +68,10 @@ export async function getCompetitor(ctx: TenantContext, id: string, deps: StoreD
   return repoOf(ctx, deps).competitors.getById(id);
 }
 
-function blank(input: { name: string; origin: string; site: string; by: string | null; nameId: string | null }, now: string): Omit<Competitor, "id" | "tenantId"> {
+function blank(
+  input: { name: string; origin: string; site: string; by: string | null; nameId: string | null; group?: Competitor["group"] },
+  now: string,
+): Omit<Competitor, "id" | "tenantId"> {
   return {
     name: input.name,
     website: input.origin,
@@ -90,6 +93,8 @@ function blank(input: { name: string; origin: string; site: string; by: string |
     leaseUntil: null,
     leaseId: null,
     addedBy: input.by,
+    // Only a group someone chose is kept: a record made while it is off has no group field.
+    ...(input.group ? { group: input.group } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -104,7 +109,8 @@ export interface Monitored {
 /**
  * Start watching a competitor. One per site per brand, at most MAX_PER_BRAND. Its name goes on
  * the brand map's alternatives (addBrandMapName); a brand map that is off or refuses it never
- * stops the watching.
+ * stops the watching. A group, when given, is the finder's (the caller leaves it out while
+ * STRATEGY_COMPETITORS_ENABLED is off).
  */
 export async function monitorCompetitor(ctx: TenantContext, input: MonitorInput, deps: StoreDeps = {}): Promise<Result<Monitored>> {
   const site = websiteOf(input.website);
@@ -122,7 +128,7 @@ export async function monitorCompetitor(ctx: TenantContext, input: MonitorInput,
 
   const now = nowOf(deps).toISOString();
   const id = `cmp_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
-  const competitor = await repo.create(id, blank({ name: input.name, origin: site.origin, site: site.site, by: ctx.email ?? ctx.userId ?? null, nameId }, now));
+  const competitor = await repo.create(id, blank({ name: input.name, origin: site.origin, site: site.site, by: ctx.email ?? ctx.userId ?? null, nameId, group: input.group ?? null }, now));
   return { ok: true, value: { competitor, brandMap } };
 }
 
@@ -146,13 +152,17 @@ export async function onBrandMap(ctx: TenantContext, competitors: Competitor[], 
   return new Set(competitors.filter((c) => findName(read.map, c.name)).map((c) => c.id));
 }
 
-/** A person's change: rename, choose the news page or the sitemap, pause or resume. */
+/**
+ * A person's change: rename, choose the news page or the sitemap, pause or resume, or put it in a
+ * group (null: not grouped). The caller leaves `group` out while STRATEGY_COMPETITORS_ENABLED is off.
+ */
 export async function updateCompetitor(ctx: TenantContext, id: string, patch: CompetitorPatch, deps: StoreDeps = {}): Promise<Result<Competitor>> {
   const c = await getCompetitor(ctx, id, deps);
   if (!c) return { ok: false, status: 404, error: "not_found" };
   const now = nowOf(deps).toISOString();
   const next: Partial<Competitor> = { updatedAt: now };
   if (patch.name !== undefined) next.name = patch.name;
+  if (patch.group !== undefined) next.group = patch.group;
   if (patch.newsUrl !== undefined) {
     const url = pageOnSite(patch.newsUrl, c.site);
     if (!url) return { ok: false, status: 400, error: "not_on_their_site" };

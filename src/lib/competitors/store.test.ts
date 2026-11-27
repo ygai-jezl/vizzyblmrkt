@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -144,6 +146,22 @@ describe("a person's changes", () => {
     await forTenant(ctx, db).competitors.update(id, { status: "needs_you", problem: "no_sitemap", news: null, failures: 3 });
     const retried = await retryCompetitor(ctx, id, { db });
     expect(retried.ok && retried.value).toMatchObject({ status: "finding", stage: "plain", failures: 0, problem: null });
+  });
+
+  it("keep a group only when one is given: Monitor with the finder's, then a person's change or none", async () => {
+    const plain = await monitor("acme-dental.example");
+    if (!plain.ok) throw new Error(plain.error);
+    // Made with no group (as every Monitor is while the strategy isn't joined): no group field at all.
+    expect("group" in (await forTenant(ctx, db).competitors.getById(plain.value.competitor.id))!).toBe(false);
+    const found = await monitorCompetitor(ctx, { website: "brightsmile.example", name: "Brightsmile", group: "big" }, { db });
+    if (!found.ok) throw new Error(found.error);
+    expect((await forTenant(ctx, db).competitors.getById(found.value.competitor.id))?.group).toBe("big");
+    const grouped = await updateCompetitor(ctx, plain.value.competitor.id, { group: "one_job" }, { db });
+    expect(grouped.ok && grouped.value.group).toBe("one_job");
+    const ungrouped = await updateCompetitor(ctx, plain.value.competitor.id, { group: null }, { db });
+    expect(ungrouped.ok && ungrouped.value.group).toBeNull();
+    expect(await updateCompetitor(other, found.value.competitor.id, { group: "most" }, { db })).toMatchObject({ ok: false, status: 404 });
+    expect((await forTenant(ctx, db).competitors.getById(found.value.competitor.id))?.group).toBe("big");
   });
 
   it("are refused for another brand's competitor", async () => {

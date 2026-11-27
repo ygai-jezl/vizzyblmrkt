@@ -8,6 +8,7 @@ import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competi
 import { listCompetitors, onBrandMap, unseenChanges } from "@/lib/competitors/store";
 import { summaryOf } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
+import { competitorsDoor } from "@/lib/brandStrategy/adminApi";
 import { COMPETITOR_LIMITS } from "@/lib/types/competitor";
 import { CompetitorsPage } from "@/components/admin/brand-kit/CompetitorsPage";
 
@@ -21,16 +22,17 @@ export default async function CompetitorsRoute({ searchParams }: { searchParams:
   const ctx = await requireAdminContext();
   if (!isCompetitorsEnabled()) notFound();
   const included = await brandCanUse(ctx, "competitors");
-  const list = included
+  const { list, door } = included
     ? await (async () => {
         const competitors = await listCompetitors(ctx);
-        const [changes, mapped] = await Promise.all([unseenChanges(ctx), onBrandMap(ctx, competitors)]);
-        return competitors.map((c) => summaryOf(c, changes, mapped.has(c.id)));
+        // Joined to the strategy (STRATEGY_COMPETITORS_ENABLED): the finder's suggestions and Find competitors here too.
+        const [changes, mapped, joined] = await Promise.all([unseenChanges(ctx), onBrandMap(ctx, competitors), competitorsDoor(ctx, competitors).catch(() => null)]);
+        return { list: competitors.map((c) => summaryOf(c, changes, mapped.has(c.id))), door: joined };
       })().catch((err) => {
         console.error("[competitors] read failed", err);
-        return [];
+        return { list: [], door: null };
       })
-    : [];
+    : { list: [], door: null };
   const coverage = included && isCompetitorArticlesEnabled() && (await brandCanUse(ctx, "competitor_articles"));
   const prefill = ((await searchParams).name ?? "").replace(/[\r\n]/g, " ").trim().slice(0, COMPETITOR_LIMITS.MAX_NAME);
 
@@ -55,7 +57,7 @@ export default async function CompetitorsRoute({ searchParams }: { searchParams:
         ) : null}
       </div>
       {included ? (
-        <CompetitorsPage initial={list} canEdit={ctx.role === "admin"} prefillName={prefill} />
+        <CompetitorsPage initial={list} canEdit={ctx.role === "admin"} prefillName={prefill} door={door} />
       ) : (
         <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
           Competitors isn&rsquo;t included for this brand.

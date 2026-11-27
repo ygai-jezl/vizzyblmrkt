@@ -265,6 +265,11 @@ export interface MoveFieldValuesResult {
   kept: string[];
   /** Field ids that would push the new record past its budget: left on the old one. */
   tooLarge: string[];
+  /**
+   * Field ids whose values are being erased (`erasingSince`, Settings › History): cleared from the old
+   * record and never moved, with no event, since one would copy the value into its `before`.
+   */
+  dropped: string[];
   /** The old record holds no values after this. */
   emptied: boolean;
   /** The old record's key (its address, phone or pu: key), to sync it once emptied. Never log it. */
@@ -277,7 +282,9 @@ export interface MoveFieldValuesResult {
  * has none for that field (the new record's own values win, and a value it already holds just
  * leaves the old record), with a record.field_changed on the new record (source "sync") and one
  * clearing it on the old, and both records' field tags in step. Archived fields' values move too.
- * A value that would push the new record past RECORD_BYTE_BUDGET stays on the old one.
+ * A value that would push the new record past RECORD_BYTE_BUDGET stays on the old one. A field
+ * whose values are being erased (`erasingSince`) is dropped from the old record instead of moved,
+ * with no event, so an erase that is part way through never has a value move ahead of it.
  *
  * Only off a record the move left behind: one still in Everyone (a sign-up, another product user,
  * added by hand) is still someone in People and keeps its values. Idempotent: a moved value is no
@@ -295,6 +302,7 @@ export async function moveRecordFieldValues(
     same: [],
     kept: [],
     tooLarge: [],
+    dropped: [],
     emptied: false,
     fromKey: null,
     ...over,
@@ -339,8 +347,15 @@ export async function moveRecordFieldValues(
       const toPatch: Record<string, unknown> = {};
       const fromPatch: Record<string, unknown> = {};
       const out = nothing({ fromKey });
+      const erasing = new Set(fields.filter((f) => f.erasingSince).map((f) => f.key));
       for (const id of ids) {
         const value = oldValues[id]!;
+        if (erasing.has(id)) {
+          out.dropped.push(id);
+          delete leftValues[id];
+          fromPatch[`fields.${id}`] = Sentinel.delete();
+          continue;
+        }
         const theirs = newValues[id] ?? null;
         if (theirs !== null) {
           // The new record's own value wins; the same value only leaves the old record.
@@ -364,7 +379,7 @@ export async function moveRecordFieldValues(
         delete leftValues[id];
         fromPatch[`fields.${id}`] = Sentinel.delete();
       }
-      if (!out.moved.length && !out.same.length) return { ...out, outcome: "unchanged", emptied: false };
+      if (!out.moved.length && !out.same.length && !out.dropped.length) return { ...out, outcome: "unchanged", emptied: false };
 
       // Both records' field tags follow their values (none while out of Everyone).
       if (out.moved.length) {
@@ -397,6 +412,90 @@ export async function moveRecordFieldValues(
       return { ...out, outcome: "moved", emptied: Object.keys(leftValues).filter(isFieldId).length === 0 };
     }),
   );
+}
+
+export interface EraseFieldValuesPage {
+  /** Records read on this page. */
+  scanned: number;
+  /** Of them, those holding a value or a tag for the field. */
+  holders: number;
+  /** Of those, the ones whose value and tags were removed (0 on a count). */
+  erased: number;
+  /** The page's last id: the next page's `after`. */
+  last: string | null;
+  more: boolean;
+  /** Set when the erase stopped: the field is in use again, or no longer marked as erasing. */
+  stopped?: "field_live";
+}
+
+/**
+ * One page of an archived field's erase (Settings › History, ADR-0023): the brand's people or
+ * companies in document id order (an equality on the brand, so no composite index, and a company's
+ * updatedAt, which the erase changes, never decides the order). Each one holding `fields.<id>` or a
+ * `field:<id>:` tag loses both in one transaction that first re-reads the field list: unless the
+ * field is still archived and marked `erasingSince`, nothing is written and the page says
+ * `stopped`. It writes no record.field_changed event, since one would copy the value into its
+ * `before`. A count (`dryRun`) reads the same page and writes nothing. Resumable from `last`.
+ */
+export async function eraseFieldValuesPage(
+  ctx: TenantContext,
+  input: { object: RecordFieldObject; fieldId: string; after?: string | null; limit?: number; dryRun?: boolean; nowIso?: string },
+  opts: { db?: FirestoreLike } = {},
+): Promise<EraseFieldValuesPage> {
+  if (!isFieldId(input.fieldId)) throw new TenantValidationError("eraseFieldValuesPage takes a field id the brand made");
+  const collection = RECORD_COLLECTIONS[input.object];
+  if (!collection) throw new TenantValidationError("eraseFieldValuesPage takes a person or a company");
+  const limit = Math.min(Math.max(1, Math.floor(input.limit ?? 200)), 400);
+  const nowIso = now(input.nowIso);
+  const store = regionalStoreFor(ctx, opts.db);
+  const tagPrefix = `field:${input.fieldId}:`;
+  let q = store.collection(RECORD_COLLECTIONS[input.object]).where(TENANT_FIELD, "==", ctx.tenantId).orderBy("__name__", "asc");
+  if (q.select) q = q.select(TENANT_FIELD, "fields", "memberOf");
+  if (input.after) q = q.startAfter(input.after);
+  const snap = await q.limit(limit).get();
+  const holds = (data: Record<string, unknown>) => {
+    const values = data.fields && typeof data.fields === "object" ? (data.fields as Record<string, unknown>) : {};
+    const tags = Array.isArray(data.memberOf) ? (data.memberOf as unknown[]) : [];
+    return Object.hasOwn(values, input.fieldId) || tags.some((t) => typeof t === "string" && t.startsWith(tagPrefix));
+  };
+  const holderIds = snap.docs.filter((d) => (d.data() ?? {})[TENANT_FIELD] === ctx.tenantId && holds(d.data() ?? {})).map((d) => d.id);
+  const page: EraseFieldValuesPage = {
+    scanned: snap.docs.length,
+    holders: holderIds.length,
+    erased: 0,
+    last: snap.docs.length ? snap.docs[snap.docs.length - 1]!.id : (input.after ?? null),
+    more: snap.docs.length === limit,
+  };
+  if (input.dryRun) return page;
+  const listRef = store.collection(RECORD_FIELD_LISTS).doc(settingsDocId(ctx.tenantId, FIELD_LIST_SUBJECT[input.object]));
+  return store.runTransaction(async (txn): Promise<EraseFieldValuesPage> => {
+    const listSnap = await txn.get(listRef);
+    const refs = holderIds.map((id) => store.collection(RECORD_COLLECTIONS[input.object]).doc(id));
+    const snaps = await Promise.all(refs.map((ref) => txn.get(ref)));
+    const list = listSnap.exists ? (listSnap.data() ?? {}) : {};
+    if (listSnap.exists && list[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${RECORD_FIELD_LISTS}/${listRef.id} belongs to another tenant`);
+    const field = (Array.isArray(list.items) ? (list.items as RecordField[]) : []).find((f) => f.key === input.fieldId);
+    if (!field || !field.archivedAt || !field.erasingSince) return { ...page, holders: 0, more: false, stopped: "field_live" };
+    let erased = 0;
+    snaps.forEach((s, i) => {
+      if (!s.exists) return;
+      const data = s.data() ?? {};
+      if (data[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${collection}/${refs[i]!.id} belongs to another tenant`);
+      if (!holds(data)) return;
+      const patch: Record<string, unknown> = { updatedAt: nowIso };
+      const values = data.fields && typeof data.fields === "object" ? (data.fields as Record<string, unknown>) : {};
+      if (Object.hasOwn(values, input.fieldId)) patch[`fields.${input.fieldId}`] = Sentinel.delete();
+      const tags = Array.isArray(data.memberOf) ? (data.memberOf as string[]) : [];
+      const kept = tags.filter((t) => !(typeof t === "string" && t.startsWith(tagPrefix)));
+      if (kept.length !== tags.length) {
+        patch.memberOf = kept;
+        if (input.object === "person") patch.changedAt = nowIso;
+      }
+      txn.update(refs[i]!, patch);
+      erased += 1;
+    });
+    return { ...page, erased };
+  });
 }
 
 /**

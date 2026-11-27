@@ -44,6 +44,7 @@ const TRIGGER_LABEL: Record<PathTrigger, string> = {
   launch: "deleting a launch",
   retention: "retention",
   brand: "removing the record",
+  field: "an owner erasing an archived field's values",
 };
 
 const HOME_LABEL: Record<OntologyType["home"], string> = {

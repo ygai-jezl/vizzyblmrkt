@@ -6,6 +6,8 @@ import { BRAND_NOTE_KIND_LABEL, BRAND_NOTE_KINDS, BRAND_NOTE_LIMITS, BrandNoteKi
 import { isBrandNotesChatEnabled, isBrandNotesQuestionsEnabled } from "./flags";
 import { suggestKind } from "./prompts";
 import { createNote, listNotes, nearestNotes, summariseNotes, type NotesDeps } from "./store";
+import { recordDraft } from "@/lib/agentRecord/record";
+import { notePrint } from "@/lib/agentRecord/fingerprints";
 
 /**
  * What Vizzy may do with What we've seen (BRAND_NOTES_CHAT_ENABLED): read the brand's notes (a
@@ -109,6 +111,9 @@ export async function agentSuggestNotes(
       break;
     }
     filed += 1;
+    // The agent record: one record per note, by id and a fingerprint of its text, never the text
+    // itself (soft, never fails the save).
+    await recordDraft(ctx, { action: "brand_note.suggest", draft: { kind: "brand_note", ref: r.value.id }, href: LINK, fingerprint: notePrint(r.value) }, { db: deps.db });
   }
   return {
     status: 200,

@@ -4,7 +4,7 @@ import { forTenant, settingsDocId } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { listSettingsVersions } from "@/lib/settings/history";
 import { FIELD_LIMITS, type RecordField } from "@/lib/types/recordField";
-import { applyFieldListChange, readFieldList, restoreFieldListVersion, saveFieldListChange, type FieldListChange } from "./fieldList";
+import { applyFieldListChange, readFieldList, restoreFieldListVersion, saveFieldEraseMark, saveFieldListChange, type FieldListChange } from "./fieldList";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", role: "admin", userId: "u_admin" };
 const other: TenantContext = { ...ctx, tenantId: "ten_B" };
@@ -143,6 +143,68 @@ describe("the field list", () => {
     expect(latest).toMatchObject({ source: "restore", restoredFrom: 1 });
     expect(await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: 1, by }, db)).toMatchObject({ ok: false, error: "fields_changed" });
     expect(await restoreFieldListVersion(ctx, "person", { rev: 99, baseRev: 4, by }, db)).toEqual({ ok: false, error: "field_not_found" });
+  });
+
+  it("stamps the fields a restore archives with now, never an older version's archive date", async () => {
+    const db = new FakeFirestore();
+    const T0 = "2026-10-01T10:00:00.000Z";
+    await save(db, { op: "add", label: "Plan", type: "text" }, { fld: () => "fld_000000000001", nowIso: T0 }); // v1
+    await save(db, { op: "archive", key: "fld_000000000001" }, { nowIso: T0 }); // v2: archived on T0
+    await save(db, { op: "restore", key: "fld_000000000001" }, { nowIso: T1 }); // v3: live again
+    // Back to v2: archived again, from now, so its 30 days start now.
+    expect(await restoreFieldListVersion(ctx, "person", { rev: 2, baseRev: 3, by, nowIso: T2 }, db)).toMatchObject({ ok: true, list: { rev: 4 } });
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: T2, archivedBy: "u_admin" });
+    // Back to v2 once more while it is archived: it keeps when it was archived, never the older date.
+    const T3 = "2026-11-22T10:00:00.000Z";
+    expect(await restoreFieldListVersion(ctx, "person", { rev: 2, baseRev: 4, by: { type: "member", id: "u_other" }, nowIso: T3 }, db)).toMatchObject({ ok: true });
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: T2, archivedBy: "u_admin" });
+  });
+
+  it("keeps an erase through a restore and Bring back: a field being erased stays archived, an erased one comes back marked", async () => {
+    const db = new FakeFirestore();
+    const opt = ids("opt");
+    await save(db, { op: "add", label: "Tier", type: "select", options: ["Gold", "Silver"] }, { fld: () => "fld_000000000001", opt }); // v1
+    await save(db, { op: "archive", key: "fld_000000000001" }, { nowIso: T1 }); // v2
+    const T3 = "2026-11-22T10:00:00.000Z";
+    expect(await saveFieldEraseMark(ctx, "person", { key: "fld_000000000001", step: "start", by: "u_owner", nowIso: T2 }, db)).toMatchObject({ ok: true, message: "Started erasing the values of ‘Tier’", list: { rev: 3 } });
+    expect((await listSettingsVersions(ctx, "fields:person", {}, db)).versions[0]).toMatchObject({ source: "erase", by: { type: "member", id: "u_owner" } });
+    // While it runs, Bring back is refused and a restore of v1 keeps it archived and marked.
+    expect(await save(db, { op: "restore", key: "fld_000000000001" })).toMatchObject({ ok: false, error: "field_erasing" });
+    await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: 3, by, nowIso: T3 }, db);
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: T1, erasingSince: T2 });
+    // Done: the options stay, the mark goes, and a restore or Bring back keeps erasedAt.
+    expect(await saveFieldEraseMark(ctx, "person", { key: "fld_000000000001", step: "done", by: "u_owner", nowIso: T3 }, db)).toMatchObject({ ok: true, message: "Erased the values of ‘Tier’" });
+    let tier = (await readFieldList(ctx, "person", db)).items[0]!;
+    expect(tier).toMatchObject({ archivedAt: T1, erasedAt: T3, erasedBy: "u_owner" });
+    expect(tier).not.toHaveProperty("erasingSince");
+    expect(tier.options!.map((o) => o.label)).toEqual(["Gold", "Silver"]);
+    const rev = (await readFieldList(ctx, "person", db)).rev;
+    await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: rev, by, nowIso: "2026-11-23T10:00:00.000Z" }, db);
+    tier = (await readFieldList(ctx, "person", db)).items[0]!;
+    expect(tier).toMatchObject({ archivedAt: null, erasedAt: T3, erasedBy: "u_owner" });
+    await save(db, { op: "archive", key: "fld_000000000001" }, { nowIso: "2026-11-24T10:00:00.000Z" });
+    await save(db, { op: "restore", key: "fld_000000000001" }, { nowIso: "2026-11-25T10:00:00.000Z" });
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: null, erasedAt: T3 });
+    // Starting needs an archived field.
+    expect(await saveFieldEraseMark(ctx, "person", { key: "fld_000000000001", step: "start", by: "u_owner", nowIso: T3 }, db)).toMatchObject({ ok: false, error: "invalid_field" });
+  });
+
+  it("saves each erase step once: a step made already writes no new version", async () => {
+    const db = new FakeFirestore();
+    await save(db, { op: "add", label: "Tier", type: "select", options: ["Gold"] }, { fld: () => "fld_000000000001", opt: ids("opt") }); // v1
+    await save(db, { op: "archive", key: "fld_000000000001" }, { nowIso: T1 }); // v2
+    const step = (s: "start" | "done" | "stop", nowIso: string) => saveFieldEraseMark(ctx, "person", { key: "fld_000000000001", step: s, by: "u_owner", nowIso }, db);
+    const revs = async () => (await readFieldList(ctx, "person", db)).rev;
+    await step("start", T2);
+    await step("start", "2026-11-22T10:00:00.000Z");
+    expect(await revs()).toBe(3);
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ erasingSince: T2 });
+    await step("done", "2026-11-22T11:00:00.000Z");
+    // A retry after the trail couldn't be written: ok, and no second "Erased the values".
+    expect(await step("done", "2026-11-22T12:00:00.000Z")).toMatchObject({ ok: true, message: "Erased the values of ‘Tier’" });
+    expect(await step("stop", "2026-11-22T12:00:00.000Z")).toMatchObject({ ok: true });
+    expect(await revs()).toBe(4);
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ erasedAt: "2026-11-22T11:00:00.000Z" });
   });
 
   it("archives an option added after the version it restores, never dropping it", async () => {

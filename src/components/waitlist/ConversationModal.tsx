@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useLiveConversation } from "@/lib/hooks/useLiveConversation";
 import { translate, type MessageCatalog } from "@/lib/i18n/messages";
+import { VOICE_CHAT_PROBLEM_KEYS } from "@/lib/waitlist/voiceChat";
 
 /**
  * Post-signup Gemini Live VOICE conversation, shown as a modal launched from the
@@ -24,7 +25,7 @@ export function ConversationModal({
   onClose: () => void;
   messages: MessageCatalog;
 }) {
-  const { status, error, isModelSpeaking, transcript, result, start, end } =
+  const { status, problem, isModelSpeaking, transcript, result, endedEarly, start, retry, end } =
     useLiveConversation({ campaignId, referralToken });
   const captionsRef = useRef<HTMLDivElement | null>(null);
   const t = (key: string, vars?: Record<string, string | number>) =>
@@ -53,7 +54,7 @@ export function ConversationModal({
           <button
             type="button"
             onClick={() => {
-              if (live) void end();
+              if (live) end();
               onClose();
             }}
             aria-label={t("widget.common.close")}
@@ -71,7 +72,7 @@ export function ConversationModal({
             <p className="text-xs text-neutral-400">{t("widget.voice.micNotice")}</p>
             <button
               type="button"
-              onClick={() => void start()}
+              onClick={() => start()}
               className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white"
               style={{ backgroundColor: buttonColor }}
             >
@@ -114,7 +115,7 @@ export function ConversationModal({
             </div>
             <button
               type="button"
-              onClick={() => void end()}
+              onClick={() => end()}
               className="w-full rounded-md border border-neutral-300 px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
             >
               {t("widget.voice.endSave")}
@@ -128,6 +129,7 @@ export function ConversationModal({
 
         {status === "saved" ? (
           <>
+            {endedEarly ? <p className="text-sm text-neutral-500">{t("widget.voice.endedEarly")}</p> : null}
             <p className="text-sm text-neutral-500">
               {t("widget.voice.thanks")}
               {result?.bonus
@@ -149,17 +151,22 @@ export function ConversationModal({
 
         {status === "error" ? (
           <>
-            <p className="text-sm text-red-600">{error ?? t("widget.common.error")}</p>
+            <p className="text-sm text-red-600" role="alert">
+              {problem ? t(VOICE_CHAT_PROBLEM_KEYS[problem]) : t("widget.common.error")}
+            </p>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void start()}
-                disabled={busy}
-                className="flex-1 rounded-md px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                style={{ backgroundColor: buttonColor }}
-              >
-                {t("widget.voice.tryAgain")}
-              </button>
+              {/* A sign-up that already had its chat can't have another. */}
+              {problem !== "already_done" ? (
+                <button
+                  type="button"
+                  onClick={() => retry()}
+                  disabled={busy}
+                  className="flex-1 rounded-md px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                  style={{ backgroundColor: buttonColor }}
+                >
+                  {t("widget.voice.tryAgain")}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onClose}

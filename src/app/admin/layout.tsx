@@ -35,14 +35,19 @@ import {
   isVizzyFieldsEnabled,
   isVizzyTextFieldsEnabled,
 } from "@/lib/audience/peopleFlags";
+import { isViewsEnabled } from "@/lib/views/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import { isAiAnswersPlanningEnabled, isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOrganisationJoinEnabled } from "@/lib/plans/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isSearchFamilyIndexEnabled, isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
 import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
+import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 
@@ -222,6 +227,7 @@ export default async function AdminLayout({
             vizzyFields={isVizzyFieldsEnabled()}
             vizzyTextFields={isVizzyTextFieldsEnabled()}
             vizzyAddPerson={isVizzyAddPersonEnabled()}
+            views={isViewsEnabled()}
             catalogHistory={isCatalogHistoryEnabled()}
             connectorsChat={isConnectorsChatEnabled()}
             connectorsCollect={isConnectorsCollectEnabled()}
@@ -229,6 +235,8 @@ export default async function AdminLayout({
             connectorSignals={isConnectorSignalsEnabled()}
             aiAnswers={isAiAnswersPlanningEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
+            searchFamily={isSearchFamilyIndexEnabled()}
+            searchNoteReads={isSearchNoteReadsEnabled()}
             ideas={isIdeasEnabled()}
             ideaWords={ideaWords}
             sharing={isConnectorsSharingEnabled()}
@@ -237,6 +245,9 @@ export default async function AdminLayout({
             workVizzy={isWorkVizzyEnabled()}
             onboarding={isOnboardingEnabled()}
             onboardingVoice={isOnboardingVoiceEnabled()}
+            settingsHistory={isSettingsHistoryEnabled()}
+            nextActionCard={isNextActionCardEnabled()}
+            agentRecord={isAgentRecordEnabled()}
           >
             {shell}
           </ShellProvider>

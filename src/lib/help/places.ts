@@ -64,6 +64,8 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/account\/connections/, "/help/connected-accounts"],
   // Settings › Data model exists only with fields on, which needs the one People list, so the page is shown.
   [/^\/admin\/account\/data-model/, "/help/your-audience#fields"],
+  // Settings › History exists only with SETTINGS_HISTORY_ENABLED on, which is when its help page is served.
+  [/^\/admin\/account\/history/, "/help/history-and-restore"],
   // Settings › Organisation exists only while sharing (CONNECTORS_SHARING_ENABLED) or the join
   // (ORGANISATION_JOIN_ENABLED) is on, both server switches this file can't read. With sharing on it
   // opens Shared connections; with only the join on, the header passes `organisation: "brands"`.

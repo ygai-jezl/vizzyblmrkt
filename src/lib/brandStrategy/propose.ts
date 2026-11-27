@@ -7,8 +7,13 @@ import { clean, fence, hasAddress, oneLine } from "@/lib/brandMap/lineChecks";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { listSituations } from "@/lib/brandMap/situations";
 import { readBrandMap } from "@/lib/brandMap/store";
-import { competitorCoverage, type CoverageFlag, type CoverageView } from "@/lib/competitors/coverage";
+import { listRecentReadArticles } from "@/lib/competitors/articles";
+import { articleDay, competitorCoverage, type CoverageFlag, type CoverageView } from "@/lib/competitors/coverage";
+import { isCompetitorArticlesEnabled } from "@/lib/competitors/flags";
+import { PROFILE_DAYS, competitorProfiles, type CompetitorProfile, type ProfilesView } from "@/lib/competitors/profile";
 import { listCompetitors } from "@/lib/competitors/store";
+import { cleanTitle } from "@/lib/competitors/titles";
+import { formatLabel, stageLabel } from "@/lib/competitors/view";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { siteOf, sitesOf, tenantDomains } from "@/lib/knowledge/site";
 import { answeredLabels } from "@/lib/onboarding/choices";
@@ -21,7 +26,8 @@ import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandMapSituation } from "@/lib/types/brandMapRecords";
 import type { BusinessFact } from "@/lib/types/onboarding";
 import type { Tenant } from "@/lib/types/tenant";
-import type { Competitor } from "@/lib/types/competitor";
+import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
+import { brandCanUse } from "@/lib/plans/brandAccess";
 import {
   BRAND_STRATEGY_LIMITS as L,
   competitorsOf,
@@ -31,8 +37,11 @@ import {
   type StrategyProof,
   type StrategySource,
 } from "@/lib/types/brandStrategy";
+import { liveCompetitors, suggestionsOf } from "./competitors";
+import { isStrategyCompetitorsEnabled } from "./flags";
 import { measureKeyOf, newClaimId, readBrandStrategyDoc, saveProposal, type ProposedStrategy, type StrategyResult } from "./store";
 import type { BrandStrategyDoc } from "@/lib/types/brandStrategy";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Propose with Vizzy (BRAND_STRATEGY_ENABLED): ONE Gemini call drafts the strategy from what the
@@ -51,6 +60,12 @@ import type { BrandStrategyDoc } from "@/lib/types/brandStrategy";
  *  - no dashes as punctuation, none of the AI tells, no web address in any line;
  *  - each "what you're not" line is at most 80 characters and new.
  * Nothing it proposes is used until a person approves the strategy.
+ *
+ * Joined to Competitors (STRATEGY_COMPETITORS_ENABLED, prompt v2), it is still one call, with what
+ * the watched competitors wrote in the last 90 days: each competitor line says what they write,
+ * their stage and format mix and the asks they push; each situation line counts their articles
+ * on it; and their newest articles are A evidence, so a claim about them can stand on the article
+ * that makes it. All of it within PROFILE_CHARS. Off, the prompt is word for word v1's.
  */
 
 export const PROPOSE_PROMPT = "brand.strategy_propose";
@@ -63,6 +78,24 @@ const MAX_CLAIMS = 8;
 const MAX_THEIRS = 2;
 const MAX_IS_NOT = 3;
 const PROPOSE_MS = 45_000;
+/** The prompt's version while nothing from competitors' articles is added: its words are v1's. */
+export const PROPOSE_V1 = 1;
+/** What competitors write adds at most this many characters to the prompt (about 2,000 tokens). */
+export const PROFILE_CHARS = 8_000;
+/** Their articles handed over as A evidence, at most, and how much of each. */
+const MAX_ARTICLES = 12;
+const ARTICLE_TEXT = 240;
+/** The most of the cap the competitor lines may take, then the situation lines (with what the first left): the rest is for their articles. */
+const SHARE = { competitors: 0.3, situations: 0.3 } as const;
+
+/** The prompt's words that only show while joined to Competitors (v2); "" leaves v1's words. */
+export const JOINED_WORDS = {
+  situations_more: ", and how many articles its competitors wrote on it in the last 90 days",
+  evidence_more: " A: an article a competitor published, with what it argues.",
+  focus_more: " Weigh competitor articles too: a situation with none of their articles read may be open ground; one many of their articles target is contested and needs a sharper angle.",
+  claims_more: " A claim about a competitor may stand on one of their articles instead, an A, which shows it in their own words.",
+} as const;
+const JOINED_WORDS_CHARS = Object.values(JOINED_WORDS).reduce((n, w) => n + w.length, 0);
 
 /** One numbered piece of evidence the model may name as proof. */
 export interface EvidenceItem {
@@ -88,6 +121,11 @@ export interface StrategyInput {
   /** Competitors the brand watches, to add to the draft. */
   watched: Array<{ name: string; site: string | null }>;
   sources: StrategySource[];
+  /**
+   * Joined to Competitors and their articles read: what they wrote on each situation (by id), one
+   * short note each. Absent: the prompt is v1's, word for word.
+   */
+  competitorNotes?: Record<string, string>;
 }
 
 export interface ProposeDeps {
@@ -102,6 +140,8 @@ export interface ProposeDeps {
   facts?: (ctx: TenantContext) => Promise<BusinessFact[]>;
   workspaces?: (ctx: TenantContext) => Promise<Array<{ id: string; archivedAt?: string | null; updatedAt?: string }>>;
   usage?: AiUsage;
+  /** The articles read this month and the 3 before (tests). */
+  recent?: (ctx: TenantContext) => Promise<CompetitorArticle[]>;
 }
 
 const FLAG_WORD: Record<CoverageFlag, string> = {
@@ -127,6 +167,104 @@ export function competitorTopics(view: CoverageView | null, competitorId: string
     .join("; ");
 }
 
+/** "news 26, research 8": a tally in plain words. */
+const tallyWords = (rows: Array<{ key: string; count: number }>, label: (k: string) => string, top = 3) =>
+  rows
+    .slice(0, top)
+    .map((r) => `${label(r.key).toLowerCase()} ${r.count}`)
+    .join(", ");
+
+/** What a watched competitor writes, for its C line: formats, stages and asks, and what the counts cover. Pure. */
+export function profileNote(p: CompetitorProfile, days = PROFILE_DAYS): string {
+  if (!p.read) return "";
+  const parts = [`${p.read} ${p.read === 1 ? "article" : "articles"} read in ${days} days`];
+  if (p.totals.formats.length) parts.push(`formats: ${tallyWords(p.totals.formats, formatLabel)}`);
+  if (p.totals.stages.length) parts.push(`stages: ${tallyWords(p.totals.stages, stageLabel)}`);
+  const who = p.totals.companies[0]?.key || p.totals.roles[0]?.key;
+  if (who) parts.push(`written for: ${oneLine(who)}`);
+  if (p.fromPage) {
+    parts.push(`asks they push: ${p.totals.asks.length ? p.totals.asks.slice(0, 3).map((a) => `${a.key.replace(/_/g, " ")} ${a.count}`).join(", ") : "none"}`);
+    parts.push(`${p.totals.stats.total} stats, in the ${p.fromPage} read from their own pages`);
+  } else parts.push("read through Google, so no stats or asks");
+  return cut(oneLine(parts.join("; ")), 220);
+}
+
+/** What competitors wrote on one situation: "competitors: 14 articles in 90 days, Rivalco 8, Peerly 5". Pure. */
+export function situationNote(row: Pick<ProfilesView["situations"][number], "they" | "byCompetitor">, days = PROFILE_DAYS): string {
+  // Of the articles read: one they wrote but we haven't read isn't counted, so it never says "none".
+  if (!row.they) return `competitors: none read in ${days} days`;
+  const top = row.byCompetitor.slice(0, 3).map((b) => `${oneLine(b.name)} ${b.count}`);
+  const more = row.byCompetitor.length - top.length;
+  return cut(`competitors: ${row.they} ${row.they === 1 ? "article" : "articles"} in ${days} days, ${top.join(", ")}${more > 0 ? `, ${more} more` : ""}`, 120);
+}
+
+/**
+ * What the watched competitors wrote, made into Propose's evidence within `cap` characters, in
+ * order of worth: a note on each competitor's C line, one on each situation line, then their
+ * newest articles as A evidence, taken in turn from each competitor. Pure.
+ */
+export function competitorEvidence(
+  view: ProfilesView,
+  articles: CompetitorArticle[],
+  competitors: Array<Pick<Competitor, "id" | "name" | "site">>,
+  cap: number,
+): { competitorNotes: Record<string, string>; situationNotes: Record<string, string>; articles: EvidenceItem[] } {
+  let left = cap;
+  let part = 0;
+  const take = (text: string, extra: number) => {
+    const n = text.length + extra;
+    if (!text || n > left || n > part) return false;
+    left -= n;
+    part -= n;
+    return true;
+  };
+  const competitorNotes: Record<string, string> = {};
+  part = Math.floor(cap * SHARE.competitors);
+  for (const p of view.profiles) {
+    const note = profileNote(p, view.days);
+    // Added to its C line as ". What they write: <note>".
+    if (take(note, 19)) competitorNotes[p.id] = note;
+  }
+  const situationNotes: Record<string, string> = {};
+  part += Math.floor(cap * SHARE.situations);
+  for (const row of view.situations) {
+    const note = situationNote(row, view.days);
+    // Added inside the line's brackets as "; <note>".
+    if (take(note, 2)) situationNotes[row.id] = note;
+  }
+  part = left;
+  const names = new Map(competitors.map((c) => [c.id, c] as const));
+  const ids = new Set(view.profiles.filter((p) => p.read).map((p) => p.id));
+  const queues = [...ids].map((id) =>
+    articles
+      .filter((a) => a.competitorId === id && a.status === "read" && (articleDay(a) ?? "") >= view.since && /^https:\/\//i.test(a.url) && a.url.length <= 300 && (a.angle || a.question || a.summary))
+      .sort((a, b) => (articleDay(b) ?? "").localeCompare(articleDay(a) ?? "") || a.id.localeCompare(b.id)),
+  );
+  const picked: EvidenceItem[] = [];
+  for (let round = 0; picked.length < MAX_ARTICLES && queues.some((q) => q.length > round); round += 1) {
+    for (const q of queues) {
+      const a = q[round];
+      if (!a || picked.length >= MAX_ARTICLES) continue;
+      const c = names.get(a.competitorId);
+      if (!c) continue;
+      const title = oneLine(cleanTitle(a.title, [c.name, c.site])).slice(0, L.evidenceTitle) || "untitled";
+      const text = cut(oneLine(`${c.name}'s article "${title}": ${a.angle || a.question || a.summary}`), ARTICLE_TEXT);
+      const id = `A${picked.length + 1}`;
+      // Its line: "A1. <text> [page: <title>]" and a line break.
+      if (!take(text, id.length + 2 + ` [page: ${title}]`.length + 1)) break;
+      picked.push({ id, kind: "competitor", name: c.name, text, url: a.url, title });
+    }
+  }
+  return { competitorNotes, situationNotes, articles: picked };
+}
+
+/** Whether Propose reads what competitors wrote: joined, and the brand reads their articles. */
+async function readsCompetitorArticles(ctx: TenantContext, tenant: Tenant | null): Promise<boolean> {
+  if (!isStrategyCompetitorsEnabled() || !isCompetitorArticlesEnabled()) return false;
+  const load = async () => tenant;
+  return (await brandCanUse(ctx, "competitors", load).catch(() => false)) && (await brandCanUse(ctx, "competitor_articles", load).catch(() => false));
+}
+
 /** Read everything the propose step weighs, each part within a few seconds or left out. */
 export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps = {}): Promise<StrategyInput | null> {
   const read = await readBrandMap(ctx, deps.db).catch(() => null);
@@ -139,7 +277,9 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
   const statement = oneLine(id.statement || id.category || brandName);
 
   const listWorkspaces = deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: 200 }));
-  const [situations, pages, competitors, view, facts, workspaces, doc] = await Promise.all([
+  const joined = isStrategyCompetitorsEnabled();
+  const readArticles = await readsCompetitorArticles(ctx, tenant);
+  const [situations, pages, competitors, view, facts, workspaces, doc, recent] = await Promise.all([
     soft(listSituations(ctx, { db: deps.db }), [] as BrandMapSituation[]),
     soft(listBrandMapPages(ctx, deps.db), [] as BrandMapPage[]),
     soft(listCompetitors(ctx, { db: deps.db }), [] as Competitor[]),
@@ -147,6 +287,10 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
     soft((deps.facts ?? ((c) => listBusinessFacts(c, { db: deps.db })))(ctx), [] as BusinessFact[]),
     soft(listWorkspaces(ctx), [] as Array<{ id: string; archivedAt?: string | null; updatedAt?: string }>),
     soft(readBrandStrategyDoc(ctx, { db: deps.db }), null as BrandStrategyDoc | null),
+    // A read that fails gives null, never an empty list: no reads must never read as "nobody writes on it".
+    readArticles
+      ? (deps.recent ?? ((c) => listRecentReadArticles(c, { db: deps.db, now: deps.now, loadTenant: async () => tenant }).then((r) => r.articles)))(ctx).catch(() => null)
+      : Promise.resolve(null),
   ]);
   const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
   const live = workspaces
@@ -184,29 +328,57 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
       evidence.push({ id: `R${i + 1}`, kind: "product_map", text: cut(oneLine(h.snippet || h.title), 400), url: null, title: oneLine(h.title).slice(0, L.evidenceTitle) });
     });
   }
+  const decided = situations.filter((s) => s.status === "decided").sort((a, b) => b.counts.questions - a.counts.questions || a.order - b.order).slice(0, MAX_SITUATIONS);
+  // Joined and their articles read: what they wrote, within PROFILE_CHARS (the prompt's own added words count too).
+  // Only when at least one watched competitor has an article read in the window: with none, nothing
+  // is added and the prompt stays v1's.
+  const profiles = recent
+    ? competitorProfiles({
+        articles: recent,
+        competitors,
+        situations: decided.map((s) => ({ id: s.id, text: s.text, questions: s.counts.questions, answered: s.counts.answered })),
+        alternatives: [],
+        nowMs: (deps.now ?? (() => new Date()))().getTime(),
+      })
+    : null;
+  const theirs = recent && profiles?.profiles.some((p) => p.read > 0) ? competitorEvidence(profiles, recent, competitors, PROFILE_CHARS - JOINED_WORDS_CHARS) : null;
   const named = new Set<string>();
   let c = 0;
   for (const comp of competitors) {
     named.add(fold(comp.name));
     c += 1;
     const topics = competitorTopics(view, comp.id);
-    evidence.push({ id: `C${c}`, kind: "competitor", name: comp.name, text: `${oneLine(comp.name)} (${comp.site}), watched by the brand${topics ? `. Writes most on: ${topics}` : ""}`, url: comp.website, title: oneLine(comp.name) });
+    const writes = theirs?.competitorNotes[comp.id];
+    evidence.push({
+      id: `C${c}`,
+      kind: "competitor",
+      name: comp.name,
+      text: `${oneLine(comp.name)} (${comp.site}), watched by the brand${topics ? `. Writes most on: ${topics}` : ""}${writes ? `. What they write: ${writes}` : ""}`,
+      url: comp.website,
+      title: oneLine(comp.name),
+    });
   }
-  const found = doc?.draft ? competitorsOf(doc.draft) : [];
+  // Joined: the finder's suggestions that aren't watched or marked Not a competitor.
+  const found = joined
+    ? suggestionsOf(liveCompetitors(doc?.draft ?? null, competitors, doc?.finder.notCompetitors ?? [], doc?.finder.monitoredFinds ?? []))
+    : doc?.draft
+      ? competitorsOf(doc.draft)
+      : [];
   for (const f of found) {
     if (named.has(fold(f.name)) || !f.site) continue;
     named.add(fold(f.name));
     c += 1;
     evidence.push({ id: `C${c}`, kind: "competitor", name: f.name, text: `${oneLine(f.name)} (${f.site}), found by the competitor finder`, url: httpsOf(f.site), title: oneLine(f.name) });
   }
+  evidence.push(...(theirs?.articles ?? []));
 
-  const decided = situations.filter((s) => s.status === "decided").sort((a, b) => b.counts.questions - a.counts.questions || a.order - b.order).slice(0, MAX_SITUATIONS);
   const profile = answeredLabels(tenant?.businessProfile?.answers).map((a) => `${a.short}: ${a.label}`);
   const goals = facts.filter((f) => f.kind === "goal" || f.kind === "timeline").map((f) => `${f.kind === "goal" ? "Goal" : "Timeline"}: ${oneLine(f.text)}`);
   const sources: StrategySource[] = [
     ...(id.statement || id.category ? (["identity"] as const) : []),
     ...(decided.length ? (["situations", "coverage"] as const) : []),
     ...(competitors.length ? (["competitors"] as const) : []),
+    ...(theirs ? (["competitor_articles"] as const) : []),
     ...(found.length ? (["finder"] as const) : []),
     ...(p ? (["site_pages"] as const) : []),
     ...(k ? (["knowledge"] as const) : []),
@@ -224,6 +396,7 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
     evidence,
     watched: competitors.map((x) => ({ name: x.name, site: x.site || null })),
     sources,
+    ...(theirs ? { competitorNotes: theirs.situationNotes } : {}),
   };
 }
 
@@ -237,7 +410,11 @@ export function strategyPrompt(input: StrategyInput, today: string): string {
     ...i.isNot.map((t) => `It is not: ${t}`),
     ...i.avoid.map((a) => `Words it avoids: ${a.term}${a.useInstead ? ` (says ${a.useInstead})` : ""}`),
   ].filter(Boolean);
-  const situations = input.situations.map((s, n) => `S${n + 1}. ${oneLine(s.text)}${s.who ? ` (who: ${oneLine(s.who)})` : ""} [${s.counts.questions} questions, ${s.counts.answered} answered by a live article]`);
+  const notes = input.competitorNotes;
+  const situations = input.situations.map(
+    (s, n) =>
+      `S${n + 1}. ${oneLine(s.text)}${s.who ? ` (who: ${oneLine(s.who)})` : ""} [${s.counts.questions} questions, ${s.counts.answered} answered by a live article${notes?.[s.id] ? `; ${notes[s.id]}` : ""}]`,
+  );
   const evidence = input.evidence.map((e) => `${e.id}. ${e.text}${e.url ? ` [page: ${e.title || "untitled"}]` : ""}`);
   return renderPrompt(PROPOSE_PROMPT, {
     brand_name: input.brandName.replace(/["\n]/g, " ").slice(0, 120) || "(not named)",
@@ -250,6 +427,8 @@ export function strategyPrompt(input: StrategyInput, today: string): string {
     evidence: fence("evidence", evidence.join("\n") || "(none)"),
     focus_min: L.focusMin,
     focus_max: L.focusMax,
+    // v2's words, only while joined to Competitors with their articles read; "" is v1 word for word.
+    ...(notes ? JOINED_WORDS : { situations_more: "", evidence_more: "", focus_more: "", claims_more: "" }),
   });
 }
 
@@ -307,11 +486,16 @@ export function checkStrategy(raw: unknown, input: StrategyInput, at: string): C
     let proof: StrategyProof | null = null;
     let competitor: string | null = null;
     if (side === "them") {
-      const page = valid.find((e) => e.kind === "competitor");
-      const named = typeof c?.competitor === "string" ? (byId.get(c.competitor.trim().toUpperCase()) ?? input.evidence.find((e) => e.kind === "competitor" && fold(e.name) === fold(String(c.competitor)))) : undefined;
-      const who = page ?? (named?.kind === "competitor" ? named : undefined);
-      // A claim about a competitor names one the brand knows, and stands on their page or is a gap.
-      if (!who || (refs.length && !page) || theirs >= MAX_THEIRS) {
+      const said = typeof c?.competitor === "string" ? (byId.get(c.competitor.trim().toUpperCase()) ?? input.evidence.find((e) => e.kind === "competitor" && fold(e.name) === fold(String(c.competitor)))) : undefined;
+      const named = said?.kind === "competitor" ? said : undefined;
+      // Named: only that competitor's own pages and articles count as proof, never another's.
+      const theirsToo = (e: EvidenceItem) => e.kind === "competitor" && (!named || fold(e.name ?? e.title) === fold(named.name ?? named.title));
+      // One of their articles (A) before their homepage (C): it shows the claim in their own words.
+      const page = valid.find((e) => theirsToo(e) && e.id.startsWith("A")) ?? valid.find(theirsToo);
+      const who = named ?? page;
+      // A claim about a competitor names one the brand knows, and stands on their page or is a gap:
+      // proof that isn't theirs leaves it a gap under the one named, never filed under another.
+      if (!who || (refs.length && !page && !named) || theirs >= MAX_THEIRS) {
         dropped.claims += 1;
         continue;
       }
@@ -367,7 +551,7 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
   const now = (deps.now ?? (() => new Date()))();
   const tenant = deps.loadTenant ? await deps.loadTenant(ctx.tenantId).catch(() => null) : undefined;
   const usage = deps.usage ?? aiUsage(ctx, "brand_strategy", { db: deps.db, ...(tenant !== undefined ? { tenant } : {}) });
-  const raw = await (deps.generate ?? generateTextWithDeadline)(strategyPrompt(input, now.toISOString().slice(0, 10)), {
+  const raw = await (deps.generate ?? generateTextWithDeadline)(await inBrandLanguage(strategyPrompt(input, now.toISOString().slice(0, 10)), usage), {
     timeoutMs: PROPOSE_MS,
     json: true,
     temperature: 0.3,
@@ -379,7 +563,14 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
   const { proposal, dropped } = checkStrategy(parsed, input, now.toISOString());
   const saved: StrategyResult<BrandStrategyDoc> = await saveProposal(
     ctx,
-    { ...proposal, watched: input.watched, sources: input.sources, made: { promptId: PROPOSE_PROMPT, version: getPrompt(PROPOSE_PROMPT).version, model: TEXT_MODEL } },
+    {
+      ...proposal,
+      // Joined to Competitors, the tab lists the watched ones live: nothing is copied into the draft.
+      watched: isStrategyCompetitorsEnabled() ? [] : input.watched,
+      sources: input.sources,
+      // v2's words are in the prompt only with competitor notes; without them it is v1's, word for word.
+      made: { promptId: PROPOSE_PROMPT, version: input.competitorNotes ? getPrompt(PROPOSE_PROMPT).version : PROPOSE_V1, model: TEXT_MODEL },
+    },
     { db: deps.db, now: deps.now },
   );
   if (!saved.ok) return saved;

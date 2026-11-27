@@ -38,6 +38,8 @@ import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { Template } from "@/lib/types/template";
 import type { Tenant } from "@/lib/types/tenant";
+import { competitorArticleSource, isFamilyRecord, noteSearchSources, situationBody, situationSearchSource, subjectSearchSource } from "./family";
+import { isSearchFamilyIndexEnabled } from "./flags";
 import { contentHash } from "./text";
 import type { SearchKind, SearchSource, SearchStub } from "./types";
 
@@ -56,12 +58,17 @@ const lines = (...parts: Array<string | null | undefined | false>) => parts.filt
 const list = (label: string, items: unknown) =>
   Array.isArray(items) && items.length ? `${label}\n${items.map((i) => `- ${s(i)}`).filter((i) => i.length > 2).join("\n")}` : "";
 
-/** A stub whose record is already in memory: its version is the hash of the source itself. */
+/**
+ * A stub whose record is already in memory: its version is the hash of the source itself, and of
+ * its status only when it has one, so no other kind's version moves.
+ */
 export function stubOf(source: SearchSource): SearchStub {
+  const parts = [source.kind, source.ref, source.title, source.body, source.format, source.url, source.lang];
   return {
     kind: source.kind,
     ref: source.ref,
-    version: contentHash(source.kind, source.ref, source.title, source.body, source.format, source.url, source.lang),
+    version: contentHash(...parts, ...(source.status ? [`status:${source.status}`] : [])),
+    ...(source.status ? { status: source.status } : {}),
     load: async () => source,
   };
 }
@@ -158,7 +165,7 @@ export function brandKitSource(tenant: Pick<Tenant, "brandVoice" | "brandKit">, 
   return body ? { kind: "brand_kit", ref: "brand", title: "Brand voice and kit", body, url: "/admin/brand-kit/voice" } : null;
 }
 
-/** A brand map record that is on the map (decided). */
+/** A brand map record that is on the map (decided), as people's search keeps it without the family. */
 export function brandMapSource(kind: "subject" | "question" | "situation", r: BrandMapStoredRecord): SearchSource | null {
   if (r.status !== "decided") return null;
   if (kind === "subject") {
@@ -169,10 +176,7 @@ export function brandMapSource(kind: "subject" | "question" | "situation", r: Br
     const text = s(r.text);
     return text ? { kind, ref: r.ref, title: text, body: text, url: "/admin/brand-kit/map" } : null;
   }
-  const text = s(r.text);
-  return text
-    ? { kind, ref: r.ref, title: text, body: lines(text, s(r.who) && `Who: ${s(r.who)}`, s(r.want) && `Wants: ${s(r.want)}`, s(r.feel) && `Feels: ${s(r.feel)}`, s(r.wText)), url: "/admin/brand-kit/map" }
-    : null;
+  return situationBody(r);
 }
 
 /** A What we've seen note, or an open question asked of the team. Never one that may name a customer. */
@@ -298,16 +302,20 @@ export function learnedSource(e: LearnedEntry): SearchSource {
   return { kind: "learned", ref: e.id, title: learnedLine(e).slice(0, 160), body: lines(learnedLine(e), e.at.slice(0, 10)), url: "/admin/brand-kit/map" };
 }
 
-/** A competitor's site summary, and what each of its articles covers (never their quotes or authors). */
-export function competitorSources(c: Competitor, articles: CompetitorArticle[]): SearchSource[] {
+/**
+ * A competitor's site summary, and what each of its articles covers (never their quotes or
+ * authors). With the family (`family`, SEARCH_FAMILY_INDEX_ENABLED) each article is `kept`; the
+ * summary never has a status.
+ */
+export function competitorSources(c: Competitor, articles: CompetitorArticle[], opts: { family?: boolean } = {}): SearchSource[] {
   const url = `/admin/brand-kit/competitors/${c.id}`;
   const out: SearchSource[] = [];
   const summary = (c as { analysis?: { summary?: string } | null }).analysis?.summary;
   if (summary?.trim()) out.push({ kind: "competitor", ref: c.id, title: c.name, body: summary, url });
   for (const a of articles) {
     if (a.competitorId !== c.id) continue;
-    const body = lines(s(a.summary), s(a.question) && `Answers: ${s(a.question)}`, s(a.angle) && `Angle: ${s(a.angle)}`);
-    if (body) out.push({ kind: "competitor", ref: `${c.id}/${a.id}`, title: `${c.name}: ${a.title}`, body, url });
+    const src = competitorArticleSource(c, a, opts);
+    if (src) out.push(src);
   }
   return out;
 }
@@ -339,28 +347,57 @@ export interface BrandStubs {
   stubs: SearchStub[];
   /** The kinds read in full: only these may have records removed from the index. */
   complete: Set<SearchKind>;
+  /** The kinds whose read failed (logged): nothing of them was indexed or removed. */
+  failed?: Set<SearchKind>;
 }
+
+/** Which records readBrandStubs reads (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025). */
+export interface StubsOptions {
+  /** Only the brand map family: a brand without brand_search, on its family turn. */
+  familyOnly?: boolean;
+  /**
+   * Read the family's kinds (the brand map, notes and competitors) now. False leaves them for the
+   * brand's family turn: they are neither read nor removed. Default true.
+   */
+  familyNow?: boolean;
+  /** Only these kinds (scripts/search-backfill.ts --kinds); the others are neither read nor removed. */
+  kinds?: ReadonlySet<SearchKind>;
+}
+
+/** The reads that feed the brand map family's kinds: read on the family turn. */
+const FAMILY_READS: ReadonlyArray<readonly SearchKind[]> = [["subject", "question", "situation", "note"], ["competitor"]];
+const isFamilyRead = (kinds: readonly SearchKind[]) => FAMILY_READS.some((f) => f.length === kinds.length && f.every((k) => kinds.includes(k)));
 
 /**
  * Every record the brand has, as stubs. A kind whose read fails is left out of `complete`, so
- * nothing of that kind is removed from the index on a bad read.
+ * nothing of that kind is removed from the index on a bad read. With the family switch on, the
+ * family's reads can wait for the brand's turn (`familyNow`), and a brand without brand_search
+ * reads only the family (`familyOnly`); a kind not read is not complete.
  */
-export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
+export async function readBrandStubs(ctx: TenantContext, opts: StubsOptions = {}): Promise<BrandStubs> {
   const stubs: SearchStub[] = [];
   const readOk = new Set<SearchKind>();
   const failed = new Set<SearchKind>();
   const repo = forTenant(ctx);
+  const family = isSearchFamilyIndexEnabled();
+  const familyOnly = family && Boolean(opts.familyOnly);
+  const familyNow = !family || opts.familyNow !== false;
+  const wanted = (k: SearchKind) => !opts.kinds || opts.kinds.has(k);
   // A kind fed by two reads is complete only when both worked.
   const read = async (kinds: SearchKind[], fn: () => Promise<SearchStub[]>) => {
+    const familyKinds = isFamilyRead(kinds);
+    if ((familyOnly && !familyKinds) || (familyKinds && !familyNow) || !kinds.some(wanted)) return;
     try {
-      stubs.push(...(await fn()));
-      for (const k of kinds) readOk.add(k);
+      // Only what was asked for: a kind left out is not complete, so nothing of it is removed.
+      const got = (await fn()).filter((st) => wanted(st.kind) && (!familyOnly || isFamilyRecord(st.kind, st.ref)));
+      stubs.push(...got);
+      for (const k of kinds) if (wanted(k)) readOk.add(k);
     } catch (err) {
       for (const k of kinds) failed.add(k);
       console.warn(`[search] reading ${kinds.join(", ")} failed for ${ctx.tenantId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     }
   };
-  const workspaces = await repo.workspaces.find({ limit: 200 });
+  const workspaces = familyOnly ? [] : await repo.workspaces.find({ limit: 200 });
 
   await read(["article", "newsletter", "ebook", "post", "journey_email"], async () => {
     const out: SearchStub[] = [];
@@ -383,7 +420,7 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
     return src ? [stubOf(src)] : [];
   });
   // Open questions come from the brand map and from the notes, so both are read together.
-  await read(["subject", "question", "situation", "note"], async () => brandMapStubs(brandMapRecords(ctx), await listNotes(ctx)));
+  await read(["subject", "question", "situation", "note"], async () => brandMapStubs(brandMapRecords(ctx), await listNotes(ctx), { family }));
   await read(["research"], async () => {
     const imports = (await listImports(ctx)).map(importSource);
     const google = isBrandSignalsEnabled() ? (await readySignals(ctx, 1000)).map(signalSource) : [];
@@ -394,7 +431,7 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
   await read(["learned"], async () => (isAutopilotLearningEnabled() ? (await listLearned(ctx)).map((e) => stubOf(learnedSource(e))) : []));
   await read(["competitor"], async () => {
     const [competitors, articles] = await Promise.all([listCompetitors(ctx), listReadArticles(ctx)]);
-    return competitors.flatMap((c) => competitorSources(c, articles)).map(stubOf);
+    return competitors.flatMap((c) => competitorSources(c, articles, { family })).map(stubOf);
   });
   await read(["repo_map"], async () => {
     const out: SearchStub[] = [];
@@ -408,25 +445,57 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
   await read(["image"], async () => (await repo.imageAssets.find({ limit: 1000 })).map(imageSource).filter((x): x is SearchSource => x !== null).map(stubOf));
   await read(["knowledge"], async () => (await repo.ingestionTickets.find({ limit: 500 })).filter(isReadTicket).map((t) => knowledgeStub(ctx, t)));
   const complete = new Set([...readOk].filter((k) => !failed.has(k)));
-  return { stubs, complete };
+  return { stubs, complete, failed: new Set([...failed].filter(wanted)) };
 }
 
 /**
- * The brand map's records on the map, and the notes and open questions. Reads only decided
- * records: that is all search keeps, and the brand-and-status query has an index on all three
- * record kinds (questions have none for the brand alone sorted by ref).
+ * The brand map's records on the map, and the notes and open questions. Without the family, reads
+ * only decided records: that is all people's search keeps, and the brand-and-status query has an
+ * index on all three record kinds (questions have none for the brand alone sorted by ref).
+ *
+ * With the family (`family`, SEARCH_FAMILY_INDEX_ENABLED): subjects and situations decided or
+ * proposed, with their statuses, and each subject with its first questions. Questions are read once
+ * with status in [decided, proposed] (the same brand-and-status index) and grouped by subject; the
+ * brand map's own questions still go in decided only. Notes are kept with their statuses, and an
+ * answered question keeps a question entry beside its note (noteSearchSources).
  */
-export async function brandMapStubs(records: Pick<BrandMapRecordStore, "pageAll">, notes: BrandNote[]): Promise<SearchStub[]> {
+export async function brandMapStubs(records: Pick<BrandMapRecordStore, "pageAll">, notes: BrandNote[], opts: { family?: boolean } = {}): Promise<SearchStub[]> {
   const out: SearchStub[] = [];
-  for (const [kind, rk] of [["subject", "sub"], ["question", "q"], ["situation", "sit"]] as const) {
-    for (const r of await records.pageAll(rk, { where: [["status", "==", "decided"]] })) {
-      const src = brandMapSource(kind, r);
+  if (opts.family) {
+    const onMap = ["decided", "proposed"];
+    const [subjects, questions, situations] = await Promise.all([
+      records.pageAll("sub", { where: [["status", "in", onMap]] }),
+      records.pageAll("q", { where: [["status", "in", onMap]] }),
+      records.pageAll("sit", { where: [["status", "in", onMap]] }),
+    ]);
+    const bySubject = new Map<string, BrandMapStoredRecord[]>();
+    for (const q of questions) {
+      const id = s(q.subjectId);
+      if (id) bySubject.set(id, [...(bySubject.get(id) ?? []), q]);
+    }
+    for (const r of subjects) {
+      const src = subjectSearchSource(r, bySubject.get(r.ref) ?? []);
       if (src) out.push(stubOf(src));
+    }
+    for (const q of questions) {
+      const src = brandMapSource("question", q);
+      if (src) out.push(stubOf(src));
+    }
+    for (const r of situations) {
+      const src = situationSearchSource(r);
+      if (src) out.push(stubOf(src));
+    }
+  } else {
+    for (const [kind, rk] of [["subject", "sub"], ["question", "q"], ["situation", "sit"]] as const) {
+      for (const r of await records.pageAll(rk, { where: [["status", "==", "decided"]] })) {
+        const src = brandMapSource(kind, r);
+        if (src) out.push(stubOf(src));
+      }
     }
   }
   for (const n of notes) {
-    const src = noteSource(n);
-    if (src) out.push(stubOf(src));
+    // With the family, kept notes and the questions asked of the team carry their statuses.
+    for (const src of opts.family ? noteSearchSources(n) : [noteSource(n)].filter((x): x is SearchSource => x !== null)) out.push(stubOf(src));
   }
   return out;
 }

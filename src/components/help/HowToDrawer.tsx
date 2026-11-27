@@ -38,6 +38,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     vizzyFields: shell?.vizzyFields ?? false,
     vizzyTextFields: shell?.vizzyTextFields ?? false,
     vizzyAddPerson: shell?.vizzyAddPerson ?? false,
+    views: shell?.views ?? false,
     catalogHistory: shell?.catalogHistory ?? false,
     connectorsChat: shell?.connectorsChat ?? false,
     connectorsCollect: shell?.connectorsCollect ?? false,
@@ -45,6 +46,8 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     connectorSignals: shell?.connectorSignals ?? false,
     aiAnswers: shell?.aiAnswers ?? false,
     brandMapScale: shell?.brandMapScale ?? false,
+    searchFamily: shell?.searchFamily ?? false,
+    searchNoteReads: shell?.searchNoteReads ?? false,
     sharing: shell?.sharing ?? false,
     join: shell?.join ?? false,
     work: shell?.work ?? false,
@@ -53,6 +56,9 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     ideaWords: shell?.ideaWords ?? false,
     onboarding: shell?.onboarding ?? false,
     onboardingVoice: shell?.onboardingVoice ?? false,
+    settingsHistory: shell?.settingsHistory ?? false,
+    nextActionCard: shell?.nextActionCard ?? false,
+    agentRecord: shell?.agentRecord ?? false,
   };
 }
 

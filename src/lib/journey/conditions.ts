@@ -1,4 +1,5 @@
 import type { Signup } from "@/lib/types/signup";
+import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 import type { Campaign } from "@/lib/types/campaign";
 import type {
   JourneyCondition,
@@ -63,7 +64,8 @@ export const CONDITION_FIELDS: ConditionField[] = [
     label: "Used the voice chat",
     valueType: "boolean",
     operators: BOOL,
-    read: (c) => c.signup.aiConversation?.completed === true,
+    // A saved chat in which the person said nothing (a dropped call) is not a used one.
+    read: (c) => voiceChatDone(c.signup.aiConversation),
   },
   {
     key: "rank",

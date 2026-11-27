@@ -11,6 +11,7 @@ import {
   type ArticleBlock,
   type Inline,
 } from "@/lib/content/blog/markdown";
+import { dateLineLanguage } from "@/lib/content/blog/labels";
 
 /**
  * A blog article's Markdown as the reader will see it. It draws the SAME parse the HTML
@@ -83,7 +84,7 @@ function block(b: ArticleBlock, key: string, dateline: Dateline | null = null): 
       if (dateline && lastUpdatedOf(b.text)) {
         return (
           <p key={key} className="mt-2 text-xs text-neutral-500 first:mt-0 dark:text-neutral-400">
-            {datelineText(dateline, afterDateOf(b.text))}
+            {datelineText(dateline, afterDateOf(b.text), dateLineLanguage(b.text))}
           </p>
         );
       }

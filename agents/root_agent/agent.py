@@ -32,6 +32,7 @@ from .sub_agents.content_ops.agent import content_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
 from .tools.insights_summary import get_insights_summary
 from .tools.audience_counts import get_audience_counts
+from .tools.view_counts import get_view_counts
 from .tools.email_style import get_email_style, suggest_email_style
 from .tools.image_style import get_image_style, suggest_image_style
 from .tools.journey_style import get_journey_email_style, set_journey_email_style
@@ -46,11 +47,14 @@ from .tools.next_up import get_next_up
 from .tools.brand_strategy import get_brand_strategy
 from .tools.content_strategy import get_content_strategy
 from .tools.usage import get_usage
+from .tools.settings_history import get_settings_history
+from .tools.drafts import get_drafts
 from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
 from .tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact
+from .tools.next_action import get_next_action
 from .tools.work import draft_work_decision, draft_work_log, get_work, suggest_work_task
 
 root_agent = LlmAgent(
@@ -67,7 +71,8 @@ root_agent = LlmAgent(
     # retrieve_knowledge grounds answers on the launch's ingested docs/site/repos
     # (RAG); get_insights_summary answers "how are we doing?" from the Insights
     # numbers (aggregates only); get_audience_counts counts the audience by launch,
-    # product and stage (counts only, never a person); get/suggest_email_style read the brand-wide Email
+    # product and stage (counts only, never a person); get_view_counts lists the brand's saved views on
+    # People and counts up to 3 of them (read only, never a person); get/suggest_email_style read the brand-wide Email
     # style and save a suggestion an admin applies; get/set_journey_email_style read
     # and set one journey's own look, in its draft (Lifecycle Ops has them too);
     # get/suggest_image_style read the brand's image style and save a suggestion an admin applies;
@@ -86,6 +91,8 @@ root_agent = LlmAgent(
     # get_brand_strategy reads the brand's approved strategy, each claim with its proof (read only);
     # get_content_strategy reads the brand's approved content plan: pillars, the next weeks and the counts (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
+    # get_settings_history reads who changed the brand's fields, journeys, catalogs and team views, and any older version (read only);
+    # get_drafts reads what became of the drafts Vizzy, research and the autopilot made, from the agent record (read only);
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
     # review_article starts or moves on a refresh review of one and says what it proposes (never applies);
     # get_setup_status/read_help_page answer "what should I set up first?"
@@ -93,7 +100,8 @@ root_agent = LlmAgent(
     # new_person_propose fills in the New person form for an admin to confirm (never
     # consent); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
     # about the business (facts, quotes and conversations for admins), and suggest_business_fact
-    # files something new it heard for an admin to keep in About your business; get_work reads
+    # files something new it heard for an admin to keep in About your business; get_next_action reads
+    # Home's Your next action and what became of its steps (read only, admins); get_work reads
     # the organisation's Work tasks and daily log (read only), and
     # suggest_work_task/draft_work_log/draft_work_decision suggest a task for Review and draft a
     # Log note or a decision a person saves (never Must have, never Approve the plan).
@@ -102,6 +110,7 @@ root_agent = LlmAgent(
         retrieve_knowledge,
         get_insights_summary,
         get_audience_counts,
+        get_view_counts,
         get_email_style,
         suggest_email_style,
         get_image_style,
@@ -125,6 +134,8 @@ root_agent = LlmAgent(
         get_brand_strategy,
         get_content_strategy,
         get_usage,
+        get_settings_history,
+        get_drafts,
         list_articles_due,
         review_article,
         get_setup_status,
@@ -133,6 +144,7 @@ root_agent = LlmAgent(
         get_business_profile,
         read_onboarding_conversation,
         suggest_business_fact,
+        get_next_action,
         get_work,
         suggest_work_task,
         draft_work_log,

@@ -3,9 +3,13 @@ import { searchStoreFor } from "@/lib/tenant/searchIndex";
 import type { TenantContext } from "@/lib/tenant/types";
 import { SEARCH_EMBEDDING_MODEL } from "@/lib/agents/embeddings";
 import { canRerank } from "./rerank";
-import type { SearchKind, SearchStore } from "./types";
+import { shownToPeople, type SearchKind, type SearchStore } from "./types";
 
-/** What the Search card in Settings shows: what is in the index, where it lives, and how fresh it is. */
+/**
+ * What the Search card in Settings shows: what is in the index, where it lives, and how fresh it
+ * is. It counts only what people can find: proposals and answered questions kept for the readers
+ * that match by meaning (ADR-0025) are left out.
+ */
 export interface IndexSummary {
   records: number;
   chunks: number;
@@ -20,7 +24,7 @@ export interface IndexSummary {
 }
 
 export async function indexSummary(ctx: Pick<TenantContext, "tenantId" | "region">, deps: { store?: SearchStore } = {}): Promise<IndexSummary> {
-  const manifests = await (deps.store ?? searchStoreFor(ctx)).listManifests();
+  const manifests = (await (deps.store ?? searchStoreFor(ctx)).listManifests()).filter((m) => shownToPeople(m.status));
   const byKind: Partial<Record<SearchKind, number>> = {};
   let chunks = 0;
   let waitingForMeaning = 0;

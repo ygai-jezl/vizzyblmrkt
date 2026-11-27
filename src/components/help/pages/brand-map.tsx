@@ -232,6 +232,38 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             <Open href="/help/plan-and-usage#use">web searches for research</Open>.
           </P>
           <P>
+            When your copy of YouGrow joins the strategy to Competitors, <strong>Who you compete with</strong> lists every
+            competitor you watch on <Open href="/admin/brand-kit/competitors">Brand › Competitors</Open> straight away, before you
+            propose anything. Each sits in the group an admin chose with <strong>Choose a group</strong>, here or on Brand ›
+            Competitors, or under <strong>Not grouped yet</strong>. Below them, <strong>Suggested by the finder</strong> lists what
+            the finder found that you don&apos;t watch: <strong>Monitor</strong> starts watching it in the finder&apos;s group, and{" "}
+            <strong>Not a competitor</strong> keeps it out of every later search. A competitor you stop watching leaves the list,
+            and one you watched from the finder&apos;s suggestions isn&apos;t suggested again.
+            Approving keeps the list as it was then, and a competitor you watch, group or find after that doesn&apos;t mark the
+            strategy changed.
+          </P>
+          <P>
+            Where this copy of YouGrow reads their articles, each competitor you watch has a line on what it wrote in the last 90
+            days: its kinds of article, who they are for, the stats it uses and what it asks readers to do, and the situation it
+            writes on most. Stats, asks and how many name you count only the articles read from their own pages, and the line says
+            so. <strong>Against your competitors</strong> puts your focus situations beside their articles on each, how many of its
+            questions you have answered and how many of their articles are new since you approved. With no focus yet, it shows the
+            situations they write on most. It also counts the subjects only they write on, and names the alternatives on your brand
+            map they mention that you don&apos;t watch, each with <strong>Monitor</strong>. When a month had more articles read
+            than the card counts, it says its numbers may be a little low. Propose with Vizzy reads the same, so a claim about a
+            competitor can stand on the article that makes it.
+          </P>
+          <P>
+            Where your copy of YouGrow checks the strategy each week, it sets your approved focus situations against what your
+            competitors published, and asks for a look in <Open href="/admin/approvals">Review</Open> only when something
+            material changed: 3 or more of their articles on one focus situation published after the day you approved, a focus
+            situation that is newly a gap, or an alternative on your brand map named in 3 or more of their articles that you
+            don&apos;t watch. An article with no publish date never counts as new. <strong>Review the strategy</strong> opens
+            this tab, where <strong>Propose with Vizzy</strong> keeps your edits. An admin can <strong>Dismiss</strong> the row
+            instead: it stays away 30 days, then counts what they published after the day you dismissed it. Approving again
+            starts the check over, and Vizzy reads what it saw.
+          </P>
+          <P>
             What you star, tick, edit or turn down is kept with the strategy, with the 5 strategies approved before it, so
             YouGrow can learn from it later. Nothing learns from it yet. <strong>Start over</strong> removes all of it; your
             brand map stays as it is.
@@ -488,6 +520,8 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
                 [STRATEGY_ERRORS.nothing_found!, "Check What you are on Who you are says what you do in plain words, then try again."],
                 [STRATEGY_ERRORS.map_not_saved!, "Press Save brand map on Who you are, then press Add again."],
                 [STRATEGY_ERRORS.too_few_focus!, "Star more situations under Who it's for, then press Approve strategy again."],
+                [STRATEGY_ERRORS.no_suggestion!, "Look at the list again: it may be watched now. Press Find competitors to search again."],
+                [STRATEGY_ERRORS.competitors_unreadable!, "Wait a moment, then press Approve strategy again."],
               ] as Array<[string, string]>)
             : []),
           ...(isBrandStrategyUiEnabled() && isContentStrategyUiEnabled()

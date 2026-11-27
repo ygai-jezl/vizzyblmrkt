@@ -1,3 +1,6 @@
+import { cutOff, type CutOff } from "@/lib/search/family";
+import type { FamilyDeps } from "@/lib/search/familyIndex";
+import { isSearchCompetitorReadsEnabled } from "@/lib/search/flags";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { afterRecordsChange } from "@/lib/brandMap/afterChange";
@@ -24,7 +27,7 @@ import { FORMAT_LABEL, askLabel } from "./view";
  * map lacks, when an admin ticks them. The routes check origin, switch, sign-in and role.
  */
 
-export interface PlanningApiDeps {
+export interface PlanningApiDeps extends FamilyDeps {
   db?: FirestoreLike;
   now?: () => Date;
   canUse?: (ctx: TenantContext) => Promise<boolean>;
@@ -76,8 +79,8 @@ const THEIR_QUESTIONS = 5;
 
 /** Questions checked against their articles' meaning, at most, per subject. */
 const CHECK_QUESTIONS = 6;
-/** As close in meaning as planning's other matches (planning.ts MIN_SIM). */
-const COVERED_SIM = 0.65;
+/** As close in meaning as planning's other matches (planning.ts MIN_SIM): a pair, one for each store (ADR-0025). */
+export const COVERED_SIM: CutOff = { old: 0.65, new: 0.65 };
 
 /** Who a competitor is: its name, and its site to take off the end of titles. */
 export type CompetitorNames = Map<string, { name: string; site: string }>;
@@ -170,7 +173,7 @@ export async function subjectCompetitorsFromRequest(ctx: TenantContext, subjectI
   let uncovered: string[] = [];
   let theirQuestions: SubjectCompetitors["theirQuestions"] = [];
   if (view.total) {
-    uncovered = (await questionsNobodyCovers(ctx, decided.slice(0, CHECK_QUESTIONS), COVERED_SIM, deps)) ?? [];
+    uncovered = (await questionsNobodyCovers(ctx, decided.slice(0, CHECK_QUESTIONS), cutOff(COVERED_SIM, isSearchCompetitorReadsEnabled()), deps)) ?? [];
     theirQuestions = theirQuestionsOf(articles, names, new Set(all.filter((q) => q.status !== "dismissed").map((q) => questionKey(q.text))));
   }
   return NextResponse.json({ competitors: { ...view, uncovered, suggestAngle: isSuggestAngleEnabled(), theirQuestions, questions } }, { headers: noStore });

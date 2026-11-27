@@ -3,6 +3,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isOneViewEnabled, isPersonViewEnabled } from "./flags";
 import { isAddPersonEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "./peopleFlags";
+import { isViewsEnabled } from "@/lib/views/flags";
 
 /**
  * Gate for the person view's admin APIs: its flag (off = these routes don't exist),
@@ -52,6 +53,15 @@ async function switchedAdmin(on: boolean, req: Request, opts: { mutate: boolean 
  */
 export async function fieldsAdmin(req: Request, opts: { mutate: boolean }): Promise<AdminGate> {
   return switchedAdmin(isFieldsEnabled(), req, opts);
+}
+
+/**
+ * Gate for views on People (CRM_VIEWS_ENABLED), beside fieldsAdmin and in its order: the switch (off =
+ * the routes don't exist), same origin, a session. Anyone on the team runs views and saves their
+ * own; the routes check the admin role themselves for team views (decision 4).
+ */
+export async function viewsAdmin(req: Request): Promise<AdminGate> {
+  return switchedAdmin(isViewsEnabled(), req, { mutate: false });
 }
 
 /**

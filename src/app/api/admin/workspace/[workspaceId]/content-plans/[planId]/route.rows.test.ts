@@ -7,6 +7,8 @@ const tenant = vi.hoisted(() => ({ forTenant: vi.fn(() => ({ workspaces: { getBy
 vi.mock("@/lib/tenant", () => tenant);
 const content = vi.hoisted(() => ({ getContentPlan: vi.fn(), updateContentPlan: vi.fn(), deleteContentPlan: vi.fn() }));
 vi.mock("@/lib/tenant/workspaceContent", () => content);
+const record = vi.hoisted(() => ({ closePlanDraft: vi.fn(async () => 0) }));
+vi.mock("@/lib/agentRecord/drafts", () => record);
 vi.mock("@/lib/content/blog/pageActions", () => ({ syncPlanPageSoftly: vi.fn(), removePlanPageSoftly: vi.fn() }));
 vi.mock("@/lib/content/blog/seen", () => ({ syncSeenHolds: vi.fn() }));
 vi.mock("@/lib/content/blog/hubActions", () => ({ keepApprovedSeen: vi.fn() }));
@@ -54,6 +56,16 @@ describe("an autopilot draft's rows close with it", () => {
     content.getContentPlan.mockResolvedValue(draft("generated"));
     expect((await PUT(req("PUT", { name: "Renamed" }), params)).status).toBe(200);
     expect(answers.closeDraftRows).not.toHaveBeenCalled();
+  });
+
+  it("tells the agent record what the save did, and a delete", async () => {
+    content.getContentPlan.mockResolvedValueOnce(draft("generated")).mockResolvedValue(draft("approved"));
+    await PUT(req("PUT", { name: "How?" }), params);
+    expect(record.closePlanDraft).toHaveBeenCalledWith(admin, "ws1", expect.objectContaining({ id: "ap_1" }), expect.objectContaining({ id: "ap_1" }));
+    record.closePlanDraft.mockClear();
+    content.getContentPlan.mockResolvedValue(draft("generated"));
+    await DELETE(req("DELETE"), params);
+    expect(record.closePlanDraft).toHaveBeenCalledWith(admin, "ws1", expect.objectContaining({ id: "ap_1" }), null);
   });
 
   it("deleting it closes them", async () => {

@@ -4,6 +4,7 @@ import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
@@ -18,7 +19,9 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * names the organisation and who can fix it. Work's sections show while WORK_ENABLED is on, and
  * Tasks Vizzy suggests while WORK_VIZZY_ENABLED is too (both server switches, from the shell).
  * While getting to know a brand is on (ONBOARDING_ENABLED), admins also see what Vizzy heard about
- * the business in a chat.
+ * the business in a chat. While the agent record is on (AGENT_RECORD_ENABLED), Drafts from Vizzy
+ * also lists, for admins, the email and image style and the notes Vizzy suggested, and Vizzy can
+ * say what happened to the drafts it made.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -29,6 +32,7 @@ export default function ReviewAndApprovalsHelp({
   work = isWorkEnabled(),
   workVizzy = isWorkVizzyEnabled(),
   onboarding = isOnboardingEnabled(),
+  agentRecord = isAgentRecordEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -108,6 +112,9 @@ export default function ReviewAndApprovalsHelp({
         ) : null}
         <li>
           <strong>Drafts from Vizzy</strong>: journeys, welcome emails, invite waves and content plans.
+          {agentRecord
+            ? " Admins also see an email or image style Vizzy suggested, which opens Brand › Email style or Brand › Image style, and one row for the notes Vizzy suggested in your chats, which opens What we've seen."
+            : ""}
         </li>
         {vizzyFields ? (
           <li>
@@ -134,6 +141,12 @@ export default function ReviewAndApprovalsHelp({
         <li>
           <strong>Brand map suggestions</strong> and <strong>Content waiting for approval</strong>.
         </li>
+        <li>
+          <strong>Your strategy against competitors</strong>: where your copy of YouGrow checks your approved strategy each
+          week, one row when your competitors moved on it, with each reason in full. <strong>Review the strategy</strong> opens
+          the Strategy tab, and an admin can <strong>Dismiss</strong> it for 30 days (
+          <Open href="/help/brand-map">Brand map</Open>).
+        </li>
         {isAutopilotEnabled() ? (
           <li>
             <strong>Your next article</strong>: a question autopilot sorted and left ready to write, questions a draft asks
@@ -159,6 +172,21 @@ export default function ReviewAndApprovalsHelp({
         <li>Read the draft and change anything you like.</li>
         <li>When you&apos;re happy, publish it, send it or approve it on that page. It then leaves Review.</li>
       </Steps>
+      {agentRecord ? (
+        <>
+          <P>
+            A style Vizzy suggested leaves Review once an admin saves it or dismisses it on its page. The notes row counts the notes
+            nobody has kept or removed yet on <Open href="/admin/brand-kit/notes">What we&apos;ve seen</Open>, and says 50 or more
+            once there are that many. Articles use only the notes you keep.
+          </P>
+          <P>
+            YouGrow keeps a record of what Vizzy, research and autopilot drafted for your brand: when each was saved, and whether
+            someone kept it as it was, kept it after changing it, or dismissed it. Ask Vizzy &quot;what happened to the drafts you
+            made this month?&quot; and it answers from that record. The record starts when it was turned on for your brand, so
+            older drafts aren&apos;t in it. A draft nobody decides closes after 90 days, which never counts as a no.
+          </P>
+        </>
+      ) : null}
       {isBlogLiveWatchEnabled() ? (
         <P>
           A blog article you publish on your own site doesn&apos;t need approving here: once YouGrow finds it live, it is

@@ -662,6 +662,37 @@ export const MEANINGS = {
     source: "the brand map's buying situation and the brand's pages",
     caveat: "Counted when the situation was last opened or its questions changed, so it can trail an article that just went live.",
   },
+  theirArticles: {
+    name: "Their articles on a focus situation",
+    definition: "Articles the brand's watched competitors published on this focus buying situation in the last 90 days.",
+    grain: "one focus buying situation in the brand strategy",
+    unit: "count",
+    source: "the weekly strategy check, from the competitors' articles YouGrow read in full",
+    caveat: "Counted when the check last looked, about once a week, from the articles read so far.",
+  },
+  theirNewArticles: {
+    name: "Their new articles since",
+    definition: "Of their articles on this focus buying situation, the ones published on or after the day the check counts from: the approval, a dismissal, or a row that closed itself.",
+    grain: "one focus buying situation in the brand strategy",
+    unit: "count",
+    source: "the weekly strategy check, from the competitors' articles YouGrow read in full",
+    caveat: "An article with no publish date never counts as new.",
+  },
+  competitorArticles: {
+    name: "One competitor's articles on it",
+    definition: "Articles one watched competitor published on this focus buying situation in the last 90 days.",
+    grain: "one competitor on one focus buying situation",
+    unit: "count",
+    source: "the weekly strategy check, from the competitors' articles YouGrow read in full",
+  },
+  namingArticles: {
+    name: "Their articles naming it",
+    definition: "Articles the watched competitors published in the last 90 days that name this alternative on the brand map, which the brand doesn't watch.",
+    grain: "one alternative on the brand map",
+    unit: "count",
+    source: "the weekly strategy check, from the competitors' articles YouGrow read in full",
+    caveat: "Counts only articles read from their own pages, and only names already on the brand map.",
+  },
   foundTimes: {
     name: "Times the finder named it",
     definition: "How many of the competitor finder's answers named this competitor: up to 3 from a full run, 1 from a quick one, 0 for one the gap search, the brand's watch list or a person added.",
@@ -804,6 +835,15 @@ export const MEANINGS = {
     grain: "one refresh review",
     unit: "count",
     source: "the brand's plan or grant, and its refresh records this month",
+  },
+  viewPeople: {
+    name: "People in a view",
+    definition: "People in the brand's People list who match a saved view's filters now.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People list, checked when asked (get_view_counts)",
+    caveat:
+      "A view reads at most 5,000 people, the most recently active of the group it starts from (Everyone when it has none): when `capped` is true there are at least this many.",
   },
   // A brand's win, in its own word, for a Work measure (ADR-0020). Nothing counts it yet.
   conversions: {

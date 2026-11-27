@@ -9,6 +9,7 @@ import { mapQuestion, type ArticleMap } from "@/lib/content/blog/articleMap";
 import { loadArticleMap, softly } from "@/lib/content/blog/mapActions";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BlogIntent } from "@/lib/types/contentPlan";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * "Suggest an angle" (CREATE_SUGGEST_ANGLE_ENABLED): the Spark (the angle, or thesis) for a
@@ -197,11 +198,12 @@ export async function suggestAngle(
       : "",
   });
 
-  const answer = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+  const usage = aiUsage(ctx, "content_angle", { db: deps.db });
+  const answer = await (deps.generate ?? generateTextWithDeadline)(await inBrandLanguage(prompt, usage), {
     timeoutMs: SUGGEST_MS,
     temperature: input.previous ? 0.9 : 0.6,
     thinkingBudget: 256,
-    usage: aiUsage(ctx, "content_angle", { db: deps.db }),
+    usage,
   }).catch(() => null);
   if (answer === null) return { ok: false, status: 502, error: "suggest_failed" };
   const spark = parseAngle(answer);

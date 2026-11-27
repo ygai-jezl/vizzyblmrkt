@@ -72,8 +72,12 @@ export type DeclineReason = (typeof DECLINE_REASONS)[number];
 export const DECLINE_WHY = ["not_now", "not_for_us", "already_on_it", "wrong"] as const;
 export type DeclineWhy = (typeof DECLINE_WHY)[number];
 
-/** The agents that propose. "lifecycle" is for the AI lines follow-up. */
-export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle"] as const;
+/**
+ * The agents that propose. "lifecycle" is for the AI lines follow-up. "research" is brand map
+ * research and learning from a repo, whoever pressed it (the record's requestedBy says who; agent
+ * record, ADR-0026).
+ */
+export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle", "research"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
 
 // --- Signals -----------------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import { FORMER_TEAM_MEMBER, memberLabel, teamMemberNames, type UserLookup } from "./names";
+import { A_TEAM_MEMBER, FORMER_TEAM_MEMBER, memberLabel, teamMemberNames, type UserLookup } from "./names";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", role: "admin", userId: "usr_1" };
 const users = [
@@ -28,12 +28,34 @@ describe("teamMemberNames", () => {
     expect(memberLabel(null, names)).toBe(FORMER_TEAM_MEMBER);
   });
 
-  it("asks nobody when no one is on the team, and never looks up an address", async () => {
+  it("never looks up an address, and names no one off the team", async () => {
     const db = new FakeFirestore();
     const spy = vi.fn(lookup);
     expect(await teamMemberNames(ctx, ["usr_1", "sam@example.com"], { db, lookup: spy })).toEqual({});
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledWith(["usr_1"]);
+    spy.mockClear();
     expect(await teamMemberNames(ctx, [], { db, lookup: spy })).toEqual({});
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("names someone on the team by their verified claims alone: the brand they first signed in with gives them no row", async () => {
+    const db = new FakeFirestore();
+    const claims: UserLookup = async (uids) =>
+      [
+        { uid: "usr_home", displayName: "Maya Chen", email: "maya@example.com", tenantId: "ten_A" },
+        { uid: "usr_elsewhere", displayName: "Tom Ellis", email: "tom@example.com", tenantId: "ten_B" },
+      ].filter((u) => uids.includes(u.uid));
+    const names = await teamMemberNames(ctx, ["usr_home", "usr_elsewhere"], { db, lookup: claims });
+    expect(names).toEqual({ usr_home: "Maya Chen" });
+    expect(memberLabel("usr_elsewhere", names)).toBe(FORMER_TEAM_MEMBER);
+  });
+
+  it("gives no address with addresses off: someone with no display name is a team member", async () => {
+    const db = new FakeFirestore();
+    await team(db, ["usr_1", "usr_2"]);
+    const names = await teamMemberNames(ctx, ["usr_1", "usr_2"], { db, lookup, addresses: false });
+    expect(names).toEqual({ usr_1: "Sam Rivera", usr_2: A_TEAM_MEMBER });
+    expect(JSON.stringify(names)).not.toContain("@");
   });
 
   it("asks about more than 30 ids in chunks", async () => {

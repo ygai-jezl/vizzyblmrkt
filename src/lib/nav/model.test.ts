@@ -214,6 +214,11 @@ describe("phase 3", () => {
     expect(labels("/admin/account/connections/new-thing")).toEqual(["Settings", "Connections", "New thing"]);
   });
 
+  it("names Settings › History (SETTINGS_HISTORY_ENABLED) in both navigations", () => {
+    expect(breadcrumbsFor("/admin/account/history", names, { phase3: true }).map((c) => c.label)).toEqual(["Settings", "History"]);
+    expect(breadcrumbsFor("/admin/account/history", names, { phase3: false }).map((c) => c.label)).toEqual(["Settings", "History"]);
+  });
+
   it("names the billing tab Plan and usage only with plans on", () => {
     expect(labels("/admin/account/billing")).toEqual(["Settings", "Billing"]);
     const withPlans = (path: string, phase3: boolean) => breadcrumbsFor(path, names, { phase3, plans: true }).map((c) => c.label);

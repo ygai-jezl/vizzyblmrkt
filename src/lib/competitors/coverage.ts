@@ -100,7 +100,12 @@ export function flagOf(they: number, you: number, writers: number): CoverageFlag
   return "even";
 }
 
-const dayOf = (a: Pick<CompetitorArticle, "publishedAt" | "readAt">) => a.publishedAt ?? a.readAt?.slice(0, 10) ?? null;
+/** The day an article counts on: when it was published, else when we read it. */
+export const articleDay = (a: Pick<CompetitorArticle, "publishedAt" | "readAt">) => a.publishedAt ?? a.readAt?.slice(0, 10) ?? null;
+const dayOf = articleDay;
+
+/** The first day in the window: an article on this day counts, one the day before doesn't. */
+export const windowStart = (nowMs: number) => new Date(nowMs - COVERAGE_DAYS * 86_400_000).toISOString().slice(0, 10);
 
 /** A topic's key, as a subject's name is keyed on the map (brandMap/keys.ts subjectKey). */
 export const topicKey = (topic: string) => fold(topic);
@@ -121,7 +126,7 @@ export function coverageFrom(
     moved?: boolean;
   },
 ): CoverageView {
-  const since = new Date(opts.nowMs - COVERAGE_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const since = windowStart(opts.nowMs);
   const names = new Map(competitors.map((c) => [c.id, c.name]));
   const recent = articles.filter((a) => a.status === "read" && names.has(a.competitorId) && (dayOf(a) ?? "") >= since);
   const byName = new Map<string, string>();

@@ -482,6 +482,15 @@ export const LifecycleJourneySchema = z.object({
     })
     .nullable()
     .optional(),
+  /**
+   * The published version a restore put in the draft (Settings › History, ADR-0023): which version,
+   * who put it back by user id, and when. Later edits keep it, since the draft is still built on that
+   * version; Publish copies the version onto the new one as `restoredFrom` and clears it.
+   */
+  draftRestoredFrom: z
+    .object({ version: z.number().int().min(1), by: z.string().nullable(), at: z.string() })
+    .nullable()
+    .optional(),
   createdBy: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -508,6 +517,8 @@ export const LifecycleVersionSchema = z.object({
   settings: LifecycleSettingsSchema,
   publishedAt: z.string(),
   publishedBy: z.string().nullable().optional(),
+  /** The older version this one was published from, when a restore put that version in the draft. */
+  restoredFrom: z.number().int().min(1).nullable().optional(),
 });
 export type LifecycleVersion = z.infer<typeof LifecycleVersionSchema>;
 
@@ -724,6 +735,8 @@ export const AiDraftSchema = z.object({
   insightId: z.string().max(64).nullable().optional(),
   insightSentence: z.string().max(300).nullable().optional(),
   aiLine: z.string().max(400).nullable().optional(),
+  /** The language the line was written in, when not English (CONTENT_LANGUAGE_ENABLED); the checks read it. */
+  language: z.string().max(16).optional(),
   subjectVariant: z.string().max(120).nullable().optional(),
   standardSubject: z.string().max(200).nullable().optional(),
   factsSnapshot: z

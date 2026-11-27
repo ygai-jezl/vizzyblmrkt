@@ -6,6 +6,8 @@ import { isOrganisationJoinEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
+import { isContentLanguageEnabled } from "@/lib/i18n/flags";
 import { isWorkEnabled } from "@/lib/work/flags";
 
 /**
@@ -29,7 +31,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "work";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work";
 }
 
 /**
@@ -54,6 +56,8 @@ export interface HelpBodyProps {
   vizzyTextFields?: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
   vizzyAddPerson?: boolean;
+  /** Views on People: filters, columns, sort and saved views (isViewsEnabled()). */
+  views?: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled()). */
@@ -68,6 +72,10 @@ export interface HelpBodyProps {
   aiAnswers?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
+  /** The brand map family is in brand search for every brand (isSearchFamilyIndexEnabled(), ADR-0025). */
+  searchFamily?: boolean;
+  /** What we've seen's readers use brand search, so a note naming a customer is found only by its subject (isSearchNoteReadsEnabled(), ADR-0025). */
+  searchNoteReads?: boolean;
   /** A launch is an idea with a status, a hypothesis, an outcome and a hand-off (isIdeasEnabled()). */
   ideas?: boolean;
   /**
@@ -88,6 +96,12 @@ export interface HelpBodyProps {
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */
   onboardingVoice?: boolean;
+  /** Settings › History (isSettingsHistoryEnabled(), a server switch: the drawer gets it from the admin shell). */
+  settingsHistory?: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), a server switch: the drawer gets it from the admin shell). */
+  nextActionCard?: boolean;
+  /** Review lists the email and image style and the notes Vizzy suggested (isAgentRecordEnabled(), a server switch: the drawer gets it from the admin shell). */
+  agentRecord?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -151,6 +165,7 @@ export const HELP_PAGES: HelpPage[] = [
   ),
   page("email-sending", "Email sending", "ready", "Verify the domain you send from, then add your From address, privacy policy link and postal address."),
   page("your-brand", "Your brand", "ready", "Add your logo, colours and fonts, and write your brand voice so everything Vizzy writes sounds like you."),
+  page("languages", "Languages", "ready", "Choose the language YouGrow writes everything in for your brand, and the languages your waitlists are offered in.", "content_language"),
   page("email-style", "Email style", "ready", "Give every email your logo, colours and fonts."),
   page("launch-and-waitlist", "Launch and waitlist", "launch", "Create a launch, turn on the welcome email, then share your waitlist page."),
   page(
@@ -191,6 +206,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
   page("review-and-approvals", "Review and approvals", "retain", "Check what Vizzy drafted and approve AI lines before they send."),
   page("people", "One person's view", "retain", "See one product user's steps, emails and journeys in one place."),
+  page(
+    "history-and-restore",
+    "History and restore",
+    "fix",
+    "See every change to your fields, journeys and product catalogs, put an older version back as a new one, or download one.",
+    "settings_history",
+  ),
   page("troubleshooting", "Why isn't this working?", "fix", "Common symptoms, what causes them and how to fix them."),
 ];
 
@@ -206,6 +228,8 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // As /login decides: the switch on and a way to deliver the code, so the page never describes
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
+  if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
+  if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
   if (p.onlyWhen === "work") return isWorkEnabled();
   return true;
 }

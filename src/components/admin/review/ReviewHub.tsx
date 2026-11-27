@@ -4,6 +4,7 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type ReviewKind } from "@/lib/review/summary";
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
+import { DismissCheckButton } from "./DismissCheckButton";
 import { MarkSeenButton } from "./MarkSeenButton";
 import { SignalRow } from "./SignalActions";
 import { WorkRow } from "./WorkRows";
@@ -90,9 +91,19 @@ export async function ReviewHub() {
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{item.title}</p>
-                        <p className="truncate text-xs text-shell-muted">{item.detail}</p>
+                        {item.dismissCheck && item.details?.length ? (
+                          // The strategy check's reasons, each in full.
+                          <ul className="mt-0.5 space-y-0.5 text-xs text-shell-muted">
+                            {item.details.map((line) => (
+                              <li key={line}>{line}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="truncate text-xs text-shell-muted">{item.detail}</p>
+                        )}
                       </div>
                       {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
+                      {item.dismissCheck && ctx.role === "admin" ? <DismissCheckButton /> : null}
                       <Link
                         href={item.href}
                         className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"

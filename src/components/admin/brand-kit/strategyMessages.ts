@@ -8,6 +8,10 @@ import { errorText } from "@/components/admin/connect/api";
 export const STRATEGY_ERRORS: Record<string, string> = {
   brand_strategy_disabled: "The brand strategy isn't switched on in this environment.",
   competitor_finder_disabled: "The competitor finder isn't switched on in this environment.",
+  strategy_competitors_disabled: "The strategy isn't joined to Competitors in this environment.",
+  strategy_check_disabled: "The weekly strategy check isn't switched on in this environment.",
+  no_suggestion: "That suggestion isn't waiting any more. It may have been watched or left out already.",
+  competitors_unreadable: "Couldn't read your competitors just now, so nothing was approved. Try again.",
   strategy_changed: "The strategy was changed elsewhere since you opened it. It now shows what was saved: check it, then try again.",
   strategy_unreadable: "The strategy can't be read, so nothing can be changed. Start over to make a new one.",
   no_draft: "There's no draft yet. Press Propose with Vizzy first.",
@@ -47,11 +51,31 @@ export function droppedNote(dropped: { claims: number } | undefined): string {
   return n ? ` ${n} ${n === 1 ? "claim was" : "claims were"} left out: their proof wasn't in what Vizzy read.` : "";
 }
 
-/** After a finder run. */
-export function foundNote(found: number, gapSkipped = false): string {
-  const base = found ? `Found ${found} ${found === 1 ? "competitor" : "competitors"}. Tick the ones to monitor.` : "No new competitors this time.";
+/** After a finder run. `joined`: the Strategy tab and Brand › Competitors share one list (STRATEGY_COMPETITORS_ENABLED). */
+export function foundNote(found: number, gapSkipped = false, joined = false): string {
+  const next = joined ? "Press Monitor on the ones to watch, or Not a competitor on the rest." : "Tick the ones to monitor.";
+  const base = found ? `Found ${found} ${found === 1 ? "competitor" : "competitors"}. ${next}` : "No new competitors this time.";
   return gapSkipped ? `${base} ${GAP_SKIPPED_NOTE}` : base;
 }
+
+/** What Find competitors and Full search do for this brand, under the buttons on both doors. */
+export function finderNote(f: { granted: boolean; quickUsed: boolean; used: number; limit: number | null }): string {
+  const quick = `Quick: one answer from Google${f.granted ? "" : f.quickUsed ? ", used" : ", once"}.`;
+  if (!f.granted) return quick;
+  return `${quick} Full: three answers merged and checked, then a search that fits your business${f.limit !== null ? ` (${Math.max(0, f.limit - f.used)} left this month)` : ""}.`;
+}
+
+/** On Against your competitors, when a month had more reads than were looked at. */
+export const TRUNCATED_NOTE = "Some months had more articles read than we count here, so these numbers may be a little low.";
+
+/** After Monitor on a competitor the strategy names. */
+export const monitoredNote = (name: string) => `${name} is on Brand › Competitors now.`;
+
+/** After Monitor on a suggestion, on Brand › Competitors. */
+export const watchingNote = (name: string) => `Watching ${name} now. It shows on the Strategy tab too.`;
+
+/** After Not a competitor. */
+export const notCompetitorNote = (name: string) => `${name} won't be suggested again.`;
 
 /** A full run's last search couldn't run, but what the others found was kept. */
 export const GAP_SKIPPED_NOTE = "The search that fits your business didn't run: this brand has used its web searches for research this month.";

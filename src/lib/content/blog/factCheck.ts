@@ -21,6 +21,8 @@ import { enforceLinks, seenMaterial, splitAuthorBox } from "./draft";
 import { unsupportedFigures } from "./figures";
 import { blogCheckerThinkingBudget } from "./flags";
 import { mapMaterial, type ArticleMap } from "./articleMap";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
+import { OTHER_DATE_LINE } from "./labels";
 
 /**
  * The blog hub's fact check — a second reader whose only job is to find what the brand's
@@ -130,7 +132,7 @@ export function applyCorrections(
     if (p.old.length < 12 || p.old === p.next) continue;
     if (p.next.length > p.old.length * 1.5 + 80) continue;
     // A heading is the article's structure, not a claim to rewrite; the date line is the system's.
-    if (/^#{1,4}\s/.test(p.old) || /\blast\s+updated\b/i.test(p.old)) continue;
+    if (/^#{1,4}\s/.test(p.old) || /\blast\s+updated\b/i.test(p.old) || OTHER_DATE_LINE.test(p.old)) continue;
     const at = out.indexOf(p.old);
     if (at === -1) continue;
     out = p.next ? out.slice(0, at) + p.next + out.slice(at + p.old.length) : removeFrom(out, at, p.old.length);
@@ -186,14 +188,14 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
   const figuresBefore = unsupportedFigures(copy, reference, { ignoreYears: [year] });
 
   const raw = await (deps.generate ?? generateTextWithDeadline)(
-    renderPrompt("content.blog_fact_check", {
+    await inBrandLanguage(renderPrompt("content.blog_fact_check", {
       brand_name: input.brandName.replace(/["\n]/g, " ").slice(0, 120),
       today: now.toISOString().slice(0, 10),
       unsupported_figures: figuresBefore.length ? figuresBefore.slice(0, 20).join(", ") : "(none)",
       experience_check: editorial ? EXPERIENCE_CHECK : "",
       material,
       article: copy.replace(/<\/?\s*(material|article)\s*>/gi, " "),
-    }),
+    }), input.usage),
     { timeoutMs: input.timeoutMs ?? 75_000, temperature: 0, thinkingBudget: blogCheckerThinkingBudget(), usage: input.usage },
   ).catch(() => null);
   if (raw === null) return { body: node.body, meta: current, corrected: 0, checked: false };

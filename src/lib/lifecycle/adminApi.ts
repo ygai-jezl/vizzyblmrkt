@@ -55,6 +55,8 @@ import { paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
 import { countHeldWaitlistEnrolments } from "./waitlist/enrol";
 import { runWaitlistEnrolmentNow } from "./waitlist/runner";
 import { setJourneyState } from "@/lib/journey/service";
+import { closeDraft, memberOf } from "@/lib/agentRecord/record";
+import { lifecycleDraftPrint } from "@/lib/agentRecord/fingerprints";
 
 /**
  * The Lifecycle → Journeys admin API (thin routes in src/app/api/admin/lifecycle
@@ -317,7 +319,11 @@ export async function publishJourney(ctx: TenantContext, id: string, input?: unk
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const answer = parsed.data?.existingSignups;
   const existingSignups = answer ?? (isOrderGuardsEnabled() ? "ask" : undefined);
-  return fromService(await publishLifecycleJourney(ctx, id, { db, existingSignups }), (v) => ({
+  const r = await publishLifecycleJourney(ctx, id, { db, existingSignups });
+  // A draft Vizzy made is kept by the person who published it (agent record). The engine
+  // switch's own publishes don't come through here, so they record nothing.
+  if (r.ok) await closeDraft(ctx, { kind: "lifecycle_journey", ref: id }, { to: "acted", by: memberOf(ctx), fingerprint: lifecycleDraftPrint(r.value.journey.draft) }, { db });
+  return fromService(r, (v) => ({
     journey: v.journey,
     version: { version: v.version.version, publishedAt: v.version.publishedAt },
   }));
@@ -346,7 +352,10 @@ export async function setJourneyStatus(ctx: TenantContext, id: string, input: un
       return ok({ journey: fresh, ...(r.moved ? { released: r.moved } : {}) });
     }
   }
-  return fromService(await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db }), ({ released, ...journey }) => ({
+  const r = await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db });
+  // Archived before anyone published it: a draft Vizzy made is dismissed by that person (agent record).
+  if (r.ok && parsed.data.status === "archived") await closeDraft(ctx, { kind: "lifecycle_journey", ref: id }, { to: "declined", reason: "dismissed", by: memberOf(ctx) }, { db });
+  return fromService(r, ({ released, ...journey }) => ({
     journey,
     ...(released ? { released } : {}),
   }));

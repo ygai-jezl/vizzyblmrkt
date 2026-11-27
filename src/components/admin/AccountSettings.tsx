@@ -25,6 +25,8 @@ const LOCALE_OPTIONS = LOCALES.map((l) => ({
 interface LocaleConfig {
   defaultLocale: string;
   supportedLocales: string[];
+  /** The default is the language YouGrow writes everything in (CONTENT_LANGUAGE_ENABLED). */
+  writesEverything?: boolean;
 }
 
 export function AccountSettings() {
@@ -33,6 +35,7 @@ export function AccountSettings() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [defaultLocale, setDefaultLocale] = useState(DEFAULT_LOCALE);
   const [supportedLocales, setSupportedLocales] = useState<string[]>([DEFAULT_LOCALE]);
+  const [writesEverything, setWritesEverything] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -46,6 +49,7 @@ export function AccountSettings() {
         if (active) {
           setDefaultLocale(data.defaultLocale);
           setSupportedLocales(data.supportedLocales);
+          setWritesEverything(data.writesEverything === true);
         }
       } catch {
         if (active) setLoadError("Couldn't load your language settings.");
@@ -107,11 +111,22 @@ export function AccountSettings() {
       <section className="space-y-3 rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
         <div>
           <h2 className="text-base font-semibold">Languages</h2>
-          <p className="text-sm text-neutral-500">
-            The default content language for your {w.many}, and the languages your
-            waitlists are offered in. Each {w.one} can override these in its own
-            Strategy settings. Independent of your data region.
-          </p>
+          {writesEverything ? (
+            <p className="text-sm text-neutral-500">
+              The language YouGrow writes everything in for your brand: articles, posts, emails, briefs and
+              Vizzy&apos;s suggestions. Also the languages your waitlists are offered in. Each {w.one} can
+              override these in its own Strategy settings. Independent of your data region.{" "}
+              <a href="/help/languages" className="text-sky-700 hover:underline dark:text-sky-400">
+                How languages work
+              </a>
+            </p>
+          ) : (
+            <p className="text-sm text-neutral-500">
+              The default content language for your {w.many}, and the languages your
+              waitlists are offered in. Each {w.one} can override these in its own
+              Strategy settings. Independent of your data region.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1">

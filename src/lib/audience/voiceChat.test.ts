@@ -17,6 +17,7 @@ function world() {
   db.seed("signups", "s_address", { tenantId: "ten_A", campaignId: "camp1", email: "Priya@Example.com", aiConversation: chat });
   db.seed("signups", "s_someone", { tenantId: "ten_A", campaignId: "camp1", email: "sam@example.com", aiConversation: chat });
   db.seed("signups", "s_unfinished", { tenantId: "ten_A", campaignId: "camp1", email: "priya@example.com", aiConversation: { ...chat, completed: false } });
+  db.seed("signups", "s_dropped", { tenantId: "ten_A", campaignId: "camp1", email: "priya@example.com", aiConversation: { ...chat, transcript: [{ role: "model", text: "Hello?" }] } });
   return db;
 }
 
@@ -38,10 +39,11 @@ describe("loadVoiceChat", () => {
     expect((await loadVoiceChat(ctx, PRIYA, "s_address", world()))?.signupId).toBe("s_address");
   });
 
-  it("finds nothing for someone else's sign-up, an unfinished chat, a bad id or another brand", async () => {
+  it("finds nothing for someone else's sign-up, an unfinished or empty chat, a bad id or another brand", async () => {
     const db = world();
     expect(await loadVoiceChat(ctx, PRIYA, "s_someone", db)).toBeNull();
     expect(await loadVoiceChat(ctx, PRIYA, "s_unfinished", db)).toBeNull();
+    expect(await loadVoiceChat(ctx, PRIYA, "s_dropped", db)).toBeNull();
     expect(await loadVoiceChat(ctx, PRIYA, "../s_linked", db)).toBeNull();
     expect(await loadVoiceChat({ ...ctx, tenantId: "ten_B" }, PRIYA, "s_linked", db)).toBeNull();
   });

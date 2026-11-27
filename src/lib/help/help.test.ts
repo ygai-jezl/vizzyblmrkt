@@ -1377,8 +1377,11 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
     for (const g of PUBLIC_LIST.guidance) expect(text).toContain(g);
     expect(text).toContain(PUBLIC_LIST.footnote);
     expect(text).toContain("Needs an email, a phone or a web address");
-    expect(text).toContain("No AI reads your rows: the app's own code does");
+    expect(text).toContain("Pasted on People, no AI reads your rows: the app's own code does");
     expect(text).toContain("Fernhill Plants, a plant shop raising a loan");
+    // The kit's rows have no email or phone, so only the firm columns are kept from them.
+    expect(text).toContain("From The AI Fundraising Kit: Company Name and Website are kept. First Name and Last Name are kept only on a row where you added an email or a phone yourself");
+    expect(text).toContain("A short link, or a page on a site many firms share");
   });
 
   it("lists every message the sheet shows, word for word", () => {
@@ -1403,6 +1406,8 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
   it("shows pasting into Ask Vizzy only while that is on too", () => {
     expect(ids({ vizzyPaste: true })).toContain("vizzy");
     expect(md("paste-a-list", { vizzyPaste: true })).toContain("Vizzy never records that anyone agreed to emails");
+    // Pasted into the chat, the model does see the rows: the page says so.
+    expect(md("paste-a-list", { vizzyPaste: true })).toContain("Vizzy sees the rows you paste in the chat and passes them, as pasted, to the same code");
     expect(ids({ vizzyPaste: false })).not.toContain("vizzy");
     expect(md("paste-a-list", { vizzyPaste: false })).not.toContain("Ask Vizzy");
     expect(ids({ vizzyPaste: false })).toEqual(["paste", "rows", "columns", "source", "add", "public-list", "remove", "check", "messages"]);

@@ -33,8 +33,8 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
       <H1>Paste a list</H1>
       <Lead>
         Paste rows from a sheet to add the people and firms on it in one go: investors, lenders, grant bodies, stockists or
-        any other list. No AI reads your rows: the app&apos;s own code does, and it shows you how it read each one before
-        anyone is added.
+        any other list. Pasted on People, no AI reads your rows: the app&apos;s own code does, and it shows you how it read
+        each one before anyone is added.
       </Lead>
       <Meta items={["About 5 minutes", "Admins", "When you have a list of people or firms to reach"]} />
 
@@ -104,17 +104,21 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
           <strong>Name</strong> is split at its first space, and used only when there is no First Name or Last Name.
         </li>
         <li>Profile links are never kept: any column with LinkedIn, Twitter, Facebook, Instagram, Crunchbase or AngelList in its header, and Profile, Profile Url, Profile Link, Social or Socials.</li>
+        <li>
+          A firm&apos;s web address must be its own site. A short link, or a page on a site many firms share, such as Google
+          Sites, a site builder or a newsletter host, is left out, so firms there never become one company.
+        </li>
         {fields ? (
           <li>
             Any other column whose header is the name of one of your own fields fills that field: a People field on a person, a
             company field on a company. A firm row never fills a field from a person&apos;s name, title, role, city, state or
-            country.
+            country. Business, Shop and Store fill your own field of that name if you have one, and name the firm otherwise.
           </li>
         ) : null}
       </UL>
       <P>
-        From The AI Fundraising Kit: First Name, Last Name, Company Name and Website are read; the LinkedIn columns are never
-        kept.
+        From The AI Fundraising Kit: Company Name and Website are kept. First Name and Last Name are kept only on a row where
+        you added an email or a phone yourself, and the LinkedIn columns are never kept.
         {fields
           ? " Title and the investor's city, state and country fill People fields of those names on a person. Stages, Sectors, Fund HQ and the investment counts fill company fields of those names on a company."
           : ""}
@@ -183,10 +187,10 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
           <H2 id="vizzy">Paste into Ask Vizzy</H2>
           <P>
             You can also paste the table into Ask Vizzy, for example &quot;Here are my 20 target funds&quot; followed by the rows.
-            Vizzy asks where the list is from if you haven&apos;t said, and the app&apos;s code reads it into the same card. Open
-            it from the chat or from Review to check it and press Add. Vizzy never records that anyone agreed to emails, and
-            never adds or changes a row. What you paste stays in your chat history, like anything you type there. Only admins
-            can.
+            Vizzy sees the rows you paste in the chat and passes them, as pasted, to the same code that reads the box. It asks
+            where the list is from if you haven&apos;t said, and the code reads it into the same card. Open it from the chat or
+            from Review to check it and press Add. Vizzy never records that anyone agreed to emails, and never adds or changes
+            a row. What you paste stays in your chat history, like anything you type there. Only admins can.
           </P>
         </>
       ) : null}
@@ -211,7 +215,7 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
           [ROW_REASONS.no_contact, "Add an email or a phone for a person, or the firm's own web address for a company, then paste the row again."],
           [ROW_REASONS.bad_email, "Fix the address in your sheet and paste the row again."],
           [ROW_REASONS.bad_phone, "Use digits, with + and spaces if you like, then paste the row again."],
-          [ROW_REASONS.not_a_firm_site, "Put the firm's own website in the row, not its LinkedIn, Notion or directory page."],
+          [ROW_REASONS.not_a_firm_site, "Put the firm's own website in the row, not its LinkedIn, Notion or directory page, a short link or a page on a shared site."],
           [ROW_REASONS.repeated, "Nothing to do: the earlier row is the one added."],
           [ROW_REASONS.in_people, "Nothing to do: they are left as they are. Open their page to change anything."],
           [ROW_REASONS.in_companies, "Nothing to do: the company is left as it is."],

@@ -163,10 +163,20 @@ const Label = z
   .pipe(z.string().min(1).max(FIELD_LIMITS.labelChars));
 const UserId = z.string().regex(USER_ID);
 
+/** A ready-made option's key, such as "passed" or a reason key such as "crowded". */
+export const OPTION_PRESET = /^[a-z_]{1,40}$/;
+/** A ready-made field's key, such as "raise.stage". */
+export const FIELD_PRESET = /^[a-z]{1,20}\.[a-z_]{1,40}$/;
+
 export const FieldOptionSchema = z.object({
   id: z.string().regex(OPTION_ID),
   label: Label,
   archivedAt: Instant.nullable().optional(),
+  /**
+   * Which ready-made option this is, e.g. "passed" or a reason key such as "crowded" (Set up for
+   * raising or funding, src/lib/raise/pipeline/setup.ts). Never changes once set; a rename keeps it.
+   */
+  preset: z.string().regex(OPTION_PRESET).optional(),
 });
 export type FieldOption = z.infer<typeof FieldOptionSchema>;
 
@@ -188,6 +198,11 @@ export const RecordFieldSchema = z
     archivedBy: UserId.nullable().optional(),
     replacedBy: z.string().regex(FIELD_ID).nullable().optional(),
     vizzyReads: z.literal(true).optional(),
+    /**
+     * Which ready-made field this is (Set up for raising or for funding), e.g. "raise.stage". Set only
+     * by src/lib/raise/pipeline/setup.ts; never changes once set; a type change's new field doesn't carry it.
+     */
+    preset: z.string().regex(FIELD_PRESET).optional(),
     /** An erase of its values is running (Settings › History, ADR-0023): it stays archived until it ends. */
     erasingSince: Instant.nullable().optional(),
     /** When its values were last erased, and who erased them (a user id). A restore keeps both. */

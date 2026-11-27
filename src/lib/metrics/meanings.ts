@@ -845,6 +845,82 @@ export const MEANINGS = {
     caveat:
       "A view reads at most 5,000 people, the most recently active of the group it starts from (Everyone when it has none): when `capped` is true there are at least this many.",
   },
+  // The investor and funding board on People (RAISE_PIPELINE_ENABLED), for Vizzy's get_raise_pipeline.
+  pipelinePeople: {
+    name: "People on the board",
+    definition: "People with a Stage now: everyone on the brand's investor or funding board.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+  },
+  stagePeople: {
+    name: "People in a stage",
+    definition: "People in one stage of the board now.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+  },
+  passedPeople: {
+    name: "People who passed",
+    definition: "People in Passed now.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+  },
+  reasonPasses: {
+    name: "Passes for a reason",
+    definition: "People in Passed with this Pass reason.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+    caveat: "Reads the 500 most recently active people in each stage: when capped is true there are at least this many.",
+  },
+  noReasonPasses: {
+    name: "Passes with no reason",
+    definition: "People in Passed with no reason, or No reason given.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+    caveat: "Reads the 500 most recently active people in each stage: when capped is true there are at least this many.",
+  },
+  quietPeople: {
+    name: "Quiet people",
+    definition: "People in a stage in play whose Last touch is 14 or more days ago, in the brand's time zone.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+    caveat: "Reads the 500 most recently active people in each stage: when capped is true there are at least this many.",
+  },
+  nextStepPastPeople: {
+    name: "Past their next step",
+    definition: "People not yet in Money in, Funds in or Passed whose Next step date is before today, in the brand's time zone.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+    caveat: "Reads the 500 most recently active people in each stage: when capped is true there are at least this many.",
+  },
+  overduePeople: {
+    name: "Overdue people",
+    definition: "People quiet for 14 days or past their next step date, each counted once.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People fields, checked when asked (get_raise_pipeline)",
+    caveat: "Reads the 500 most recently active people in each stage: when capped is true there are at least this many.",
+  },
+  openFollowUps: {
+    name: "Open follow-ups",
+    definition: "Follow-ups from the board in Review that nobody has decided yet.",
+    grain: "one follow-up",
+    unit: "count",
+    source: "the brand's follow-ups in Review, checked when asked (get_raise_pipeline)",
+  },
+  quietAfterDays: {
+    name: "Days before a follow-up",
+    definition: "The days without a touch before a follow-up comes up: YouGrow's rule.",
+    grain: "a day",
+    unit: "count",
+    source: "YouGrow's follow-up rule, the same for every brand for now",
+  },
   // What people did with what YouGrow made, for the learning loops (ADR-0017). No tool returns
   // these yet: the loops count them once they stamp what YouGrow makes.
   editShare: {

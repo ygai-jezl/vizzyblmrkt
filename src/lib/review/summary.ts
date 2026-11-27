@@ -57,6 +57,8 @@ import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
 import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { reasonLine } from "@/lib/brandStrategy/checkRules";
 import type { StrategyCheck } from "@/lib/types/brandStrategy";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -83,6 +85,7 @@ export type ReviewKind =
   | "data_signal"
   | "content_refresh"
   | "person_suggestion"
+  | "raise_followup"
   | "business_fact";
 
 export interface ReviewItem {
@@ -101,6 +104,8 @@ export interface ReviewItem {
   details?: string[];
   /** The weekly strategy check's row: Dismiss beside the link (admins only). */
   dismissCheck?: true;
+  /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
+  followUp?: { id: string; rev: number; quiet: boolean };
 }
 
 /**
@@ -191,6 +196,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
     from: ["canvas.person_fields", "canvas.new_person"],
   },
+  raise_followup: {
+    title: REVIEW_WORDS.title,
+    description: REVIEW_WORDS.description,
+    from: ["investor_quiet"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -199,7 +209,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "raise_followup", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -922,6 +932,14 @@ export async function loadReview(
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
+  // Follow-ups from the investor or funding board: everyone on the team sees them, only admins decide one.
+  const raiseFollowUps = isRaiseFollowupsEnabled()
+    ? await soft(
+        "board follow-ups",
+        import("@/lib/raise/pipeline/followups").then((m) => m.followUpReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
@@ -948,6 +966,7 @@ export async function loadReview(
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...personSuggestions,
+    ...raiseFollowUps,
     ...businessFacts,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),

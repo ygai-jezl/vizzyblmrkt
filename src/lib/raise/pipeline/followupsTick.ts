@@ -2,6 +2,7 @@ import { readFieldList } from "@/lib/audience/fieldList";
 import { offsetMs } from "@/lib/lifecycle/sendWindow";
 import { listAllTenants } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import type { RecordField } from "@/lib/types/recordField";
 import type { Tenant } from "@/lib/types/tenant";
 import { zoneOf } from "@/lib/views/evaluate";
 import { readPipeline, type ColumnRole } from "./board";
@@ -15,12 +16,15 @@ import { personValues, proposeFollowUps, reconcileFollowUps } from "./followups"
  * with the lanes on multiples of 5 or 15, nor the connectors lane's 7 of 15, and has its own 15
  * second budget. No brand starts with under 3 seconds left. No AI, no fetch.
  *
- * Brands take turns from a rotating start, suspended ones skipped, and only brands set up for the
- * board are read. For each: its open and in play stages (500 people a stage, the most recently
- * active), then its open follow-ups put in step with their people at any hour (a moved Stage sets
- * one aside, a new date marks it acted, 14 days untouched lets it go). Only while it is 6 to 9 in
- * the morning in the brand's own time zone (UTC when it has none) are new follow-ups raised: at most
- * 50 open a brand and 25 new a run. Raising is idempotent, so the four morning runs give one.
+ * Brands in their morning go first, then the rest, suspended ones skipped. Each group takes turns
+ * from a rotating start, and the morning group's start moves a quarter of the way round each run, so
+ * its four morning runs between them start at every part of it. Only brands set up for the board
+ * are read. For each: its open and in play stages (500 people a stage, the most recently active),
+ * then its open follow-ups put in step with their people at any hour (a moved Stage sets one aside,
+ * a new date marks it acted, 14 days untouched lets it go). Only while it is 6 to 9 in the morning
+ * in the brand's own time zone (UTC when it has none) are new follow-ups raised: at most 50 open a
+ * brand and 25 new a run. Raising is idempotent, so the four morning runs give one. A brand that had
+ * a board and no longer has one (its Stage archived) has its open follow-ups set aside as stale.
  */
 
 export const LANE = {
@@ -74,7 +78,14 @@ export interface FollowUpsResult {
 
 const READ_ROLES: ReadonlySet<ColumnRole> = new Set(["open", "active"]);
 
-/** One brand's run: null when it isn't set up for the board. */
+/** A People field that carries a ready-made marker, archived or not: the brand was set up once. */
+const wasSetUp = (items: readonly RecordField[]) => items.some((f) => f.object === "person" && !!f.preset?.startsWith("raise."));
+
+/**
+ * One brand's run: null when it isn't set up for the board and has nothing to set aside. A brand
+ * that was set up once and has no board now (its Stage archived) has every open follow-up declined
+ * as stale, so Review stops showing them; a brand never set up reads nothing more.
+ */
 export async function followUpBrand(
   ctx: TenantContext,
   timeZone: string | null | undefined,
@@ -83,8 +94,14 @@ export async function followUpBrand(
 ): Promise<Omit<FollowUpsResult, "brands"> | null> {
   const list = await readFieldList(ctx, "person", db);
   const rf = raiseFieldsOf(list.items);
-  if (!rf.setUp || !rf.stage) return null;
   const now = new Date(opts.nowMs);
+  if (!rf.setUp || !rf.stage) {
+    if (!wasSetUp(list.items)) return null;
+    // No board: nobody reads as in step, so each open one is declined (stale, or expired once past its day).
+    const gone = await reconcileFollowUps(ctx, { now, stop: opts.stop, valuesOf: async () => null }, db);
+    if (!gone.acted && !gone.cleared && !gone.expired) return null;
+    return { proposed: 0, acted: gone.acted, cleared: gone.cleared, expired: gone.expired };
+  }
   const board = await readPipeline(ctx, { cap: LANE.COLUMN_READ, roles: READ_ROLES, items: list.items, timeZone: timeZone ?? null }, { db, now: () => now });
   if (!board.setUp) return null;
   // People as the board read them, by field id; anyone else is read by id.
@@ -116,14 +133,29 @@ export async function followUpBrand(
   return { proposed, acted: kept.acted, cleared: kept.cleared, expired: kept.expired };
 }
 
+/** A list turned to start at `offset`. */
+const rotate = <T>(items: readonly T[], offset: number): T[] => (items.length ? [...items.slice(offset % items.length), ...items.slice(0, offset % items.length)] : []);
+
+/**
+ * The order brands are read in one run: those in their 6 to 9 morning first, as only they can be
+ * given new follow-ups, then the rest, which only put open ones in step. The rest take turns one
+ * brand further on each run; the morning group's start moves a quarter of the group on each run, so
+ * a group longer than one run's budget is still reached across its four morning runs. Pure.
+ */
+export function runOrder<T extends Pick<Tenant, "timeZone">>(tenants: readonly T[], nowMs: number): T[] {
+  const run = Math.floor(nowMs / (LANE.TICK_MS * LANE.EVERY));
+  const morning = tenants.filter((t) => isMorning(nowMs, t.timeZone));
+  const rest = tenants.filter((t) => !isMorning(nowMs, t.timeZone));
+  return [...rotate(morning, run * Math.ceil(morning.length / 4)), ...rotate(rest, run)];
+}
+
 export async function runRaiseFollowups(opts: { deadlineMs: number }, deps: FollowUpsDeps = {}): Promise<FollowUpsResult> {
   const result: FollowUpsResult = { brands: 0, proposed: 0, acted: 0, cleared: 0, expired: 0 };
   if (!isRaiseFollowupsEnabled()) return result;
   const clock = deps.clock ?? Date.now;
   if (!isFollowUpTick(clock())) return result;
   const tenants = (await (deps.listTenants ?? listAllTenants)()).filter((t) => t.status !== "suspended");
-  const offset = tenants.length ? Math.floor(clock() / (LANE.TICK_MS * LANE.EVERY)) % tenants.length : 0;
-  const order = [...tenants.slice(offset), ...tenants.slice(0, offset)];
+  const order = runOrder(tenants, clock());
   const stop = () => opts.deadlineMs - clock() < 1_000;
   for (const t of order) {
     if (opts.deadlineMs - clock() < LANE.MIN_START_MS) break;

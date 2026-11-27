@@ -11,6 +11,7 @@ import {
   clearFollowUpsAfterWrite,
   decideFollowUp,
   followUpChange,
+  followUpKey,
   followUpProposal,
   followUpReviewItems,
   openFollowUpPeople,
@@ -19,7 +20,7 @@ import {
   RAISE_FOLLOWUP_ACTION,
   reconcileFollowUps,
 } from "./followups";
-import { boardWorld, type BoardWorld } from "./testing/world";
+import { archiveStage, boardWorld, type BoardWorld } from "./testing/world";
 
 const NOW = new Date("2026-11-26T07:00:00.000Z");
 const loadTenant = async () => ({ id: "ten_a", timeZone: "Europe/London" }) as never;
@@ -51,7 +52,16 @@ describe("raising follow-ups", () => {
     await w.add({ email: "lee@example.com", stage: "money_in", lastTouch: "2026-10-01", nextStepDate: "2026-10-01" });
     expect(await propose()).toEqual({ created: 2, open: 2 });
     const rows = all();
-    expect(rows.map((a) => a.dedupeKey).sort()).toEqual([`raise_followup.suggest|next_step|${sam}|2026-11-20`, `raise_followup.suggest|quiet|${sam}|2026-11-10`]);
+    expect(rows.map((a) => a.dedupeKey).sort()).toEqual([
+      followUpKey({ personId: sam, due: "next_step", day: "2026-11-20", dateField: w.ids.nextStepDate, stageOptionId: w.stage("contacted") }),
+      followUpKey({ personId: sam, due: "quiet", day: "2026-11-10", dateField: w.ids.lastTouch, stageOptionId: w.stage("contacted") }),
+    ]);
+    // The key keeps the due reason and who, and no value: no day, no stage.
+    for (const a of rows) {
+      expect(a.dedupeKey).toMatch(new RegExp(`^raise_followup\\.suggest\\|(quiet|next_step)\\|${sam}\\|[0-9a-f]{32}$`));
+      expect(a.dedupeKey).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+      expect(a.dedupeKey).not.toContain(w.stage("contacted"));
+    }
     const quiet = rows.find((a) => a.dedupeKey.includes("|quiet|"))!;
     expect(quiet).toMatchObject({
       agent: "raise_followups",
@@ -78,6 +88,54 @@ describe("raising follow-ups", () => {
     await decideFollowUp(w.ctx, a!.id, { op: "dismiss", rev: a!.rev }, { db, loadTenant, now: () => NOW, forget: () => {} });
     expect((await propose(tomorrow)).created).toBe(0);
     expect(all()).toHaveLength(1);
+  });
+
+  it("keeps no field value in the key, so erasing Last touch leaves none on a closed follow-up", async () => {
+    const sam = await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-10" });
+    await propose();
+    await clearFollowUpsAfterWrite(w.ctx, sam, [w.ids.lastTouch], member, { db, now: NOW });
+    await blankFieldInAgentActions(w.ctx, w.ids.lastTouch, { nowIso: NOW.toISOString(), db });
+    const [a] = all();
+    expect(a!.state).toBe("acted");
+    expect(JSON.stringify(a)).not.toContain("2026-11-10");
+  });
+
+  it("gives one more in a new stage they are still quiet in, and never two in the same stage", async () => {
+    const sam = await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-01" });
+    expect((await propose()).created).toBe(1);
+    // Moved on the board: the open one is set aside, and Sam is still quiet in Replied.
+    await setFieldValues(w.ctx, { object: "person", recordId: sam, changes: { [w.ids.stage]: w.stage("replied") }, by: member, source: "editor" }, { db });
+    expect(await clearFollowUpsAfterWrite(w.ctx, sam, [w.ids.stage], member, { db, now: NOW })).toEqual({ acted: 0, cleared: 1 });
+    const tomorrow = new Date("2026-11-27T07:00:00.000Z");
+    const board = await cards(tomorrow);
+    expect(board.find((c) => c.id === sam)!.due).toEqual(["quiet"]);
+    // The next morning: one for Replied, so the board, Vizzy's counts and Review agree.
+    expect((await propose(tomorrow)).created).toBe(1);
+    expect((await propose(tomorrow)).created).toBe(0);
+    const items = await followUpReviewItems(w.ctx, db, { loadTenant, now: () => tomorrow });
+    expect(items.map((i) => [i.title, i.detail])).toEqual([["Quiet for 26 days", "In Replied. Open their page to follow up."]]);
+    expect([...(await openFollowUpPeople(w.ctx, db))]).toEqual([sam]);
+  });
+
+  it("raises one again when they move back to a stage whose follow-up was set aside, but never after a dismiss", async () => {
+    const sam = await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-01" });
+    const move = async (stage: string) => {
+      await setFieldValues(w.ctx, { object: "person", recordId: sam, changes: { [w.ids.stage]: w.stage(stage) }, by: member, source: "editor" }, { db });
+      await clearFollowUpsAfterWrite(w.ctx, sam, [w.ids.stage], member, { db, now: NOW });
+    };
+    expect((await propose()).created).toBe(1);
+    await move("replied");
+    expect((await propose()).created).toBe(1);
+    // Back to Contacted with the same Last touch: Contacted's was set aside by nobody, so a new round.
+    await move("contacted");
+    expect((await propose()).created).toBe(1);
+    const open1 = await open();
+    expect(open1.map((a) => a.dedupeKey)).toEqual([`${followUpKey({ personId: sam, due: "quiet", day: "2026-11-01", dateField: w.ids.lastTouch, stageOptionId: w.stage("contacted") })}|r1`]);
+    expect((await propose()).created).toBe(0);
+    // Dismissed by someone: that day in that stage never comes back.
+    await decideFollowUp(w.ctx, open1[0]!.id, { op: "dismiss", rev: open1[0]!.rev }, { db, loadTenant, now: () => NOW, forget: () => {} });
+    expect((await propose()).created).toBe(0);
+    expect(all()).toHaveLength(3);
   });
 
   it("stops at the open and new caps", async () => {
@@ -139,6 +197,15 @@ describe("clearing follow-ups", () => {
     expect(gone).toMatchObject({ expired: 2, open: 0 });
   });
 
+  it("reads no further page once its deadline has passed", async () => {
+    for (let i = 0; i < 3; i++) await w.add({ email: `p${i}@example.com`, stage: "contacted", lastTouch: "2026-11-01" });
+    await propose();
+    const before = db.collectionCalls("agent_actions");
+    const r = await reconcileFollowUps(w.ctx, { now: NOW, valuesOf: (id) => personValues(w.ctx, id, db), stop: () => true }, db);
+    expect(r).toMatchObject({ acted: 0, cleared: 0, expired: 0 });
+    expect(db.collectionCalls("agent_actions")).toBe(before);
+  });
+
   it("says what became of one from its person's values", () => {
     const a = followUpProposal({ personId: "ct_1", due: "quiet", day: "2026-11-10", stageOptionId: "opt_aaaaaaaa", stageField: "fld_stage0000001", dateField: "fld_touch0000001", at: NOW.toISOString() });
     const parts = { proposal: a.proposal, basis: a.basis, signals: a.signals } as Pick<AgentAction, "proposal" | "basis" | "signals">;
@@ -172,6 +239,14 @@ describe("follow-ups in Review", () => {
     expect((a!.basis!.fields as Record<string, unknown>)[w.ids.lastTouch]).toBeNull();
     const items = await followUpReviewItems(w.ctx, db, { loadTenant, now: () => NOW });
     expect(items.map((i) => i.title)).toEqual(["Quiet for a while"]);
+  });
+
+  it("show none once the brand has no board", async () => {
+    await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-10" });
+    await propose();
+    expect(await followUpReviewItems(w.ctx, db, { loadTenant, now: () => NOW })).toHaveLength(1);
+    await archiveStage(w.ctx, db);
+    expect(await followUpReviewItems(w.ctx, db, { loadTenant, now: () => NOW })).toEqual([]);
   });
 
   it("go with the person's erase", async () => {

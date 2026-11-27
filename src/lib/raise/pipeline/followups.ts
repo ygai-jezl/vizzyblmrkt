@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readFieldList } from "@/lib/audience/fieldList";
 import { setFieldValues } from "@/lib/audience/fields";
@@ -12,6 +13,7 @@ import type { ContactPersonId } from "@/lib/ontology/person";
 import type { Tenant } from "@/lib/types/tenant";
 import { optionLabel, sameFieldValue, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import type { BoardCard } from "./board";
+import { raiseFieldsOf } from "./fields";
 import { QUIET_AFTER_DAYS, quietDays, todayFor, type DueReason } from "./due";
 import { isRaiseFollowupsEnabled } from "./flags";
 import { REVIEW_WORDS } from "./words";
@@ -21,13 +23,18 @@ import { REVIEW_WORDS } from "./words";
  * (src/lib/raise/pipeline/due.ts) raises one agent action per person per due reason, shown in Review
  * as "Follow-ups from your board" and on the board as a Follow up chip. No AI, no fetch.
  *
- * - The dedupe key carries the day the follow-up came from (the Last touch, or the Next step date),
- *   so the same quiet spell or the same past date never raises a second one, whether the first is
- *   still open or was decided. A new one needs a new Last touch or Next step date.
+ * - The dedupe key carries its due reason and a hash of the day it came from (the Last touch, or the
+ *   Next step date) and the Stage, so the same quiet spell or the same past date in the same stage
+ *   never raises a second one, whether the first is still open or was decided. A new one needs a new
+ *   Last touch or Next step date, or a new Stage they are still due in. One set aside as stale (their
+ *   Stage moved, or the board went) was decided by nobody, so if they are back in that stage and
+ *   still due, a new round of the key raises one again. The key holds no value: the hash, as person
+ *   field suggestions do (src/lib/audience/fieldSuggestions.ts).
  * - Cleared when touched or moved: a new Last touch marks the quiet ones acted, a new Next step date
  *   the next step ones; a new Stage declines every open one as stale. I followed up today sets Last
  *   touch to today and marks it acted in one transaction; Dismiss declines it. 14 days untouched
- *   declines it as expired.
+ *   declines it as expired, and a brand that is no longer set up for the board has its open ones
+ *   declined as stale.
  * - The basis (the Stage and the day it came from) sits under `basis.fields` by field id, so a
  *   field erase blanks it in place, and it is cleared when the follow-up closes. A person's erase
  *   deletes their follow-ups, and their export includes them, as for every agent action.
@@ -53,11 +60,29 @@ export interface FollowUpFields {
   nextStepDate?: string;
 }
 
+/**
+ * A follow-up's dedupe key: `raise_followup.suggest|<due>|<personId>|<hash>`, the hash over the due
+ * reason, the date field, the day and the Stage option, so the key keeps no field value (an erase of
+ * Last touch leaves none behind) and the same day in the same stage gives the same key; a later
+ * round adds `|r<n>`. The due reason stays readable for the timeline (personTimelineView.ts). Pure.
+ */
+export function followUpKey(input: { personId: string; due: DueReason; day: string; dateField: string; stageOptionId: string; round?: number }): string {
+  const hash = createHash("sha256")
+    .update(JSON.stringify([input.due, input.dateField, input.day, input.stageOptionId]))
+    .digest("hex")
+    .slice(0, 32);
+  const parts = [input.due, input.personId, hash, ...(input.round ? [`r${input.round}`] : [])];
+  return agentDedupeKey(RAISE_FOLLOWUP_ACTION, ...parts);
+}
+
+/** How many times one follow-up set aside as stale may be raised again for the same day and stage. */
+const MAX_ROUNDS = 10;
+
 /** One follow-up for one person and one due reason, as proposeAgentAction takes it. Pure. */
-export function followUpProposal(input: { personId: string; due: DueReason; day: string; stageOptionId: string; stageField: string; dateField: string; at: string }): AgentProposal {
-  const { personId, due, day, stageOptionId, stageField, dateField, at } = input;
+export function followUpProposal(input: { personId: string; due: DueReason; day: string; stageOptionId: string; stageField: string; dateField: string; at: string; round?: number }): AgentProposal {
+  const { personId, due, day, stageOptionId, stageField, dateField, at, round } = input;
   return {
-    dedupeKey: agentDedupeKey(RAISE_FOLLOWUP_ACTION, due, personId, day),
+    dedupeKey: followUpKey({ personId, due, day, dateField, stageOptionId, round }),
     agent: RAISE_FOLLOWUPS_AGENT,
     action: RAISE_FOLLOWUP_ACTION,
     target: { type: "person", id: personId },
@@ -87,7 +112,8 @@ export function followUpParts(a: Pick<AgentAction, "proposal" | "signals" | "bas
 
 /**
  * Raise a follow-up for each due reason of each card, newest rule first, stopping at `maxOpen` open
- * for the brand or `maxNew` new this run. Idempotent: a key already used writes nothing.
+ * for the brand or `maxNew` new this run. Idempotent: a key already used writes nothing, unless the
+ * one it holds was set aside as stale, when the next round is tried (at most MAX_ROUNDS).
  */
 export async function proposeFollowUps(
   ctx: TenantContext,
@@ -105,10 +131,14 @@ export async function proposeFollowUps(
       const day = due === "quiet" ? card.lastTouch : card.nextStepDate;
       const dateField = due === "quiet" ? opts.fields.lastTouch : opts.fields.nextStepDate;
       if (!day || !dateField) continue;
-      const r = await proposeAgentAction(ctx, followUpProposal({ personId: card.id, due, day, stageOptionId: card.stageOptionId, stageField: opts.fields.stage, dateField, at }), { db });
-      if (r.outcome === "created") {
-        created += 1;
-        open += 1;
+      for (let round = 0; round < MAX_ROUNDS; round++) {
+        const r = await proposeAgentAction(ctx, followUpProposal({ personId: card.id, due, day, stageOptionId: card.stageOptionId, stageField: opts.fields.stage, dateField, at, round }), { db });
+        if (r.outcome === "created") {
+          created += 1;
+          open += 1;
+        }
+        // Open, or decided by someone (followed up, dismissed) or let go (expired): never again.
+        if (r.outcome !== "decided" || r.action.declined?.reason !== "stale") break;
       }
     }
   }
@@ -144,6 +174,8 @@ export async function reconcileFollowUps(
   const at = opts.now.toISOString();
   let after: string | null = null;
   for (let page = 0; page < RECONCILE_PAGES; page++) {
+    // Past the deadline: no further reads.
+    if (opts.stop?.()) break;
     const p = await pageAgentActions(ctx, { action: RAISE_FOLLOWUP_ACTION, state: "proposed" }, { after, limit: 50, db });
     for (const a of p.actions) {
       if (opts.stop?.() || !a.personId) {
@@ -169,7 +201,7 @@ export async function reconcileFollowUps(
       else if (move.reason === "expired") out.expired += 1;
       else out.cleared += 1;
     }
-    if (!p.more) break;
+    if (!p.more || opts.stop?.()) break;
     after = p.last;
   }
   return out;
@@ -235,8 +267,9 @@ export function followUpReviewItem(a: AgentAction, fields: readonly RecordField[
 
 /**
  * Review's "Follow-ups from your board": every open follow-up, newest first. Shown to everyone on the
- * team. The brand's time zone is read from the control plane (`db` stands in for it in tests, as
- * Review's other loaders do).
+ * team, and none once the brand has no board (its Stage archived): the tick lane sets those aside.
+ * The brand's time zone is read from the control plane (`db` stands in for it in tests, as Review's
+ * other loaders do).
  */
 export async function followUpReviewItems(
   ctx: TenantContext,
@@ -247,6 +280,7 @@ export async function followUpReviewItems(
   if (!open.length) return [];
   const loadTenant = deps.loadTenant ?? ((id: string) => getTenantById(id, db));
   const [list, tenant] = await Promise.all([readFieldList(ctx, "person", db), loadTenant(ctx.tenantId).catch(() => null)]);
+  if (!raiseFieldsOf(list.items).setUp) return [];
   const today = todayFor(tenant?.timeZone, deps.now?.() ?? new Date());
   return open.map((a) => followUpReviewItem(a, list.items, today)).filter((i): i is ReviewItem => !!i);
 }

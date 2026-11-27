@@ -1,4 +1,4 @@
-import { readFieldList } from "@/lib/audience/fieldList";
+import { readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
 import { setFieldValues } from "@/lib/audience/fields";
 import { deterministicContactId } from "@/lib/crm/identifiers";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -101,4 +101,13 @@ export async function boardWorld(db: FakeFirestore, opts: { ctx?: TenantContext;
       return id;
     },
   };
+}
+
+/** For tests only: an admin archives the board's Stage field in Data model, so the brand has no board. */
+export async function archiveStage(ctx: TenantContext, db: FakeFirestore): Promise<void> {
+  const list = await readFieldList(ctx, "person", db);
+  const stage = raiseFieldsOf(list.items).byPreset["raise.stage"];
+  if (!stage) throw new Error("no stage");
+  const r = await saveFieldListChange(ctx, "person", { baseRev: list.rev, change: { op: "archive", key: stage.key }, by: { type: "member", id: ctx.userId ?? "u_admin" } }, db);
+  if (!r.ok) throw new Error(r.error);
 }

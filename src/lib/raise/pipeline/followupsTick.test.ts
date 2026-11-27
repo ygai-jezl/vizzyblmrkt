@@ -4,8 +4,8 @@ import { setFieldValues } from "@/lib/audience/fields";
 import type { Tenant } from "@/lib/types/tenant";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { RAISE_FOLLOWUP_ACTION } from "./followups";
-import { isFollowUpTick, isMorning, LANE, localHour, runRaiseFollowups } from "./followupsTick";
-import { boardWorld, type BoardWorld } from "./testing/world";
+import { isFollowUpTick, isMorning, LANE, localHour, runOrder, runRaiseFollowups } from "./followupsTick";
+import { archiveStage, boardWorld, type BoardWorld } from "./testing/world";
 
 /** The first lane tick at or after an instant. */
 function onTick(iso: string): number {
@@ -84,6 +84,43 @@ describe("the follow-ups lane", () => {
     expect(await run(MORNING, [brand("ten_a", { status: "suspended" }), brand("ten_none")])).toMatchObject({ brands: 0, proposed: 0 });
     expect(await run(MORNING, [brand("ten_a")], MORNING + 2_000)).toMatchObject({ brands: 0 });
     expect(followUps()).toEqual([]);
+  });
+
+  it("reads brands in their morning first, so a long list still reaches them in their window", async () => {
+    await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-01" });
+    // Five brands where it is late afternoon, listed before the one in its morning.
+    const tokyo = [0, 1, 2, 3, 4].map((i) => brand(`ten_t${i}`, { timeZone: "Asia/Tokyo" }));
+    const tenants = [...tokyo, brand("ten_a")];
+    expect(runOrder(tenants, MORNING)[0]!.id).toBe("ten_a");
+    expect(runOrder(tenants, NOON).map((t) => t.id).sort()).toEqual(tenants.map((t) => t.id).sort());
+    // Time enough for one brand only: it is the one in its morning.
+    let t = MORNING;
+    const clock = () => (t += 100) - 100;
+    const r = await runRaiseFollowups({ deadlineMs: MORNING + 3_500 }, { db, listTenants: async () => tenants, clock, log: () => {} });
+    expect(r).toMatchObject({ brands: 1, proposed: 1 });
+  });
+
+  it("moves the morning group's start a quarter of the way on each run", () => {
+    // Eight brands in London, read at 6, 7, 8 and 9 in the morning: four different starts.
+    const eight = Array.from({ length: 8 }, (_, i) => brand(`ten_m${i}`));
+    const six = onTick("2026-11-26T06:00:00.000Z");
+    const runs = [0, 1, 2, 3].map((k) => six + k * LANE.TICK_MS * LANE.EVERY);
+    expect(runs.every((at) => isMorning(at, "Europe/London"))).toBe(true);
+    const firsts = runs.map((at) => runOrder(eight, at)[0]!.id);
+    expect(new Set(firsts).size).toBe(4);
+  });
+
+  it("sets open follow-ups aside once the brand has no board, and reads nothing more for a brand never set up", async () => {
+    await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-01" });
+    expect(await run(MORNING)).toMatchObject({ proposed: 1 });
+    await archiveStage(w.ctx, db);
+    expect(await run(NOON)).toMatchObject({ brands: 1, cleared: 1 });
+    expect(followUps()[0]).toMatchObject({ state: "declined", declined: { reason: "stale" } });
+    // Nothing left: the next run counts the brand no more.
+    expect(await run(NOON + LANE.TICK_MS * LANE.EVERY)).toMatchObject({ brands: 0, cleared: 0 });
+    const before = db.collectionCalls("agent_actions");
+    expect(await run(NOON, [brand("ten_none")])).toMatchObject({ brands: 0 });
+    expect(db.collectionCalls("agent_actions")).toBe(before);
   });
 
   it("raises at most 25 new a run", async () => {

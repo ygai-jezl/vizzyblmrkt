@@ -30,3 +30,13 @@ export function isAiOriginalsEnabled(): boolean {
   return process.env.CONTENT_AI_ORIGINALS_ENABLED === "true";
 }
 
+
+/**
+ * Keep each workflow email and hub piece a person approves (or a blog article found live) as an
+ * example of the brand's own writing, and let the email and hub writers follow the nearest ones
+ * (performance_exemplars, src/lib/content/create/approvedExamples.ts). Off: nothing is kept and
+ * the writers read exactly what they read before.
+ */
+export function isApprovedExamplesEnabled(): boolean {
+  return process.env.CONTENT_APPROVED_EXAMPLES_ENABLED === "true";
+}

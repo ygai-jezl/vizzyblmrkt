@@ -91,7 +91,7 @@ export type LoopKind =
  */
 export const LEARNED_STORES = {
   learned: "The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.",
-  post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.",
+  post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.",
   vizzy_memory: "Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.",
   brand_kit: "Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.",
   brand_map: "The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.",
@@ -193,8 +193,8 @@ export const LOOPS = {
   seen_notes: own("content_plan", "A note your team took out of an article is kept with the last 50 on its brief and not matched back into it."),
   architect: gap("Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.", LATER),
   content_write: own("post_learning", "Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet."),
-  content_email: gap("Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.", LATER),
-  content_hub: gap("Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.", LATER),
+  content_email: own("post_learning", "Where turned on, a workflow email follows the emails your team approved, kept as examples of the brand's own writing, though how your team edited each draft teaches it nothing yet."),
+  content_hub: own("post_learning", "Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet."),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
   edit_mode: own("vizzy_memory", "Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),

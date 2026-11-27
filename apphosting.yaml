@@ -1246,6 +1246,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Keep each workflow email and hub piece a person approves as an example of the brand's own
+  # writing, and let the email and hub writers follow the nearest ones.
+  - variable: CONTENT_APPROVED_EXAMPLES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The eBook studio and on brand social post images.
   - variable: CREATE_EBOOK_ENABLED
     value: "false"

@@ -1023,20 +1023,29 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "post_learning",
     name: "What posts taught",
-    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.",
+    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.",
     place: "content",
     status: "built",
-    madeBy: ["post_feedback"],
+    madeBy: ["post_feedback", "content_email", "content_hub"],
     home: "brand",
     personal: "none",
     stores: [
-      side("performance_exemplars", "src/lib/tenant/exemplars.ts"),
+      side("performance_exemplars", "src/lib/tenant/exemplars.ts", { note: "the best posts, and the approved emails and hub pieces kept as examples" }),
       side("post_perf_vectors", "src/lib/tenant/postVectors.ts"),
       side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", { note: "append only, the source of a revert" }),
     ],
-    links: [{ to: "post_result", via: "the posts it learned from", many: true }],
+    links: [
+      { to: "post_result", via: "the posts it learned from", many: true },
+      { to: "content_plan", via: "the approved pieces it keeps as examples", many: true },
+    ],
     events: [],
-    erase: { none: "the brand's own content statistics" },
+    erase: {
+      paths: [
+        brandPath("forgetPlanExamples", "src/lib/content/create/approvedExamples.ts", "an approved example goes with its content plan; the post statistics are the brand's own and stay"),
+        brandPath("forgetRemovedExamples", "src/lib/content/create/approvedExamples.ts", "a piece taken off the canvas takes its approved example with it"),
+        brandPath("forgetWorkspaceExamples", "src/lib/content/create/approvedExamples.ts", "a deleted programme takes the approved examples of its plans with it"),
+      ],
+    },
     export: { none: NOT_PERSONAL },
     search: { none: "vectors and versions for the writer, not text to find" },
     numbers: { none: "its numbers are post results" },
@@ -1410,7 +1419,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "ai_original",
     name: "AI original",
-    description: "The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.",
+    description: "The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it and any approved pieces it followed as examples, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.",
     place: "content",
     status: "built",
     madeBy: ["blog_write", "content_write", "content_hub", "content_email", "blog_refresh"],

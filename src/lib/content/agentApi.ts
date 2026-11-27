@@ -213,6 +213,10 @@ function editBlock(doc: AiOriginalDoc | null, node: { type: string; channel: str
     writtenBy: doc.original.by,
     promptId: doc.original.stamp?.promptId ?? null,
     sources: doc.original.sources,
+    // The approved pieces the writer followed as examples (CONTENT_APPROVED_EXAMPLES_ENABLED), each openable with get_content_plan.
+    ...(doc.original.examples?.length
+      ? { followedExamples: doc.original.examples.map((e) => ({ workspaceId: e.workspaceId, planId: e.planId, pieceId: e.nodeId })) }
+      : {}),
     approvedAt: pair?.final.at ?? null,
     approvedBy: pair ? (pair.trigger === "live" ? "found live" : "a person") : null,
     approvedAsWritten: m.approvedAsWritten,

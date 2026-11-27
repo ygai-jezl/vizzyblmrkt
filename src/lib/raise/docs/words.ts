@@ -42,8 +42,8 @@ export const SECTION_IN_SENTENCE: Record<SectionKey, string> = {
   team: "team",
   ask: "ask",
   sales: "sales",
-  use_of_funds: "use of funds",
-  repayment: "repayment",
+  use_of_funds: "what the money is for",
+  repayment: "how it repays",
 };
 
 export const KIND_LABEL: Record<OutlineId, string> = {
@@ -86,6 +86,8 @@ export const GUIDANCE: Record<SectionKey, string> = {
 export const LENDER_GUIDANCE: Partial<Record<SectionKey, string>> = {
   cover: "What a lender looks for here: what you sell and how long you've traded.",
   team: "What a lender looks for here: who runs the business day to day.",
+  business_model: "What a lender looks for here: how the business makes its money.",
+  go_to_market: "What a lender looks for here: how you find customers, and what works so far.",
 };
 
 /** Shown on every slide's This slide tab. */
@@ -194,6 +196,8 @@ export const CHECK_WORDS = {
   missing_ask: "No ask slide. Say how much, what it buys and where it gets you.",
   missing_repayment: "No slide on how it repays. Lenders look for that first.",
   missing_section: (section: string) => `No ${section} slide. Most decks like this one have one.`,
+  /** A lender pack's sections read as phrases ("what the money is for"), and a lender pack is a pack. */
+  missing_section_lender: (section: string) => `No slide on ${section}. Most packs like this one have one.`,
   terms_on_ask: "The ask names a valuation or terms. Leave them off the slide and talk them through in the meeting.",
   cumulative_chart: "This chart only ever goes up, so it reads as a running total. Show each week or month on its own.",
   chart_no_source: "This chart has no source line. Say where the numbers came from.",

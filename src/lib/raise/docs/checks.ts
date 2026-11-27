@@ -137,7 +137,9 @@ export function deckChecks(deck: CheckedDeck): Check[] {
   }
   const ownCheck = new Set<SectionKey>(["why_now", "ask", "repayment"]);
   for (const section of CORE_SECTIONS[deck.audience]) {
-    if (!ownCheck.has(section) && !sections.has(section)) deckCheck("missing_section", CHECK_WORDS.missing_section(SECTION_IN_SENTENCE[section]));
+    if (ownCheck.has(section) || sections.has(section)) continue;
+    const words = deck.audience === "lender" ? CHECK_WORDS.missing_section_lender : CHECK_WORDS.missing_section;
+    deckCheck("missing_section", words(SECTION_IN_SENTENCE[section]));
   }
   for (const [section, n] of sections) if (n > 3) deckCheck("too_many_in_section", CHECK_WORDS.too_many_in_section(n, SECTION_IN_SENTENCE[section]));
   return out;

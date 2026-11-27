@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { LAYOUTS, pointsCap } from "./layouts";
-import { AMOUNT_NEED, CORE_SECTIONS, DEFAULT_LAYOUT, OUTLINES, SECTION_BRIEF, guidanceFor, kindLabel, outlineFor } from "./outlines";
+import { AMOUNT_NEED, CORE_SECTIONS, DEFAULT_LAYOUT, OUTLINES, SECTIONS_FOR, SECTION_BRIEF, guidanceFor, kindLabel, outlineFor } from "./outlines";
 import { LAYOUT_KEYS, SECTION_KEYS } from "./types";
 import { GUIDANCE, LENDER_GUIDANCE, SECTION_LABEL } from "./words";
 
@@ -30,6 +30,11 @@ describe("the outlines", () => {
     for (const line of Object.values(LENDER_GUIDANCE)) expect(clean(line!)).toEqual([]);
     expect(guidanceFor("team", "lender")).toBe("What a lender looks for here: who runs the business day to day.");
     expect(guidanceFor("team", "investor")).toBe("What investors look for here: why you are the people to build it.");
+  });
+
+  it("give every section Add slide offers on a lender pack a lender's line, never an investor's", () => {
+    for (const s of SECTIONS_FOR.lender) expect(guidanceFor(s, "lender"), s).toMatch(/^What a lender looks for here: /);
+    expect(guidanceFor("business_model", "lender")).toBe("What a lender looks for here: how the business makes its money.");
   });
 
   it("keep every core section in its outline, and the amount Needs on the ask slides", () => {

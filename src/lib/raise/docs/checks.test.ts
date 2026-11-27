@@ -64,6 +64,20 @@ describe("deck checks", () => {
     ]);
   });
 
+  it("name a lender pack's missing section as its slide reads, never as use of funds", () => {
+    const lender = [
+      slide({ section: "cover", headline: "Fernhill Plants" }),
+      slide({ section: "sales", headline: "Sales have held steady all year round" }),
+      slide({ section: "repayment", headline: "Repayments fit our busy spring months" }),
+      slide({ section: "team", headline: "Two of us run the shop every day" }),
+    ];
+    const messages = only("missing_section", lender, "lender").map((c) => c.message);
+    expect(messages).toEqual(["No slide on what the money is for. Most packs like this one have one."]);
+    const many = [...lender, ...[1, 2, 3, 4].map(() => slide({ section: "use_of_funds", layout: "ask", headline: "New stock for the spring season ahead" }))];
+    expect(only("too_many_in_section", many, "lender").map((c) => c.message)).toEqual(["4 slides on what the money is for. Keep it to 3 at most."]);
+    for (const m of [...messages, ...only("too_many_in_section", many, "lender").map((c) => c.message)]) expect(m).not.toContain("use of funds");
+  });
+
   it("miss repayment on a lender pack, and never ask a lender for why now or check its terms", () => {
     const lender = [
       slide({ section: "cover", headline: "Fernhill Plants" }),

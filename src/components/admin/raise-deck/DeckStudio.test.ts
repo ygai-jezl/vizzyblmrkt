@@ -57,6 +57,14 @@ describe("the deck studio", () => {
     expect(out).not.toContain(STUDIO_WORDS.insertNumber);
     expect(out).not.toContain(STUDIO_WORDS.dismiss);
     expect(out).not.toContain(STUDIO_WORDS.delete);
+    expect(out).toContain(STUDIO_WORDS.present);
+    expect(out).toContain(STUDIO_WORDS.savePdf);
+  });
+
+  it("offers Present and Save as PDF in the top bar, and Rehearse on the Talk track", () => {
+    const out = html();
+    expect(out).toContain(`>${STUDIO_WORDS.present}<`);
+    expect(out).toContain(`>${STUDIO_WORDS.savePdf}<`);
   });
 
   it("says when New deck saved the outline without Vizzy's words", () => {

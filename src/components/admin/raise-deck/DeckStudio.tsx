@@ -7,7 +7,7 @@ import { Modal } from "@/components/admin/email/Modal";
 import { useShell } from "@/components/admin/nav/ShellProvider";
 import type { DeckView } from "@/lib/raise/docs/adminApi";
 import { deckChecks } from "@/lib/raise/docs/checks";
-import { addSlide, dismissNeed, insertBlock, isChanged, moveSlide, removeBlock, removeSlide, saveBody, type TextField } from "@/lib/raise/docs/edit";
+import { addSlide, dismissNeed, insertBlock, isChanged, moveSlide, needsCount, removeBlock, removeSlide, saveBody, type TextField } from "@/lib/raise/docs/edit";
 import { RAISE_KIT_HREF } from "@/lib/raise/docs/paths";
 import { talkSeconds, wordsOf } from "@/lib/raise/docs/text";
 import { RAISE_DOC_LIMITS as L, type MetricBlock, type SectionKey, type Slide } from "@/lib/raise/docs/types";
@@ -15,11 +15,14 @@ import { EDITOR_WORDS, LIST_WORDS, RAISE_MESSAGES, STUDIO_WORDS } from "@/lib/ra
 import { deleteDeck, exportHref, messageFor, readDeck, refreshNumbers, saveDeck } from "./api";
 import { DeckFonts } from "./DeckFonts";
 import { InsertNumberDialog } from "./InsertNumberDialog";
+import { PresentView } from "./PresentView";
+import { PrintDeck } from "./PrintDeck";
 import { SideTabs } from "./SideTabs";
 import { SlideEditor } from "./SlideEditor";
 import { FitSlide } from "./SlideFrame";
 import { SlideRail } from "./SlideRail";
 import { SlideView } from "./SlideView";
+import { UkReminderDialog } from "./UkReminderDialog";
 import { VersionsDrawer } from "./VersionsDrawer";
 
 const BUTTON = "rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
@@ -38,7 +41,7 @@ export interface DeckStudioProps {
   outlineNotice?: boolean;
 }
 
-type Panel = null | "versions" | "delete" | "insert" | "look" | "more";
+type Panel = null | "versions" | "delete" | "insert" | "look" | "more" | "pdf";
 type Message = { tone: "ok" | "error"; text: string };
 
 /**
@@ -62,6 +65,8 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
   const [panel, setPanel] = useState<Panel>(null);
   const [field, setField] = useState<TextField | null>(null);
   const [ask, setAsk] = useState("");
+  const [present, setPresent] = useState<null | { start: number; rehearse: boolean }>(null);
+  const [printing, setPrinting] = useState(false);
 
   const canEdit = view.canEdit;
   const dirty = isChanged(view, { title, slides });
@@ -195,6 +200,10 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
 
   const vizzyHere = vizzy && Boolean(shell);
   const savedVersion = view.versions.find((v) => v.n === view.version);
+  // Present and the PDF show the slides as they are here; the footer names a version only when they are that version.
+  const shownVersion = dirty ? null : { n: view.version, at: savedVersion?.at ?? view.updatedAt };
+  const endPrint = useCallback(() => setPrinting(false), []);
+  const closePresent = useCallback(() => setPresent(null), []);
 
   return (
     <div className="space-y-4">
@@ -233,6 +242,12 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
             {STUDIO_WORDS.askVizzy}
           </button>
         ) : null}
+        <button type="button" className={BUTTON} onClick={() => setPresent({ start: index, rehearse: false })}>
+          {STUDIO_WORDS.present}
+        </button>
+        <button type="button" className={BUTTON} onClick={() => setPanel("pdf")}>
+          {STUDIO_WORDS.savePdf}
+        </button>
         <div className="relative">
           <button type="button" className={BUTTON} onClick={() => setPanel(panel === "more" ? null : "more")} aria-expanded={panel === "more"} aria-haspopup="menu">
             {STUDIO_WORDS.more}
@@ -309,7 +324,7 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
               audience={view.audience}
               stage={view.stage}
               mode="edit"
-              version={savedVersion ? { n: savedVersion.n, at: savedVersion.at } : { n: view.version, at: view.updatedAt }}
+              version={shownVersion}
               now={now}
               onDismissNeed={canEdit ? (id) => changeSlide(dismissNeed(slide, id)) : undefined}
             />
@@ -372,6 +387,7 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
             sources={view.sources}
             talk={{ slide: { words: talk.per[index] ?? 0, seconds: talkSeconds(talk.per[index] ?? 0) }, deck: { words: talk.words, seconds: talk.seconds } }}
             now={now}
+            onRehearse={() => setPresent({ start: index, rehearse: true })}
           />
         </aside>
       </div>
@@ -395,6 +411,31 @@ export function DeckStudio({ initial, initialSlide = 0, vizzy, brandHref, outlin
           setMessage({ tone: "ok", text: STUDIO_WORDS.saved(doc.version) });
         }}
       />
+      <UkReminderDialog
+        open={panel === "pdf"}
+        audience={view.audience}
+        needs={needsCount(slides)}
+        onCancel={() => setPanel(null)}
+        onSave={() => {
+          setPanel(null);
+          setPrinting(true);
+        }}
+      />
+      {printing ? <PrintDeck slides={slides} theme={view.theme} title={title} audience={view.audience} stage={view.stage} version={shownVersion} now={now} onDone={endPrint} /> : null}
+      {present ? (
+        <PresentView
+          slides={slides}
+          theme={view.theme}
+          title={title}
+          audience={view.audience}
+          stage={view.stage}
+          version={shownVersion}
+          perSlideSeconds={talk.per.map((w) => talkSeconds(w))}
+          start={present.start}
+          rehearse={present.rehearse}
+          onClose={closePresent}
+        />
+      ) : null}
       <Modal open={panel === "delete"} onClose={() => setPanel(null)} title={STUDIO_WORDS.delete}>
         <p className="text-sm">{STUDIO_WORDS.deleteConfirm}</p>
         <div className="mt-4 flex justify-end gap-2">

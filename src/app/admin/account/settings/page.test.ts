@@ -324,7 +324,7 @@ describe("Settings › General, About your business", () => {
   });
 });
 
-describe("Settings › General, Learning (image style versions)", () => {
+describe("Settings › General, Learning (image style versions or the learning loops)", () => {
   const LEARNING = ["BRAND_STYLE_LOOP_ENABLED", "BRAND_IMAGE_STYLE_ENABLED", "IMAGE_STYLE_VERSIONS_ENABLED", "LOOPS_ENABLED", ...SWITCHES];
   const versionsOn = () => {
     process.env.BRAND_STYLE_LOOP_ENABLED = "true";
@@ -345,7 +345,7 @@ describe("Settings › General, Learning (image style versions)", () => {
     vi.clearAllMocks();
   });
 
-  it("isn't there, and reads nothing, with versions off", async () => {
+  it("isn't there, and reads nothing, with versions and the learning loops off", async () => {
     phase3On();
     expect(await renderPage()).not.toContain("Help check that learning works");
     expect(readBrandPointers).not.toHaveBeenCalled();
@@ -375,6 +375,24 @@ describe("Settings › General, Learning (image style versions)", () => {
     expect(on).toContain('href="/help/what-yougrow-learned#counts-across-brands"');
     readBrandPointers.mockResolvedValueOnce({ scopes: {}, fleetOptOut: { at: "2027-06-03T09:00:00.000Z" } });
     expect(await renderPage()).toContain("Off since 3 Jun. This brand's counts stay with this brand.");
+  });
+
+  it("with only LOOPS_ENABLED on, shows the setting with words about the counts across brands alone, so a brand can leave them", async () => {
+    phase3On();
+    process.env.LOOPS_ENABLED = "true";
+    const on = await renderPage();
+    expect(on).toContain("Help check that learning works");
+    expect(on).toContain(
+      "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts.",
+    );
+    // No image is held back while image style versions are off, so the words never name the 1 in 20.
+    expect(on).not.toContain("1 in 20");
+    expect(on).toContain('href="/help/what-yougrow-learned#counts-across-brands"');
+    expect(on).not.toContain("#holdback");
+    readBrandPointers.mockResolvedValueOnce({ scopes: {}, fleetOptOut: { at: "2027-06-03T09:00:00.000Z" } });
+    const off = await renderPage();
+    expect(off).toContain("Off since 3 Jun. This brand's counts stay with this brand.");
+    expect(off).not.toContain("Every image is made with what YouGrow learned.");
   });
 
   it("is read only for a member, and stays out when its read fails", async () => {

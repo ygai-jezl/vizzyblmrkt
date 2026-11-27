@@ -4,7 +4,7 @@ import { LOOP_LANE, readLoopLane } from "@/lib/tenant/loopLane";
 import { LOOP_DAYS, readBrandPointers, readLaneState, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { getPatternVersion } from "@/lib/tenant/patternVersions";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
-import { setImageLearningPaused } from "./actions";
+import { setHelpCheck, setImageLearningPaused } from "./actions";
 import { countCard, countKindSignals, loopWeekOf } from "./count";
 import { weekBefore } from "./fold";
 import { cardsAsNotice, containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash, visitHash } from "./tick";
@@ -246,6 +246,27 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
     expect((await readLaneState(ctxOf("ten_hearth"), db)).heartbeatWeek).toBe(W);
     // Its own week is still folded.
     expect(db.raw(LOOP_DAYS, `lt:ten_hearth:${W}`)).toBeDefined();
+  });
+
+  it("with only LOOPS_ENABLED on, leaves a brand whose admin turned the learning setting off out of every count across brands", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    brand("ten_lumen", { organisationId: "org_lumen" });
+    await made("ten_hearth", 4);
+    await made("ten_lumen", 3);
+    // The action the learning setting's route calls while image style versions are off.
+    expect(await setHelpCheck(ctxOf("ten_hearth"), false, { db, now: IN_W })).toEqual({ ok: true, offSince: IN_W.toISOString() });
+    expect(await lane()).toMatchObject({ brands: 2, reported: 1 });
+    // Only Lumen's things are counted, and only Lumen's organisation has a mark.
+    expect(row(fleetCellId.kind("next_up", W))).toMatchObject({ orgs: 1, out: { none: { made: 3 } } });
+    expect(row(fleetCellId.orgs(W))).toMatchObject({ orgs: 1, reported: 1, visited: 2, listed: 2 });
+    expect(db.raw(LOOP_LANE, "o:org_hearth")).toBeUndefined();
+    expect(db.raw(LOOP_LANE, "o:org_lumen")).toBeDefined();
+    // Hearth's weeks are done, its own week is still folded, and nothing of its images is touched.
+    expect((await readLaneState(ctxOf("ten_hearth"), db)).heartbeatWeek).toBe(W);
+    expect(db.raw(LOOP_DAYS, `lt:ten_hearth:${W}`)).toBeDefined();
+    expect((await readBrandPointers(ctxOf("ten_hearth"), db)).seededAt).toBeUndefined();
+    expect(db.collectionCalls("image_assets")).toBe(0);
   });
 
   it("compares brands visited, opted out ones included, with brands listed, suspended ones left out, so coverage isn't behind for good", async () => {

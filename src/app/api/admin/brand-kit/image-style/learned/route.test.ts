@@ -52,6 +52,16 @@ describe("POST /api/admin/brand-kit/image-style/learned", () => {
     expect(actions.undoLook).not.toHaveBeenCalled();
   });
 
+  it("503s the learning setting too with versions and the learning loops both off, before sign in", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    vi.stubEnv("LOOPS_ENABLED", "");
+    const r = await post({ op: "help_check", on: false });
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ error: "image_style_versions_disabled" });
+    expect(session.getAdminContext).not.toHaveBeenCalled();
+    expect(actions.setHelpCheck).not.toHaveBeenCalled();
+  });
+
   it("401s signed out and 403s a member", async () => {
     session.getAdminContext.mockResolvedValueOnce(null);
     expect((await post({ op: "pause" })).status).toBe(401);

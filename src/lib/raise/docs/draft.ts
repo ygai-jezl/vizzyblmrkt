@@ -10,7 +10,6 @@ import { pointsCap } from "./layouts";
 import { fillBlock, metricReader, type BlockRequest, type MetricDeps, type MetricReader } from "./metrics";
 import { AMOUNT_NEED, DEFAULT_LAYOUT, MISSING_SECTION, SECTION_BRIEF, guidanceFor, kindLabel, outlineFor, outlineIdFor, type Outline } from "./outlines";
 import { raiseContext, type RaisePack, type RaisePackDeps } from "./pack";
-import { citationsOut, citeLabels, promptLabels } from "./text";
 import { createRaiseDoc, type RaiseResult, type StoreDeps } from "./store";
 import {
   LAYOUT_KEYS,
@@ -220,19 +219,7 @@ export interface BuildCtx {
   pack: RaisePack;
   reader: MetricReader;
   now: Date;
-  /** Other words the model was shown (the brief, the deck as it is), so an id among them stays. */
-  shown?: readonly string[];
 }
-
-/** The ids the model may write as its own references on a slide (citationsOut). */
-export function citeFor(c: Pick<BuildCtx, "pack" | "shown">): Set<string> {
-  const p = c.pack;
-  return citeLabels(promptLabels(p), [p.brandName, ...p.lines.map((l) => l.text), ...p.authors.flatMap((a) => [a.name, a.role, a.bio]), ...(c.shown ?? [])]);
-}
-
-/** A slide's warning when Vizzy's own reference ids are still in its words. */
-export const strayWarning = (n: number, ids: readonly string[]) =>
-  `Slide ${n} has ${ids.join(", ")}, Vizzy's own reference for where a line came from, in its words. Check how it reads.`;
 
 const WEEKS = new Set([4, 8, 12]);
 
@@ -304,14 +291,7 @@ export async function filled(reqs: BlockRequest[], reader: MetricReader, warning
 }
 
 /** A team slide's people, only from the brand's own team list by A number; with none named, the whole list. */
-export function teamPeople(
-  asked: ModelSlide["people"],
-  pack: RaisePack,
-  n: number,
-  warnings: string[],
-  cite: ReadonlySet<string> = new Set(),
-  stray: Set<string> = new Set(),
-): NonNullable<Slide["people"]> {
+export function teamPeople(asked: ModelSlide["people"], pack: RaisePack, n: number, warnings: string[]): NonNullable<Slide["people"]> {
   const byRef = new Map(pack.authors.map((a) => [a.ref, a]));
   const picked: NonNullable<Slide["people"]> = [];
   for (const p of asked) {
@@ -321,9 +301,7 @@ export function teamPeople(
       continue;
     }
     if (picked.some((x) => x.authorId === a.id)) continue;
-    const said = citationsOut(p.line, cite);
-    said.stray.forEach((x) => stray.add(x));
-    picked.push({ name: a.name, role: a.role, line: clip(said.text, L.personLine) || clip(a.bio, L.personLine), authorId: a.id });
+    picked.push({ name: a.name, role: a.role, line: clip(p.line, L.personLine) || clip(a.bio, L.personLine), authorId: a.id });
   }
   if (!picked.length) for (const a of pack.authors) picked.push({ name: a.name, role: a.role, line: clip(a.bio, L.personLine), authorId: a.id });
   return picked.slice(0, L.people);
@@ -366,14 +344,7 @@ export async function buildSlide(m: ModelSlide, at: BuildSlide, c: BuildCtx, war
   needTexts.push(...more.needs);
 
   const dropped: string[] = [];
-  const cite = citeFor(c);
-  const stray = new Set<string>();
-  const cleaned = (s: string) => {
-    const r = citationsOut(s, cite);
-    r.stray.forEach((x) => stray.add(x));
-    return r.text;
-  };
-  const t = (s: string, max: number) => clip(cleaned(renameTokens(s, ids, dropped)), max);
+  const t = (s: string, max: number) => clip(renameTokens(s, ids, dropped), max);
   const headline = t(m.headline, L.headline);
   const points = m.points.map((p) => t(p, L.point)).filter(Boolean).slice(0, pointsCap(layout, section, c.outline.stage));
   const compare =
@@ -389,11 +360,10 @@ export async function buildSlide(m: ModelSlide, at: BuildSlide, c: BuildCtx, war
       : undefined;
   if (dropped.length) warnings.push(`Slide ${n} named a number it didn't ask for, so it was left out.`);
 
-  const people = section === "team" || layout === "team" ? teamPeople(m.people, c.pack, n, warnings, cite, stray) : undefined;
+  const people = section === "team" || layout === "team" ? teamPeople(m.people, c.pack, n, warnings) : undefined;
 
   const known = new Set(c.pack.lines.map((l) => l.id));
-  const notes = clip(cleaned(m.notes), L.notes);
-  if (stray.size) warnings.push(strayWarning(n, [...stray]));
+  const notes = clip(m.notes, L.notes);
   return {
     id: newId("sl"),
     section,
@@ -462,7 +432,7 @@ export async function draftDeck(ctx: TenantContext, input: DraftInput, deps: Dra
   const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
   const reader = metricReader(ctx, { db: deps.db, ...deps.metrics, now: () => now });
   const pack = await raiseContext(ctx, { audience: input.audience, stage }, { db: deps.db, loadTenant: async () => tenant, ...deps.pack, reader });
-  const c: BuildCtx = { outline, pack, reader, now, shown: [input.brief ?? ""] };
+  const c: BuildCtx = { outline, pack, reader, now };
 
   const generate = deps.generate ?? generateJsonWithSchema;
   const raw = await generate(draftPrompt(pack, outline, input, now), {

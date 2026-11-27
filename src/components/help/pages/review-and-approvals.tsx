@@ -211,8 +211,8 @@ export default function ReviewAndApprovalsHelp({
             {raiseKit ? (
               <>
                 {" "}
-                Decks and lender packs from the <Open href="/help/raise-kit">Raise kit</Open> aren&apos;t in it either: Vizzy
-                answers about one from its own versions.
+                Decks and lender packs from the <Open href="/help/raise-kit">Raise kit</Open> aren&apos;t in it either: each deck
+                keeps its own versions on its page.
               </>
             ) : null}
           </P>

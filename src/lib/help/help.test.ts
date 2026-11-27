@@ -1066,7 +1066,7 @@ describe("Search", () => {
 
   it("says on Review and approvals that decks aren't in the agent record, only while the Raise kit is on", () => {
     const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ agentRecord: true, raiseKit }), "https://app.example.com");
-    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) aren't in it either: Vizzy answers about one from its own versions.");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) aren't in it either: each deck keeps its own versions on its page.");
     expect(md(false)).not.toContain("Decks and lender packs");
   });
 

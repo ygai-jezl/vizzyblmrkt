@@ -216,31 +216,6 @@ describe("changes the model writes", () => {
     expect(r.value.warnings).toContain("Slide 4 named a number it didn't ask for, so it was left out.");
   });
 
-  it("takes a bracket of the prompt's ids out of a rewrite, and never a word the deck or the ask already had", async () => {
-    const doc = await deck();
-    generate.mockResolvedValue(
-      JSON.stringify({
-        slides: [
-          { task: "T1", headline: "Our loan book is rated A1 (P1)", points: ["Weekly growth, every week [P1]"], notes: "As P1 says, we are rated A1.", sources: ["P1"] },
-          { task: "T2", notes: "Say why owners care now (P1), then pause." },
-        ],
-      }),
-    );
-    const r = await revise(doc, [
-      { change: "rewrite", slide: 4, ask: "Say our loan book is rated A1" },
-      { change: "notes", slide: 5, ask: "Shorter" },
-    ]);
-    if (!r.ok) throw new Error(r.error);
-    const [s4, s5] = [r.value.doc.current.slides[3]!, r.value.doc.current.slides[4]!];
-    expect(s4.headline).toBe("Our loan book is rated A1");
-    expect(s4.points).toEqual(["Weekly growth, every week"]);
-    expect(s4.notes).toBe("As P1 says, we are rated A1.");
-    expect(s4.ai).toMatchObject({ headline: "Our loan book is rated A1", notes: "As P1 says, we are rated A1." });
-    expect(s5.notes).toBe("Say why owners care now, then pause.");
-    expect(r.value.warnings).toContain("Slide 4 has P1, Vizzy's own reference for where a line came from, in its words. Check how it reads.");
-    expect(r.value.warnings.some((w) => w.startsWith("Slide 5 has"))).toBe(false);
-  });
-
   it("writes a new slide after the one named, numbers filled by the server", async () => {
     const doc = await deck();
     generate.mockResolvedValue(
@@ -293,6 +268,7 @@ describe("changes the model writes", () => {
     expect(prompt.match(/<tasks>/g)).toHaveLength(2);
     expect(prompt).toContain("Number {{mb_aaaaaaaa}}: 4,310 (Sign-ups to your launches, 12 weeks to 26 Nov, Seen by YouGrow, 26 Nov)");
     expect(JSON.stringify(reviseSchema())).toContain('"task"');
+    expect(prompt).toContain('The P, A, L and T ids are only for "sources", "author", "launch" and "task": never write one in a headline, point, compare cell, person line or note.');
   });
 });
 
@@ -305,6 +281,20 @@ describe("helpers", () => {
     expect(quoteHas(6200, "16,200 a year")).toBe(false);
     expect(quoteHas(50, "£14,200.50")).toBe(false);
     expect(quoteHas(-300, "we lost 300 last month")).toBe(true);
+  });
+
+  it("reads a number written the European way too, and never a different number", () => {
+    // French and German: a comma for the decimals, a dot or a space between thousands.
+    expect(quoteHas(12.5, "notre croissance est de 12,5 %")).toBe(true);
+    expect(quoteHas(125, "notre croissance est de 12,5 %")).toBe(false);
+    expect(quoteHas(6200, "unser Umsatz liegt bei 6.200 €")).toBe(true);
+    expect(quoteHas(14200, "14 200 € par mois")).toBe(true);
+    expect(quoteHas(1234567.89, "1.234.567,89 €")).toBe(true);
+    // Either reading of a number that could be both.
+    expect(quoteHas(6.2, "6.200 €")).toBe(true);
+    expect(quoteHas(62, "6.200 €")).toBe(false);
+    // Two numbers apart stay two numbers.
+    expect(quoteHas(1215, "up 12 15 times")).toBe(false);
   });
 
   it("keeps the deck's own ids for lines it holds and adds new ones after them", () => {

@@ -116,6 +116,8 @@ export async function deckForAgent(ctx: TenantContext, doc: RaiseDoc, deps: Agen
       talk: { words: totals.words, talkSeconds: totals.talkSeconds },
       checks: checks.filter((c) => c.slideId === null).map((c) => c.message),
       versions: doc.changes.slice(0, VERSIONS_SHOWN).map((c) => ({ n: c.n, note: c.note, by: byLabel(c.by, ctx), at: c.at })),
+      // How many older changes are left out, so Vizzy never answers as if these were all of them.
+      olderVersions: Math.max(0, doc.changes.length - VERSIONS_SHOWN),
     },
     // Which numbers YouGrow can put on a slide (never their values), and the launches by name.
     numbers: { signups: options.waitlist.hasData, growth: options.growth.hasData, launches: options.launches },

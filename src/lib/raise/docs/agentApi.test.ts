@@ -75,7 +75,7 @@ describe("reading decks for Vizzy", () => {
     const only = await agentRaiseDocs(ACME, null, deps());
     const byId = await agentRaiseDocs(ACME, doc.id, deps());
     expect(only).toEqual(byId);
-    const body = byId.body as { doc: { slides: Array<Record<string, unknown>>; link: string; status: string; checks: string[]; talk: unknown; versions: unknown[] }; meanings: Record<string, unknown>; numbers: unknown; note: string };
+    const body = byId.body as { doc: { slides: Array<Record<string, unknown>>; link: string; status: string; checks: string[]; talk: unknown; versions: unknown[]; olderVersions: number }; meanings: Record<string, unknown>; numbers: unknown; note: string };
     expect(body.doc).toMatchObject({ id: doc.id, kindLabel: "Investor deck, pre-seed", status: "draft", version: 1, link: `/admin/raise/${doc.id}` });
     expect(body.doc.slides[3]).toMatchObject({
       n: 4,
@@ -86,6 +86,8 @@ describe("reading decks for Vizzy", () => {
     // A figure typed straight into the words is a check Vizzy can see.
     expect(body.doc.slides[9]!.checks).toEqual(['A number with no source: "40". Insert a number or type it as Typed by you.']);
     expect(body.doc.versions).toEqual([{ n: 1, note: "First draft by Vizzy.", by: "Vizzy", at: NOW.toISOString() }]);
+    // None left out yet: Vizzy says so when the deck has more changes than it is shown.
+    expect(body.doc.olderVersions).toBe(0);
     expect(Object.keys(body.meanings).sort()).toEqual(["talkSeconds", "waitlistSignups"]);
     expect(body.numbers).toEqual({ signups: true, growth: true, launches: null });
     expect(body.note).toMatch(/never write a figure yourself/);

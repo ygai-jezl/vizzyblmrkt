@@ -125,45 +125,13 @@ describe("drafting a deck", () => {
     expect(r.value.warnings).toContain("Slide 9 named someone who isn't on your team list, so they were left out.");
   });
 
-  it("takes a bracket of the prompt's own ids out of a slide's words, and warns about any other", async () => {
-    generate.mockResolvedValue(
-      JSON.stringify(
-        answer({
-          1: { layout: "three_points", headline: "Shops lose a Sunday to stock (P1)", points: ["Counts stock in minutes [P1]", "Works on a T1 till"], notes: "As P1 says, stock day eats a Sunday. Acme makes it ten minutes." },
-          8: { people: [{ author: "A1", line: "Ran two shops for ten years (P1)" }] },
-        }),
-      ),
-    );
-    const r = await draftDeck(ACME, { audience: "investor", by: "usr_admin" }, deps());
-    if (!r.ok) throw new Error(r.error);
-    const problem = r.value.doc.current.slides[1]!;
-    expect(problem.headline).toBe("Shops lose a Sunday to stock");
-    // T is a task id only in revise, and "T1" can be a slide's own words.
-    expect(problem.points).toEqual(["Counts stock in minutes", "Works on a T1 till"]);
-    // An id inside a sentence stays as written, and the slide says so.
-    expect(problem.notes).toBe("As P1 says, stock day eats a Sunday. Acme makes it ten minutes.");
-    expect(problem.ai).toMatchObject({ headline: "Shops lose a Sunday to stock", points: ["Counts stock in minutes", "Works on a T1 till"] });
-    expect(r.value.warnings).toContain("Slide 2 has P1, Vizzy's own reference for where a line came from, in its words. Check how it reads.");
-    expect(r.value.doc.current.slides[8]!.people?.[0]?.line).toBe("Ran two shops for ten years");
-  });
-
-  it("keeps a word that looks like an id when the pack or the brief has it", async () => {
-    const taxis = { ...deps().pack, site: async () => [{ text: "A1 Taxis drives the Leeds to York route.", url: "https://acme.example" }] };
-    generate.mockResolvedValue(JSON.stringify(answer({ 1: { headline: "A1 Taxis gets shift workers home (P1)", notes: "Rated A1 by every driver we asked." } })));
-    const r = await draftDeck(ACME, { audience: "investor", by: "usr_admin" }, deps({ pack: taxis }));
-    if (!r.ok) throw new Error(r.error);
-    expect(r.value.doc.current.slides[1]!.headline).toBe("A1 Taxis gets shift workers home");
-    expect(r.value.doc.current.slides[1]!.notes).toBe("Rated A1 by every driver we asked.");
-    expect(r.value.warnings.filter((w) => w.includes("reference"))).toEqual([]);
-  });
-
-  it("asks for English whatever language the pack is in, and keeps the ids out of the copy", async () => {
+  it("asks for English whatever language the pack is in, and keeps its own ids out of the copy", async () => {
     const french = { ...deps().pack, site: async () => [{ text: "Acme compte le stock des petites boutiques.", url: "https://acme.example" }] };
     const pack = await raiseContext(ACME, { audience: "investor", stage: "pre_seed" }, { ...french, loadTenant: async () => null, metrics: deps().metrics });
     const prompt = draftPrompt(pack, outlineFor("investor", "pre_seed"), {}, NOW);
     expect(prompt).toContain("in plain English, whatever language the pack is in: decks are in English for now.");
     expect(prompt).not.toContain("in the language of the pack");
-    expect(prompt).toContain("The P, A and L ids are only for");
+    expect(prompt).toContain('The P, A and L ids are only for "sources", "author" and "launch": never write one in a headline, point, compare cell, person line or note.');
   });
 
   it("leaves Needs where the pack had nothing, and always on the ask", async () => {

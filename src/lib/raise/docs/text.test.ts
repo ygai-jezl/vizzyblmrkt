@@ -8,9 +8,6 @@ import {
   keepTokens,
   labelWords,
   periodWordsFor,
-  promptLabels,
-  citationsOut,
-  citeLabels,
   renderText,
   segmentsOf,
   slideWordsOf,
@@ -87,34 +84,5 @@ describe("formatting", () => {
     expect(labelWords(block({ source: { kind: "typed", from: "your till" }, asOf: "2025-03-02T00:00:00.000Z" }), NOW)).toBe("Typed by you, from your till, 2 Mar 2025");
     expect(dayWords("2026-01-09T00:00:00.000Z", NOW)).toBe("9 Jan");
     expect(periodWordsFor(12, NOW.toISOString(), NOW)).toBe("12 weeks to 26 Nov");
-  });
-});
-
-describe("the prompt's own ids in a slide's words", () => {
-  const labels = promptLabels({ lines: [{ id: "P1" }, { id: "P2" }, { id: "P3" }], authors: [{ ref: "A1" }], numbers: { launches: [{}, {}] } });
-  const cite = citeLabels(labels, []);
-
-  it("lists the pack, team and launch ids, and no task ids", () => {
-    expect([...labels].sort()).toEqual(["A1", "L1", "L2", "P1", "P2", "P3"]);
-  });
-
-  it("never counts an id that is a word in what the model was shown", () => {
-    expect([...citeLabels(labels, ["A1 Taxis gets you home", "Fees stay low on an L2"])].sort()).toEqual(["L1", "P1", "P2", "P3"]);
-  });
-
-  it("takes out a bracket of ids only, and names any other id left in the words", () => {
-    expect(citationsOut("Shops come back weekly (P3).", cite)).toEqual({ text: "Shops come back weekly.", stray: [] });
-    expect(citationsOut("Growth [P1, P3] since spring", cite)).toEqual({ text: "Growth since spring", stray: [] });
-    for (const s of ["(P1/P2)", "(P1-P3)", "(P1 to P3)", "(P1 and P2)"]) expect(citationsOut(`Weekly ${s}`, cite).text, s).toBe("Weekly");
-    expect(citationsOut("As P1 says, stock day eats a Sunday.", cite)).toEqual({ text: "As P1 says, stock day eats a Sunday.", stray: ["P1"] });
-    expect(citationsOut("Our loan book is rated A1 by our bank", cite)).toEqual({ text: "Our loan book is rated A1 by our bank", stray: ["A1"] });
-  });
-
-  it("leaves number tokens, other words and text with no ids as they were", () => {
-    expect(citationsOut("{{mb_abcd1234}} shops joined in {{mb_abcd1234:period}} (P2)", cite).text).toBe("{{mb_abcd1234}} shops joined in {{mb_abcd1234:period}}");
-    expect(citationsOut("For people with T1 diabetes (see our study)", cite)).toEqual({ text: "For people with T1 diabetes (see our study)", stray: [] });
-    expect(citationsOut("Our P9 plan", cite)).toEqual({ text: "Our P9 plan", stray: [] });
-    const shown = citeLabels(labels, ["Learners go from A1 to B2"]);
-    expect(citationsOut("Learners go from A1 to B2 in six months", shown)).toEqual({ text: "Learners go from A1 to B2 in six months", stray: [] });
   });
 });

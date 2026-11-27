@@ -11,7 +11,6 @@ import {
   authorsText,
   brandForPrompt,
   buildSlide,
-  citeFor,
   clip,
   fenced,
   needsFor,
@@ -21,7 +20,6 @@ import {
   renameTokens,
   requestsOf,
   responseSchema,
-  strayWarning,
   teamPeople,
   type BuildCtx,
   type ModelSlide,
@@ -31,7 +29,7 @@ import { fillBlock, metricReader, refreshBlocks, typedBlock, type BlockRequest, 
 import { AMOUNT_NEED, DEFAULT_LAYOUT, MISSING_SECTION, SECTION_BRIEF, guidanceFor, outlineFor } from "./outlines";
 import { raiseContext, type RaisePack, type RaisePackDeps } from "./pack";
 import { saveRaiseVersion, type RaiseResult, type StoreDeps } from "./store";
-import { citationsOut, labelWords, slideTextParts } from "./text";
+import { labelWords } from "./text";
 import {
   BLOCK_UNITS,
   CURRENCIES,
@@ -111,17 +109,28 @@ export const onlyRefresh = (ops: readonly unknown[]) =>
   ops.length > 0 && ops.every((o) => typeof o === "object" && o !== null && (o as { change?: unknown }).change === "refresh_numbers");
 
 /**
- * Whether the person's own words hold this number: its digits, with commas, spaces and currency
- * signs ignored, and not as part of a longer number. "$6,200 a month" holds 6200; "about 6k"
- * doesn't, so Vizzy asks for the figure rather than turning words into a number.
+ * The values one number in someone's words can mean, read the English way (1,234.5) and the way
+ * much of Europe writes it (1.234,5 or 1 234,5). "12,5" is only 12.5; "6.200" is 6200 or 6.2. Pure.
+ */
+function readingsOf(token: string): number[] {
+  const t = token.replace(/[\s\u00a0\u202f']/g, "");
+  const out = new Set<number>();
+  if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(t) || /^\d+(?:\.\d+)?$/.test(t)) out.add(Number(t.replace(/,/g, "")));
+  if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(t) || /^\d+(?:,\d+)?$/.test(t)) out.add(Number(t.replace(/\./g, "").replace(",", ".")));
+  return [...out].filter(Number.isFinite);
+}
+
+/**
+ * Whether the person's own words hold this number, read the English way or the European way, and
+ * not as part of a longer number: "$6,200 a month", "6.200 €" and "14 200 €" hold 6200, "12,5 %"
+ * holds 12.5, and "about 6k" holds nothing, so Vizzy asks for the figure rather than turning words
+ * into a number.
  */
 export function quoteHas(value: number, quote: string): boolean {
-  const said = quote.replace(/[,\s£$€]/g, "");
-  const digits = String(Math.abs(value));
-  if (!/^\d+(?:\.\d+)?$/.test(digits)) return false;
-  const [whole, frac] = digits.split(".");
-  const pattern = frac ? `${whole}\\.${frac}0*` : `${whole}(?:\\.0+)?`;
-  return new RegExp(`(?<![\\d.])${pattern}(?!\\d)`).test(said);
+  const want = Math.abs(value);
+  if (!Number.isFinite(want)) return false;
+  const tokens = quote.match(/\d(?:[\d.,]|[\s\u00a0\u202f'](?=\d{3}(?!\d)))*\d|\d/g) ?? [];
+  return tokens.some((tok) => readingsOf(tok).some((v) => Math.abs(v - want) <= 1e-9 * Math.max(1, want)));
 }
 
 // ----- Helpers ---------------------------------------------------------------------------------
@@ -269,14 +278,7 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
     blocks.push(f.block);
   }
   const dropped: string[] = [];
-  const cite = citeFor(c);
-  const stray = new Set<string>();
-  const cleaned = (text: string) => {
-    const r = citationsOut(text, cite);
-    r.stray.forEach((x) => stray.add(x));
-    return r.text;
-  };
-  const t = (text: string, max: number) => clip(cleaned(renameTokens(text, ids, dropped, keep)), max);
+  const t = (text: string, max: number) => clip(renameTokens(text, ids, dropped, keep), max);
   const headline = t(m.headline, L.headline) || s.headline;
   const points = m.points.map((p) => t(p, L.point)).filter(Boolean).slice(0, pointsCap(s.layout, s.section, c.stage));
   const notes = t(m.notes, L.notes) || s.notes;
@@ -291,9 +293,8 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
             .slice(0, L.compareRows),
         }
       : undefined;
-  const people = (s.section === "team" || s.layout === "team") && m.people.length ? teamPeople(m.people, c.pack, n, warnings, cite, stray) : undefined;
+  const people = (s.section === "team" || s.layout === "team") && m.people.length ? teamPeople(m.people, c.pack, n, warnings) : undefined;
   if (dropped.length) warnings.push(`Slide ${n} named a number it didn't ask for, so it was left out.`);
-  if (stray.size) warnings.push(strayWarning(n, [...stray]));
   const known = new Set(c.pack.lines.map((l) => l.id));
   const sources = [...new Set(m.sources.map((x) => x.trim()).filter((x) => known.has(x)))].slice(0, L.sources);
   return {
@@ -311,12 +312,10 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
 }
 
 /** Only the slide's notes again, as the model answered; the rest of the slide as it was. */
-function withNotes(s: Slide, m: ModelSlide, n: number, c: TextCtx, warnings: string[]): Slide | null {
+function withNotes(s: Slide, m: ModelSlide, c: TextCtx): Slide | null {
   const dropped: string[] = [];
-  const said = citationsOut(renameTokens(m.notes, new Map(), dropped, new Set(s.blocks.map((b) => b.id))), citeFor(c));
-  const notes = clip(said.text, L.notes);
+  const notes = clip(renameTokens(m.notes, new Map(), dropped, new Set(s.blocks.map((b) => b.id))), L.notes);
   if (!notes) return null;
-  if (said.stray.length) warnings.push(strayWarning(n, said.stray));
   return { ...s, notes, ai: { headline: s.ai?.headline ?? s.headline, points: s.ai?.points ?? s.points, notes, at: c.now.toISOString(), prompt: REVISE_PROMPT_TAG } };
 }
 
@@ -498,9 +497,7 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
     const fresh = await raiseContext(ctx, { audience: doc.audience, stage: doc.stage }, { db: deps.db, loadTenant: async () => tenant, ...deps.pack, reader });
     const merged = mergeLines(doc.sources, fresh.lines);
     if (merged.sources.length > doc.sources.length) sources = merged.sources;
-    // The deck as it is and what was asked are words the model was shown: an id among them stays.
-    const shown = [...doc.current.slides.flatMap((x) => [...slideTextParts(x), x.notes, ...(x.people ?? []).map((p) => p.line)]), ...tasks.map((x) => x.ask ?? "")];
-    const c: TextCtx = { outline: outlineFor(doc.audience, doc.stage), pack: { ...fresh, lines: merged.lines }, reader, now, stage: doc.stage, shown };
+    const c: TextCtx = { outline: outlineFor(doc.audience, doc.stage), pack: { ...fresh, lines: merged.lines }, reader, now, stage: doc.stage };
 
     const generate = deps.generate ?? generateJsonWithSchema;
     const raw = await generate(revisePrompt(doc, work, tasks, c.pack, now), {
@@ -527,7 +524,7 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
         if (m) work[n - 1] = await rewritten(s, m, n, c, warnings);
         else warnings.push(CHANGE_WARNINGS.notRewritten(n));
       } else {
-        const next = m ? withNotes(s, m, n, c, warnings) : null;
+        const next = m ? withNotes(s, m, c) : null;
         if (next) work[n - 1] = next;
         else warnings.push(CHANGE_WARNINGS.emptyNotes(n));
       }

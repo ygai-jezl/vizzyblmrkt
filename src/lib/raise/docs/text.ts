@@ -1,4 +1,3 @@
-import { labelsIn } from "@/lib/content/writingRules";
 import { LABEL_WORDS } from "./words";
 import type { MetricBlock, Slide } from "./types";
 
@@ -151,40 +150,4 @@ export function labelWords(b: Pick<MetricBlock, "source" | "asOf">, now: Date = 
   const day = dayWords(b.asOf, now);
   if (b.source.kind !== "typed") return `${LABEL_WORDS.seen}, ${day}`;
   return b.source.from ? `${LABEL_WORDS.typed}, from ${b.source.from}, ${day}` : `${LABEL_WORDS.typed}, ${day}`;
-}
-
-/**
- * The ids a deck prompt hands the model for its own use: P for pack lines, A for the team list and
- * L for launches. T (tasks) is left out, as "T1" can be a slide's own words. Pure.
- */
-export function promptLabels(pack: { lines: readonly { id: string }[]; authors: readonly { ref: string }[]; numbers: { launches: readonly unknown[] | null } }): Set<string> {
-  const out = new Set<string>();
-  for (const l of pack.lines) out.add(l.id);
-  for (const a of pack.authors) out.add(a.ref);
-  (pack.numbers.launches ?? []).slice(0, 9).forEach((_, i) => out.add(`L${i + 1}`));
-  return out;
-}
-
-/**
- * The prompt ids the model may write as its own references: every id in `labels` except one that
- * is also a word in what the model was shown (`shown`: the brand's name, the pack, the team list,
- * the brief, the deck as it is), such as a brand called "A1 Taxis" or a slide's own "L2". Pure.
- */
-export function citeLabels(labels: ReadonlySet<string>, shown: readonly string[]): Set<string> {
-  const words = new Set(labelsIn(shown.join("\n"), labels));
-  return new Set([...labels].filter((l) => !words.has(l)));
-}
-
-/**
- * Model text with Vizzy's own reference ids, the leak #274 found in strategy goals: a bracket that
- * holds only such ids, such as "(P3)" or "[P1, P3]", goes, and any other is kept as written and
- * named in `stray`, so the slide says to check how it reads. Real words are never taken out. Pure.
- */
-export function citationsOut(text: string, cite: ReadonlySet<string>): { text: string; stray: string[] } {
-  if (!cite.size || !labelsIn(text, cite).length) return { text, stray: [] };
-  const id = `\\b(?:${[...cite].join("|")})\\b`;
-  const sep = "(?:,|;|/|&|and|to|-|\\u2013)";
-  const group = new RegExp(`\\s*[([]\\s*${id}(?:\\s*${sep}\\s*${id})*\\s*[)\\]]`, "g");
-  const out = text.replace(group, "").replace(/\s+([,.;:!?])/g, "$1").trim();
-  return { text: out, stray: labelsIn(out, cite) };
 }

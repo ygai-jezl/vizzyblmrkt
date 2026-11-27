@@ -736,6 +736,8 @@ export const AiDraftSchema = z.object({
   insightId: z.string().max(64).nullable().optional(),
   insightSentence: z.string().max(300).nullable().optional(),
   aiLine: z.string().max(400).nullable().optional(),
+  /** The language the line was written in, when not English (CONTENT_LANGUAGE_ENABLED); the checks read it. */
+  language: z.string().max(16).optional(),
   subjectVariant: z.string().max(120).nullable().optional(),
   standardSubject: z.string().max(200).nullable().optional(),
   factsSnapshot: z

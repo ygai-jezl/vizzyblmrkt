@@ -16,6 +16,7 @@ import type {
   ContentNodeType,
   ContentPlan,
 } from "@/lib/types/contentPlan";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Auto-write a node's generation BRIEF from the nodes it's connected to. When a user
@@ -180,7 +181,8 @@ export async function generateNodeBrief(
     task,
   });
 
-  const raw = await generateText(prompt, { usage: aiUsage(ctx, "content_brief") }).catch(() => null);
+  const usage = aiUsage(ctx, "content_brief");
+  const raw = await generateText(await inBrandLanguage(prompt, usage), { usage }).catch(() => null);
   const j = raw ? parseFirstJson(raw) : null;
   const modelBrief =
     j && typeof j === "object" && typeof (j as Record<string, unknown>).brief === "string"

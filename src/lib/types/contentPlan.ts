@@ -572,6 +572,8 @@ export const BlogArticleMetaSchema = z.object({
   /** The shape the article was written in: "editorial" (CREATE_BLOG_EDITORIAL_ENABLED), else
    *  absent = the CITABLE structure. Its checklist follows this, not the switch. */
   style: z.enum(["editorial"]).optional(),
+  /** The language it was written in, when not English (CONTENT_LANGUAGE_ENABLED): the checks that read English words skip it. */
+  language: z.string().max(16).optional(),
   /** The hero image (BLOG_HERO_ENABLED). Optional with no default, so old metas parse exactly as they did. */
   hero: BlogHeroSchema.optional(),
   /** True Published and Updated dates (BLOG_DATES_ENABLED). Optional with no default, like `hero`. */

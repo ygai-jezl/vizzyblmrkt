@@ -2,6 +2,7 @@ import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 import { MERGE_VARS } from "@/lib/email/mergeVars";
 import { platformOrigin } from "@/lib/platform/origin";
 import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
+import { writingLanguage } from "@/lib/i18n/writingLanguage";
 import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
 import { brandVoiceSection } from "./prompts/compose";
@@ -91,7 +92,9 @@ function strategyVars(campaign: Campaign): Record<string, string> {
 
 export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult> {
   const count = Math.min(Math.max(input.variantCount ?? 3, 1), 5);
-  const locale = input.locale ?? resolveCampaignLocale(input.campaign);
+  // A launch with no language of its own is written in the brand's (CONTENT_LANGUAGE_ENABLED;
+  // English, as before, when the switch is off or the brand has none).
+  const locale = input.locale ?? resolveCampaignLocale(input.campaign, { defaultLocale: await writingLanguage(input.usage) });
   const prompt = renderPrompt("creative.draft_copy", {
     ...strategyVars(input.campaign),
     brand_voice: brandVoiceSection(input.brandVoice),

@@ -149,10 +149,10 @@ export async function decideApproval(
     const subject = (parsed.data.subjectVariant === undefined ? draft.subjectVariant : parsed.data.subjectVariant)?.trim() || null;
     const attested = parsed.data.attestedTerms ?? draft.attestedTerms;
     const allowed = [...draft.allowedTerms, ...attested];
-    const lineCheck = validateAiLine(line, allowed);
+    const lineCheck = validateAiLine(line, allowed, { language: draft.language });
     if (!lineCheck.ok) return fail(422, "invalid_line", lineCheck.issues);
     if (subject) {
-      const subjectCheck = validateAiSubject(subject, allowed);
+      const subjectCheck = validateAiSubject(subject, allowed, { language: draft.language });
       if (!subjectCheck.ok) return fail(422, "invalid_subject", subjectCheck.issues);
     }
     patch = {

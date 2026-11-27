@@ -528,6 +528,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Agent record (ADR-0026): what Vizzy, research and the autopilot draft is recorded as agent
+  # actions until a person keeps or dismisses it, a daily catch-up closes the rest, Review lists
+  # Vizzy's styles and notes, and Vizzy reads the record (get_drafts). Needs 0e's agent action
+  # indexes; no record names a person. Records still close while off.
+  - variable: AGENT_RECORD_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Fields on people and companies, managed in Settings › Data model with every change kept.
   # Needs AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED.
   - variable: AUDIENCE_FIELDS_ENABLED
@@ -916,6 +924,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The weekly strategy check: compares the approved strategy with what watched competitors publish
+  # and raises one Review row when something material changed, with Dismiss for 30 days, and Vizzy
+  # reading it (needs STRATEGY_COMPETITORS_ENABLED and COMPETITOR_ARTICLES_ENABLED).
+  - variable: STRATEGY_CHECK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
   # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
   # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its
@@ -1134,6 +1149,13 @@ env:
       - RUNTIME
 
   # == Create ==
+  # Everything YouGrow writes follows the brand's default language (Settings › General ›
+  # Languages), and the checks on articles, emails and lines read that language. Off: written
+  # as before.
+  - variable: CONTENT_LANGUAGE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Researched blog hubs, cite sources, articles written from the brand map, the
   # editorial writer (each needs the first), and Suggest an angle.
   - variable: CREATE_BLOG_CITABLE_ENABLED

@@ -27,6 +27,7 @@ import { entityViewFor, viewedUser } from "./entities";
 import { isPersonPlansEnabled } from "@/lib/audience/flags";
 import { personScrubber } from "@/lib/audience/identityScrubber";
 import { approvedPlanFor, planGuidance } from "@/lib/audience/personPlans";
+import { isNotEnglish, withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
 
 /**
  * Prepare AI-line drafts that are due (≈12 h before their send): re-predict the
@@ -237,7 +238,8 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     plan: plan ? `\n${fencedContext("What your team wants for this person, and how to put it (follow it where the rules below allow)", "plan", planGuidance(plan, personScrubber(stored)))}` : "",
   });
 
-  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+  const language = writingLanguageOf(tenant);
+  const raw = await (deps.generate ?? generateTextWithDeadline)(withWritingLanguage(prompt, language), {
     timeoutMs: GENERATION_TIMEOUT_MS,
     json: true,
     usage: aiUsage(ctx, "lifecycle_lines", { db: deps.db, tenant }),
@@ -253,17 +255,18 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     label: f.label.slice(0, 120),
     display: String(f.display ?? `${f.value}${f.unit ?? ""}`).slice(0, 200),
   }));
-  const lineCheck = validateAiLine(line, allowed);
+  const lineCheck = validateAiLine(line, allowed, { language });
   const base = {
     insightId: insight.id,
     insightSentence: insight.sentence,
     aiLine: line,
+    ...(isNotEnglish(language) ? { language } : {}),
     factsSnapshot: snapshot,
     allowedTerms: allowed,
     ...(plan ? { planAt: plan.at } : {}),
   };
   if (!lineCheck.ok) return fallBack("validation_failed", { ...base, validationIssues: lineCheck.issues.slice(0, 20) });
-  const subjectVariant = subject && validateAiSubject(subject, allowed).ok ? subject : null;
+  const subjectVariant = subject && validateAiSubject(subject, allowed, { language }).ok ? subject : null;
 
   // A preview of exactly this person's email, with the line as a placeholder so
   // a staff edit re-renders without another model call. Links are inert here.

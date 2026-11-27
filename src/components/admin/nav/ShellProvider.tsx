@@ -84,6 +84,8 @@ interface Shell {
   loops: boolean;
   /** Image style versions, the image looks YouGrow learns (isImageStyleVersionsOn(), from the server), for the How to drawer. */
   imageVersions: boolean;
+  /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server), for the How to drawer. */
+  agentRecord: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -149,6 +151,7 @@ export function ShellProvider({
   nextActionCard = false,
   loops = false,
   imageVersions = false,
+  agentRecord = false,
   children,
 }: {
   names: CrumbNames;
@@ -216,6 +219,8 @@ export function ShellProvider({
   loops?: boolean;
   /** Image style versions (isImageStyleVersionsOn(), from the server): the How to drawer explains the image looks only then. */
   imageVersions?: boolean;
+  /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server): the How to drawer says so. */
+  agentRecord?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -315,9 +320,10 @@ export function ShellProvider({
       nextActionCard,
       loops,
       imageVersions,
+      agentRecord,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, loops, imageVersions, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, loops, imageVersions, agentRecord, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

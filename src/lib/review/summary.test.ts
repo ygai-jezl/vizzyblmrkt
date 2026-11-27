@@ -7,6 +7,7 @@ import {
   agentLaunchJourneyItem,
   agentInviteWaveItem,
   agentContentPlanItem,
+  agentNotesItem,
   brandMapItem,
   competitorItems,
   connectionItem,
@@ -21,7 +22,10 @@ import {
   refreshItems,
   REVIEW_ORDER,
   REVIEW_SECTIONS,
+  strategyCheckItem,
 } from "./summary";
+import { freshCheck } from "@/lib/brandStrategy/checkRules";
+import type { StrategyCheck } from "@/lib/types/brandStrategy";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
@@ -340,6 +344,60 @@ describe("what competitors changed, in Review", () => {
   });
 });
 
+describe("the weekly strategy check, in Review", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const NOW = "2026-11-26T12:00:00.000Z";
+  // Made-up situations and competitors.
+  const open = (reasons: NonNullable<StrategyCheck["open"]>["reasons"]): StrategyCheck => ({
+    ...freshCheck("2026-11-02T09:00:00.000Z", null),
+    open: { key: "chk_abc123", raisedAt: NOW, reasons, actedAt: null },
+  });
+  const moved = open([
+    { kind: "new_articles", ref: "sit_aaaaaa01", text: "Which pages do answer engines cite", count: 4, by: [{ name: "Peerly", count: 4 }] },
+    { kind: "named", ref: "Bigsuite", text: "Bigsuite", count: 5, by: [] },
+  ]);
+
+  it("is one row with every reason in full, opening the Strategy tab, with Dismiss", () => {
+    expect(strategyCheckItem(null, NOW)).toBeNull();
+    expect(strategyCheckItem(freshCheck(NOW, null), NOW)).toBeNull();
+    expect(strategyCheckItem(moved, NOW)).toEqual({
+      id: "strategy_check:chk_abc123",
+      kind: "strategy_check",
+      title: "Your competitors moved on your focus situations",
+      detail: 'Peerly wrote 4 new articles on "Which pages do answer engines cite" since 3 Nov. And 1 more.',
+      details: ['Peerly wrote 4 new articles on "Which pages do answer engines cite" since 3 Nov.', "Your competitors name Bigsuite in 5 articles, and you don't watch it."],
+      href: "/admin/brand-kit/map?tab=strategy",
+      action: "Review the strategy",
+      dismissCheck: true,
+    });
+    expect(strategyCheckItem(open([{ kind: "named", ref: "Bigsuite", text: "Bigsuite", count: 5, by: [] }]), NOW)).toMatchObject({
+      title: "Your competitors name an alternative you don't watch",
+      detail: "Your competitors name Bigsuite in 5 articles, and you don't watch it.",
+    });
+  });
+
+  it("is read only with the switch on, from this brand's approved strategy", async () => {
+    const db = new FakeFirestore();
+    const record = (tenantId: string, approved: boolean) => ({
+      tenantId,
+      rev: 2,
+      draft: null,
+      approved: approved ? { at: "2026-11-02T09:00:00.000Z", focusSituationIds: ["sit_aaaaaa01"] } : null,
+      check: moved,
+    });
+    db.seed("brand_strategy", "bst_ten_A", record("ten_A", true));
+    db.seed("brand_strategy", "bst_ten_B", record("ten_B", true));
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    for (const k of ["BRAND_MAP_ENABLED", "BRAND_STRATEGY_ENABLED", "COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("STRATEGY_CHECK_ENABLED", "true");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.map((i) => i.id)).toEqual(["strategy_check:chk_abc123"]);
+    // No approved strategy: no row, whatever the record holds.
+    db.seed("brand_strategy", "bst_ten_A", record("ten_A", false));
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});
+
 describe("Vizzy's suggestions about people", () => {
   const vizzy: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
   const by = { type: "member", id: "u_admin" } as const;
@@ -446,6 +504,96 @@ describe("New person forms Vizzy filled in", () => {
     forgetReviewCount("ten_A");
     vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
     expect(await countReview(admin, { lifecycle: false, now: 3_000 }, db)).toBe(0);
+  });
+});
+
+describe("Vizzy's styles and notes (agent record)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  beforeEach(() => resetReviewCountCache());
+
+  const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };
+  const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
+
+  function world() {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", {
+      tenantName: "Fernhill Plants",
+      rootDomain: "fernhill.example",
+      status: "active",
+      region: "us",
+      allowedOrigins: ["https://fernhill.example"],
+      ownerId: "u_owner",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+      emailStyleSuggestion: { logoId: null, companyName: null, headerColor: "#2f6b3a", accentColor: "#aa3300", source: "chat", brief: "", notes: [], suggestedBy: "u_admin", suggestedAt: "2026-12-03T10:00:00.000Z" },
+    });
+    // A draft Vizzy made, listed as today.
+    db.seed("lifecycle_journeys", "lcj_1", { tenantId: "ten_A", name: "Spring repotting", authoredBy: "agent", publishedVersion: null, status: "draft" });
+    for (const [id, status, source] of [["bn_a0000000", "suggested", "chat"], ["bn_b0000000", "suggested", "chat"], ["bn_c0000000", "suggested", "chat"], ["bn_d0000000", "kept", "chat"], ["bn_e0000000", "suggested", "typed"]]) {
+      db.seed("brand_notes", id!, { tenantId: "ten_A", text: "A note we saw.", status, source, createdAt: "2026-12-01T00:00:00.000Z" });
+    }
+    db.seed("brand_notes", "bn_other000", { tenantId: "ten_B", text: "Another brand's note.", status: "suggested", source: "chat" });
+    for (const k of ["LIFECYCLE_ENABLED", "EMAIL_STYLE_ENABLED", "BRAND_NOTES_ENABLED"]) vi.stubEnv(k, "true");
+    return db;
+  }
+  const titles = async (who: TenantContext, db: FakeFirestore) => (await loadReview(who, { lifecycle: true, includeContent: false }, db)).items.map((i) => i.title);
+
+  it("lists every row as today while the switch is off", async () => {
+    const db = world();
+    expect(await titles(admin, db)).toEqual(["“Spring repotting”"]);
+  });
+
+  it("adds the email style and one row for the notes for admins, after today's drafts, read where they live", async () => {
+    const db = world();
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    const r = await loadReview(admin, { lifecycle: true, includeContent: false }, db);
+    expect(r.items.filter((i) => i.kind === "agent_draft")).toEqual([
+      expect.objectContaining({ title: "“Spring repotting”" }),
+      {
+        id: "email_style:2026-12-03T10:00:00.000Z",
+        kind: "agent_draft",
+        title: "Email style Vizzy suggested",
+        detail: "Suggested in a chat on 3 Dec · Nothing changes until an admin saves it on Brand › Email style.",
+        href: "/admin/brand-kit/email-style",
+        action: "Review",
+      },
+      {
+        id: "brand_notes:suggested",
+        kind: "agent_draft",
+        title: "3 notes Vizzy suggested",
+        detail: "From your chats · Keep the right ones on What we've seen. Articles use only the notes you keep.",
+        href: "/admin/brand-kit/notes",
+        action: "Review",
+      },
+    ]);
+    // The image style's row shows the same way, with its own switch.
+    expect(await titles(admin, db)).not.toContain("Image style Vizzy suggested");
+  });
+
+  it("never for members, and the count matches what each sees", async () => {
+    const db = world();
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    expect(await titles(member, db)).toEqual(["“Spring repotting”"]);
+    expect(await countReview(admin, { lifecycle: true, now: 1_000 }, db)).toBe(3);
+    expect(await countReview(member, { lifecycle: true, now: 1_000 }, db)).toBe(1);
+  });
+
+  it("says 50 or more when the notes it reads fill a page, rather than the page's size as a count", async () => {
+    const db = world();
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    for (let i = 0; i < 60; i++) db.seed("brand_notes", `bn_many${String(i).padStart(4, "0")}`, { tenantId: "ten_A", text: "A note we saw.", status: "suggested", source: "chat", createdAt: "2026-12-01T00:00:00.000Z" });
+    expect(await titles(admin, db)).toContain("50 or more notes Vizzy suggested");
+    expect(agentNotesItem(1)?.title).toBe("1 note Vizzy suggested");
+    expect(agentNotesItem(0)).toBeNull();
+  });
+
+  it("drops a row once its draft is decided, and each row with its own page's switch", async () => {
+    const db = world();
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    vi.stubEnv("BRAND_NOTES_ENABLED", "false");
+    const raw = db.raw("tenants", "ten_A") as Record<string, unknown>;
+    db.seed("tenants", "ten_A", { ...raw, emailStyleSuggestion: null });
+    expect(await titles(admin, db)).toEqual(["“Spring repotting”"]);
   });
 });
 
@@ -572,7 +720,19 @@ describe("the choices each Review section shows", () => {
     // Sections whose rows come from more than one choice name each one.
     expect(REVIEW_SECTIONS.content_refresh.from).toEqual(["blog_refresh", "refresh_due", "freshness_clock"]);
     expect(REVIEW_SECTIONS.next_article.from).toEqual(["next_up", "autopilot", "judge", "seen_notes"]);
-    expect(REVIEW_SECTIONS.agent_draft.from).toEqual(["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero"]);
+    expect(REVIEW_SECTIONS.agent_draft.from).toEqual([
+      "canvas.journey",
+      "canvas.lifecycle",
+      "canvas.journey_style",
+      "canvas.invite_wave",
+      "canvas.content_plan",
+      "autopilot",
+      "email_copy",
+      "email_hero",
+      "canvas.email_style",
+      "canvas.image_style",
+      "vizzy_chat",
+    ]);
     expect(REVIEW_SECTIONS.brand_map.from).toEqual(["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge", "rising_search"]);
     expect(REVIEW_SECTIONS.content_hub.from).toEqual(["content_hub", "blog_write", "ebook", "blog_refresh"]);
   });

@@ -15,6 +15,9 @@ import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { createWaitlistJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
+import { recordDraft } from "@/lib/agentRecord/record";
+import { recordJourneyDraft } from "@/lib/agentRecord/drafts";
+import { launchJourneyPrint } from "@/lib/agentRecord/fingerprints";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -155,6 +158,15 @@ export const journeyCanvasKind: CanvasKind<"journey"> = {
     }
 
     const url = `/admin/launches/${campaignId}/journey`;
+    // The agent record: the launch's welcome emails, as Vizzy left them (soft, never fails the save).
+    await recordDraft(ctx, {
+      action: "launch_journey.draft",
+      draft: { kind: "launch_journey", ref: saved.journey.id },
+      launchId: campaignId,
+      href: url,
+      label: resolveProductName(campaign) || campaign.waitlistName,
+      fingerprint: launchJourneyPrint(filled),
+    });
     return {
       ok: true,
       // One journey per launch: Vizzy's new draft of one it already counted is not a new journey.
@@ -193,6 +205,8 @@ async function saveMovedLaunchDraft(
     : await createWaitlistJourney(ctx, { campaignId: campaign.id, draft }, { authoredBy: "agent" });
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
   const journey = saved.value.journey;
+  // The agent record: the launch's welcome emails, in the store it used (soft, never fails the save).
+  await recordJourneyDraft(ctx, "launch_journey.draft", journey, { label: resolveProductName(campaign) || campaign.waitlistName });
   const issues = saved.value.issues.map((i) => `${i.code}${i.nodeId ? `@${i.nodeId}` : ""}`);
   const all = [...warnings, ...issues.map((i) => `journey_issue:${i}`)];
   const url = `/admin/lifecycle/${journey.id}`;

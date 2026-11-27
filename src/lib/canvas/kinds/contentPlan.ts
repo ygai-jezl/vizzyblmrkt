@@ -24,6 +24,7 @@ import type { generateNode } from "@/lib/content/create/generateNode";
 import { checkPlanBlogFacts, isCitableBlogPlan, researchPlanBlog } from "@/lib/content/blog/hubActions";
 import { removePlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
+import { recordPlanDraft } from "@/lib/agentRecord/drafts";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -155,6 +156,8 @@ export async function authorContentPlanDraft(
     const revision = (plan.agentRevision ?? 0) + 1;
     await updateContentPlan(ctx, ws.id, plan.id, { agentRevision: revision }, deps.db);
     const fresh = (await getContentPlan(ctx, ws.id, plan.id, deps.db)) ?? plan;
+    // The agent record: a plan Vizzy made, as it now stands (soft, never fails the save).
+    await recordPlanDraft(ctx, ws.id, fresh, "vizzy", { db: deps.db });
     const { url, card: c } = card(fresh, ws, result.failed.length);
     return {
       ok: true,
@@ -301,6 +304,8 @@ export async function authorContentPlanDraft(
     if (hero) plan = (await getContentPlan(ctx, ws.id, created.id, deps.db)) ?? plan;
   }
 
+  // The agent record: the plan as Vizzy left it (soft, never fails the save).
+  await recordPlanDraft(ctx, ws.id, plan, "vizzy", { db: deps.db });
   const { url, card: c } = card(plan, ws, result.failed.length);
   // Vizzy repeats this to the operator, so it says exactly what was done to a blog hub —
   // and nothing about research or a fact check when neither ran (the flag is off).

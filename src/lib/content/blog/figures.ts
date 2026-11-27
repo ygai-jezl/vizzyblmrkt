@@ -1,3 +1,4 @@
+import { OTHER_DATE_LINES } from "./labels";
 /**
  * Figures — the numbers a blog article states. An answer engine will only quote a
  * statistic it can trace, and a reader should never meet one the brand cannot back, so
@@ -45,6 +46,7 @@ function stripNonClaims(markdown: string): string {
     .replace(/\]\(\s*<?(?:[^()\s<>]|\([^()\s]*\))+>?(?:\s+"[^"]*")?\s*\)/g, "]") // [text](url) → [text]
     .replace(/https?:\/\/[^\s)>\]]+/gi, " ")
     .replace(/^.*\blast\s+updated\b.*$/gim, " ")
+    .replace(OTHER_DATE_LINES, " ")
     .replace(/^\s*(?:>\s*)*\d{1,3}[.)]\s+/gm, " ") // "1. " list numbering
     .replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ");
 }

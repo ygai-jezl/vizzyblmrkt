@@ -108,5 +108,19 @@
   "widget.leaderboard.title": "متصدرو الإحالات",
   "widget.leaderboard.someone": "شخص ما",
   "widget.leaderboard.referrals.one": "{count} إحالة",
-  "widget.leaderboard.referrals.other": "{count} إحالة"
+  "widget.leaderboard.referrals.other": "{count} إحالة",
+  "article.lastUpdated": "آخر تحديث",
+  "article.published": "نُشر",
+  "article.updated": "حُدّث",
+  "article.by": "بقلم {name}",
+  "article.keyFacts": "حقائق رئيسية",
+  "article.tldr": "باختصار",
+  "article.answer": "الإجابة",
+  "article.tip": "نصيحة",
+  "article.faq": "الأسئلة الشائعة",
+  "article.nextStep": "الخطوة التالية",
+  "article.keyTakeaways": "أهم النقاط",
+  "article.bottomLine": "الخلاصة",
+  "article.sources": "المصادر",
+  "article.aboutAuthor": "عن الكاتب"
 }

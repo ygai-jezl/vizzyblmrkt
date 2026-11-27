@@ -49,6 +49,7 @@ from .tools.content_strategy import get_content_strategy
 from .tools.usage import get_usage
 from .tools.learning import get_learning
 from .tools.settings_history import get_settings_history
+from .tools.drafts import get_drafts
 from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
@@ -92,6 +93,7 @@ root_agent = LlmAgent(
     # get_usage reads what the brand used this month against its limits, each number explained;
     # get_learning reads what YouGrow learned for the brand by kind, how its team answered what was made, and where learning is stuck (counts only, read only);
     # get_settings_history reads who changed the brand's fields, journeys, catalogs and team views, and any older version (read only);
+    # get_drafts reads what became of the drafts Vizzy, research and the autopilot made, from the agent record (read only);
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
     # review_article starts or moves on a refresh review of one and says what it proposes (never applies);
     # get_setup_status/read_help_page answer "what should I set up first?"
@@ -132,6 +134,7 @@ root_agent = LlmAgent(
         get_usage,
         get_learning,
         get_settings_history,
+        get_drafts,
         list_articles_due,
         review_article,
         get_setup_status,

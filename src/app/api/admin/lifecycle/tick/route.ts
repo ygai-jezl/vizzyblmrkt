@@ -7,12 +7,14 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
 import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { isSettingsEraseEnabled } from "@/lib/settings/flags";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isLoopsEnabled } from "@/lib/loops/flags";
@@ -42,6 +44,9 @@ export const dynamic = "force-dynamic";
  * loads (and never holds memory on the instance). Only the switches are read up front. A job's
  * deadline is set before its code loads, so loading counts against its own budget.
  *
+ * The weekly strategy check (STRATEGY_CHECK_ENABLED) rides beside the competitors' checks, about every
+ * 30 minutes at a tick of its own, a few brands a run (src/lib/brandStrategy/check.ts).
+ *
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
  *
@@ -50,6 +55,10 @@ export const dynamic = "force-dynamic";
  * (LOOPS_ENABLED), every 5th tick at offset 1, within its own 20 second budget.
  * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0023) moves on beside
  * them too, a page at a time from each running job's cursor; with the switch off a job waits.
+ *
+ * The agent record's catch-up (AGENT_RECORD_ENABLED, ADR-0026) rides it as well: each brand once a
+ * day, in the 2 minute slot its id falls in, closing what Vizzy, research and the autopilot drafted
+ * that moved on another way.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -69,12 +78,16 @@ const CONNECTORS_BUDGET_MS = 25_000;
 const FRESHNESS_BUDGET_MS = 20_000;
 /** Article refresh reviews (BLOG_REFRESH_ENABLED): a step or two of running reviews; research can take a minute. */
 const REFRESH_BUDGET_MS = 90_000;
+/** The weekly strategy check (STRATEGY_CHECK_ENABLED): a few reads for each of up to 3 brands. */
+const STRATEGY_CHECK_BUDGET_MS = 10_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
 /** The learning loops lane (IMAGE_STYLE_VERSIONS_ENABLED or LOOPS_ENABLED): a page of brands, about every 10 minutes. */
 const LOOPS_BUDGET_MS = 20_000;
 /** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */
 const FIELD_ERASE_BUDGET_MS = 20_000;
+/** The agent record's catch-up (AGENT_RECORD_ENABLED): the brands in this tick's slot, a few reads each. */
+const AGENT_RECORD_BUDGET_MS = 15_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -93,8 +106,9 @@ export async function POST(req: Request) {
   const authCleanup = isPasswordSigninEnabled();
   const loops = isImageStyleVersionsOn() || isLoopsEnabled();
   const fieldErase = isSettingsEraseEnabled();
+  const agentRecord = isAgentRecordEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase || agentRecord))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -111,6 +125,7 @@ export async function POST(req: Request) {
         : {};
       let competitorChecks = null;
       let articleReads = null;
+      let strategyChecks = null;
       const searchSweep = search
         ? timedTickJob("search", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SEARCH_BUDGET_MS);
@@ -191,6 +206,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const agentRecordRun = agentRecord
+        ? timedTickJob("agent-record", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AGENT_RECORD_BUDGET_MS);
+            const { runAgentRecordCatchUp } = await import("@/lib/agentRecord/catchUp");
+            return runAgentRecordCatchUp({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[agent-record] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const connectorsRun = connectors
         ? timedTickJob("connectors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS);
@@ -217,8 +242,8 @@ export async function POST(req: Request) {
           })
         : Promise.resolve(null);
       if (competitors) {
-        // The checks and the article reads run side by side, each within its own budget.
-        const [checks, reads] = await Promise.all([
+        // The checks, the article reads and the strategy check run side by side, each within its own budget.
+        const [checks, reads, strategy] = await Promise.all([
           timedTickJob("competitors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS);
             const { runCompetitorChecks } = await import("@/lib/competitors/tick");
@@ -237,9 +262,20 @@ export async function POST(req: Request) {
                 return null;
               })
             : Promise.resolve(null),
+          isStrategyCheckEnabled()
+            ? timedTickJob("strategy-check", async () => {
+                const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + STRATEGY_CHECK_BUDGET_MS);
+                const { runStrategyChecks } = await import("@/lib/brandStrategy/check");
+                return runStrategyChecks({ deadlineMs });
+              }).catch((err: unknown) => {
+                console.warn(`[strategy-check] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+                return null;
+              })
+            : Promise.resolve(null),
         ]);
         competitorChecks = checks;
         articleReads = reads;
+        strategyChecks = strategy;
       }
       const searchResult = await searchSweep;
       const signalResult = await signalCollect;
@@ -251,12 +287,14 @@ export async function POST(req: Request) {
       const authCleanupResult = await authCleanupRun;
       const loopsResult = await loopsRun;
       const fieldEraseResult = await fieldEraseRun;
+      const agentRecordResult = await agentRecordRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
         ...result,
         ...(competitors ? { competitors: competitorChecks } : {}),
         ...(articleReads ? { competitorArticles: articleReads } : {}),
+        ...(strategyChecks?.brands ? { strategyCheck: strategyChecks } : {}),
         ...(searchResult?.scanned ? { search: searchResult } : {}),
         ...(signalResult?.tenants ? { signals: signalResult } : {}),
         ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),
@@ -269,6 +307,7 @@ export async function POST(req: Request) {
           ? { loops: { brands: loopsResult.brands, idle: loopsResult.idle, learned: loopsResult.learned, verdicts: loopsResult.verdicts, ...(loopsResult.reported ? { reported: loopsResult.reported } : {}) } }
           : {}),
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
+        ...(agentRecordResult?.brands ? { agentRecord: agentRecordResult } : {}),
       });
     } finally {
       logTickMemory();

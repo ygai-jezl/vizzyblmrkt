@@ -108,5 +108,19 @@
   "widget.leaderboard.title": "Top-Empfehler",
   "widget.leaderboard.someone": "Jemand",
   "widget.leaderboard.referrals.one": "{count} Empfehlung",
-  "widget.leaderboard.referrals.other": "{count} Empfehlungen}"
+  "widget.leaderboard.referrals.other": "{count} Empfehlungen}",
+  "article.lastUpdated": "Zuletzt aktualisiert",
+  "article.published": "Veröffentlicht",
+  "article.updated": "Aktualisiert",
+  "article.by": "Von {name}",
+  "article.keyFacts": "Wichtige Fakten",
+  "article.tldr": "Kurz gesagt",
+  "article.answer": "Antwort",
+  "article.tip": "Tipp",
+  "article.faq": "Häufig gestellte Fragen",
+  "article.nextStep": "Nächster Schritt",
+  "article.keyTakeaways": "Das Wichtigste",
+  "article.bottomLine": "Fazit",
+  "article.sources": "Quellen",
+  "article.aboutAuthor": "Über den Autor"
 }

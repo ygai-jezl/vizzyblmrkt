@@ -39,6 +39,7 @@ import { suggestKind } from "@/lib/brandNotes/prompts";
 import { isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "@/lib/brandNotes/flags";
 import { noteRest, type NoteRestState } from "@/lib/brandNotes/rest";
 import { answeredQuestions } from "./citable";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * What the brand has seen, for one blog article (BRAND_NOTES_ENABLED with the editorial writer).
@@ -260,7 +261,7 @@ export async function matchSeen(
     asks = notes.length ? [] : [...questions.map((q) => q.question), ...r.unsaved].slice(0, 3);
   } else if (!notes.length) {
     const raw = await generate(
-      renderPrompt("content.blog_note_asks", { brand_name: brand, question, spark, audience }),
+      await inBrandLanguage(renderPrompt("content.blog_note_asks", { brand_name: brand, question, spark, audience }), usage),
       { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage },
     ).catch(() => null);
     asks = raw ? parseAsks(raw) : [];
@@ -378,14 +379,18 @@ async function articleQuestions(
   ).filter((o) => !a.rest || (o.note.askedFor?.length ?? 0) < a.rest.maxUses);
   if (a.rest) return freshQuestions(ctx, { ...a, answered, room, open }, deps);
   const vars = { brand_name: a.brand, question: a.question, spark: a.spark, audience: a.audience };
+  const asksUsage = usageOf(ctx, deps);
   const raw = await (deps.generate ?? generateTextWithDeadline)(
-    open.length
+    await inBrandLanguage(
+      open.length
       ? renderPrompt("content.blog_note_asks_reuse", {
           ...vars,
           open: open.map((o, i) => `[${i + 1}] ${oneLine(o.note.question ?? "").replace(/<\/?\s*open\s*>/gi, " ")}`).join("\n"),
         })
       : renderPrompt("content.blog_note_asks", vars),
-    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: usageOf(ctx, deps) },
+      asksUsage,
+    ),
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: asksUsage },
   ).catch(() => null);
   if (!raw) return { questions: answered, unsaved: [] };
 
@@ -426,8 +431,9 @@ async function freshQuestions(
     ...a.answered.map((q) => `- Asked already: ${strip(q.question, "have")}`),
     ...asked.map((o) => `- Asked already: ${strip(o.note.question ?? "", "have")}`),
   ].slice(0, HAVE_LINES);
+  const freshUsage = usageOf(ctx, deps);
   const raw = await (deps.generate ?? generateTextWithDeadline)(
-    renderPrompt("content.blog_note_asks_fresh", {
+    await inBrandLanguage(renderPrompt("content.blog_note_asks_fresh", {
       brand_name: a.brand,
       question: a.question,
       spark: a.spark,
@@ -435,8 +441,8 @@ async function freshQuestions(
       count,
       have: have.join("\n") || "(nothing yet)",
       open: a.open.map((o, i) => `[${i + 1}] ${strip(o.note.question ?? "", "open")}`).join("\n") || "(none)",
-    }),
-    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: usageOf(ctx, deps) },
+    }), freshUsage),
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: freshUsage },
   ).catch(() => null);
   if (!raw) return { questions: a.answered, unsaved: [] };
 

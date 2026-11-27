@@ -49,6 +49,7 @@ import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isLoopsEnabled } from "@/lib/loops/flags";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
@@ -242,6 +243,7 @@ export default async function AdminLayout({
             nextActionCard={isNextActionCardEnabled()}
             loops={isLoopsEnabled()}
             imageVersions={isImageStyleVersionsOn()}
+            agentRecord={isAgentRecordEnabled()}
           >
             {shell}
           </ShellProvider>

@@ -7,6 +7,7 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { CONTENT_STRATEGY_LIMITS as L, NOT_ARTICLE_KINDS, PAGE_KIND_LABEL, type ContentPillar, type PlanMade } from "@/lib/types/contentStrategy";
 import type { MadeSlot } from "./slots";
 import { newPillarId } from "./ids";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Pillars: the 3 to 6 big themes the plan's slots fall into, each with a hub (a subject's home
@@ -224,7 +225,7 @@ export async function choosePillars(
   if (fromGroups) return fromGroups;
   if ((deps.modelReady ?? (() => true))() && slots.length) {
     const listed = promptSlots(slots);
-    const raw = await (deps.generate ?? generateTextWithDeadline)(planPrompt(ctx.call(listed), ctx.today), {
+    const raw = await (deps.generate ?? generateTextWithDeadline)(await inBrandLanguage(planPrompt(ctx.call(listed), ctx.today), deps.usage), {
       timeoutMs: PLAN_MS,
       json: true,
       temperature: 0.3,

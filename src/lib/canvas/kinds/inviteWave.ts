@@ -13,6 +13,8 @@ import { INVITE_LOCK_TEXT_FOR_VIZZY } from "@/lib/invites/lockText";
 import { inviteProductName } from "@/lib/invites/eligibility";
 import { defaultInviteCopy, ensureInviteLink } from "@/lib/invites/render";
 import { createWaveDraft, loadInviteSetup, updateWaveDraft } from "@/lib/invites/waves";
+import { recordDraft } from "@/lib/agentRecord/record";
+import { wavePrint } from "@/lib/agentRecord/fingerprints";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -61,6 +63,22 @@ const writeWithAgent: InviteCopyWriter = async ({ campaign, brief, productName, 
   const v = r.source === "agent3" ? r.variants[0] : null;
   return v?.subject && v?.body ? { subject: v.subject, body: v.body } : null;
 };
+
+/** The agent record: the wave as Vizzy left it, about its launch (soft, never fails the save). */
+async function recorded(ctx: CanvasAuthorArgs["ctx"], wave: InviteWave, db?: FirestoreLike): Promise<void> {
+  await recordDraft(
+    ctx,
+    {
+      action: "invite_wave.draft",
+      draft: { kind: "invite_wave", ref: wave.id },
+      launchId: wave.campaignId,
+      href: `/admin/launches/${wave.campaignId}/invites?wave=${wave.id}`,
+      label: wave.name,
+      fingerprint: wavePrint(wave),
+    },
+    { db },
+  );
+}
 
 /** `edited`: Vizzy's new words on a wave it already drafted, which was counted made when it was drafted. */
 function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasAuthorOutcome {
@@ -146,6 +164,7 @@ export async function authorInviteWaveDraft(
       { authoredBy: "agent", made, db: deps.db },
     );
     if (!r.ok) return { ok: false, status: r.status, error: r.error };
+    await recorded(ctx, r.value, deps.db);
     return outcome(r.value, setup.campaign, true);
   }
 
@@ -169,6 +188,7 @@ export async function authorInviteWaveDraft(
     deps.db,
   );
   if (!r.ok) return { ok: false, status: r.status, error: r.error, issues: r.detail ? [r.detail] : undefined };
+  await recorded(ctx, r.value, deps.db);
   return outcome(r.value, setup.campaign, false);
 }
 

@@ -12,6 +12,8 @@ const service = vi.hoisted(() => ({
 vi.mock("@/lib/journey/service", () => service);
 const abTest = vi.hoisted(() => ({ promoteVariant: vi.fn(async () => ({ ok: true })) }));
 vi.mock("@/lib/journey/abTest", () => abTest);
+const record = vi.hoisted(() => ({ closeDraft: vi.fn(async () => 1), memberOf: (ctx: { userId?: string }) => ({ type: "member", id: ctx.userId ?? null }) }));
+vi.mock("@/lib/agentRecord/record", () => record);
 
 const { PUT } = await import("./route");
 const { POST: activate } = await import("./activate/route");
@@ -85,6 +87,20 @@ describe("journey routes (engine move D1)", () => {
     const res = await activate(req("POST", { action: "activate" }), params);
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: "launch_archived" });
+  });
+
+  it("turning the welcome emails on closes Vizzy's draft record as kept by the admin; pausing doesn't", async () => {
+    service.setJourneyState.mockResolvedValue({ ok: true, status: "active", enqueued: 0 });
+    expect((await activate(req("POST", { action: "activate" }), params)).status).toBe(200);
+    expect(record.closeDraft).toHaveBeenCalledWith(
+      admin,
+      { kind: "launch_journey", ref: "journey_camp1" },
+      expect.objectContaining({ to: "acted", by: { type: "member", id: "u1" } }),
+    );
+    record.closeDraft.mockClear();
+    service.setJourneyState.mockResolvedValue({ ok: true, status: "paused" });
+    expect((await activate(req("POST", { action: "pause" }), params)).status).toBe(200);
+    expect(record.closeDraft).not.toHaveBeenCalled();
   });
 
   it("only admins can promote an A/B winner", async () => {

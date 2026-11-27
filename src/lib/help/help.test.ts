@@ -77,6 +77,7 @@ vi.hoisted(() => {
   process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED = "true";
   process.env.EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED = "true";
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
+  process.env.CONTENT_LANGUAGE_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
@@ -1393,5 +1394,24 @@ describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
     // The drawer passes the server's switch for image looks too.
     expect(drawerBodyProps({ imageVersions: true } as never).imageVersions).toBe(true);
     expect(drawerBodyProps(null).imageVersions).toBe(false);
+  });
+});
+
+describe("Drafts from Vizzy and the agent record (AGENT_RECORD_ENABLED)", () => {
+  const review = (agentRecord: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ agentRecord }), "https://app.example.com");
+
+  it("says which rows the record adds to Drafts from Vizzy, and what Vizzy answers from it, only while it is on", () => {
+    const on = review(true);
+    expect(on).toContain("Admins also see an email or image style Vizzy suggested, which opens Brand › Email style or Brand › Image style");
+    expect(on).toContain("one row for the notes Vizzy suggested in your chats, which opens What we've seen");
+    expect(on).toContain("what happened to the drafts you made this month?");
+    expect(on).toContain("older drafts aren't in it");
+    const off = review(false);
+    expect(off).not.toContain("email or image style Vizzy suggested");
+    expect(off).not.toContain("what happened to the drafts");
+    for (const line of on.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 });

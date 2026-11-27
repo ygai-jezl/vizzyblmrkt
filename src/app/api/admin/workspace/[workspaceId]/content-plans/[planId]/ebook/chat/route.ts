@@ -9,6 +9,7 @@ import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import type { EbookDoc } from "@/lib/types/contentPlan";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,7 +89,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       let displayed = 0; // chars of `full` already streamed to the UI
       let fenceHit = false;
       try {
-        for await (const chunk of generateTextStream(prompt, { usage: aiUsage(ctx, "ebook") })) {
+        const usage = aiUsage(ctx, "ebook");
+        for await (const chunk of generateTextStream(await inBrandLanguage(prompt, usage), { usage })) {
           full += chunk;
           if (fenceHit) continue; // everything from the ops block on is machine-only
           // Boundary = the ```ops fence OR a bare `{"ops"` object (the model sometimes skips

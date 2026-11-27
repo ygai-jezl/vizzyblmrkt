@@ -10,6 +10,7 @@ import { groupIdFor, subjectKey } from "./keys";
 import { listGroups, parseGroup, parseSubject } from "./records";
 import { readBrandMap } from "./store";
 import { clean, fence, hasAddress, oneLine } from "./lineChecks";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * "Sort into groups" on a map at any size (BRAND_MAP_SCALE_ENABLED): subjects in no group are
@@ -91,7 +92,8 @@ export async function sortIntoGroups(ctx: TenantContext, input: { cursor: string
     subjects: fence("subjects", subjects.map((s, i) => `${i + 1}. ${oneLine(s.name)}`).join("\n")),
     max_new: MAX_NEW_GROUPS,
   });
-  const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: SORT_MS, usage: aiUsage(ctx, "brand_map_research", { db: deps.db }) })))(prompt).catch(() => null);
+  const usage = aiUsage(ctx, "brand_map_research", { db: deps.db });
+  const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: SORT_MS, usage })))(await inBrandLanguage(prompt, usage)).catch(() => null);
   if (answer === null) return { ok: false, status: 502, error: "research_failed" };
 
   const byKey = new Map(groups.map((g) => [g.nameKey, g.id]));

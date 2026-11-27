@@ -55,7 +55,8 @@ def test_a_loan_for_a_shop_is_a_lender_pack():
 
 
 def test_house_style_no_dashes_as_punctuation():
-    for dash in ("—", "–", " - "):
+    # Built from code points, so no literal dash sits in the source.
+    for dash in (chr(0x2014), chr(0x2013), " - "):
         assert dash not in RAISE_OPS_INSTRUCTION
 
 

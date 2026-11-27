@@ -211,7 +211,7 @@ describe("changes the model writes", () => {
     // Never filled again, though the sign-ups moved since.
     expect(traction.blocks).toEqual([block()]);
     expect(traction.sources).toEqual(["P1"]);
-    expect(traction.ai).toMatchObject({ prompt: "raise.deck_revise@1", notes: "Shops keep joining." });
+    expect(traction.ai).toMatchObject({ prompt: "raise.deck_revise@2", notes: "Shops keep joining." });
     expect(whyNow).toMatchObject({ headline: doc.current.slides[4]!.headline, notes: "Say why owners care now, then pause." });
     expect(r.value.warnings).toContain("Slide 4 named a number it didn't ask for, so it was left out.");
   });
@@ -230,7 +230,7 @@ describe("changes the model writes", () => {
     expect(added).toMatchObject({ section: "product", layout: "three_points" });
     expect(added.blocks[0]).toMatchObject({ meaning: "waitlistSignups", weeks: 4, value: 1830 });
     expect(renderText(added.headline, added.blocks)).toBe("1,830 people a week now join");
-    expect(added.ai?.prompt).toBe("raise.deck_revise@1");
+    expect(added.ai?.prompt).toBe("raise.deck_revise@2");
   });
 
   it("adds the outline of a new slide when the model can't answer, and refuses a rewrite it can't do", async () => {

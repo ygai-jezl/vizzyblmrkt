@@ -1,3 +1,4 @@
+import { labelsIn } from "@/lib/content/writingRules";
 import { LABEL_WORDS } from "./words";
 import type { MetricBlock, Slide } from "./types";
 
@@ -150,4 +151,34 @@ export function labelWords(b: Pick<MetricBlock, "source" | "asOf">, now: Date = 
   const day = dayWords(b.asOf, now);
   if (b.source.kind !== "typed") return `${LABEL_WORDS.seen}, ${day}`;
   return b.source.from ? `${LABEL_WORDS.typed}, from ${b.source.from}, ${day}` : `${LABEL_WORDS.typed}, ${day}`;
+}
+
+/**
+ * The ids a deck prompt hands the model for its own use: P for pack lines, A for the team list and
+ * L for launches. T (tasks) is left out, as "T1" can be a slide's own words. Pure.
+ */
+export function promptLabels(pack: { lines: readonly { id: string }[]; authors: readonly { ref: string }[]; numbers: { launches: readonly unknown[] | null } }): Set<string> {
+  const out = new Set<string>();
+  for (const l of pack.lines) out.add(l.id);
+  for (const a of pack.authors) out.add(a.ref);
+  (pack.numbers.launches ?? []).slice(0, 9).forEach((_, i) => out.add(`L${i + 1}`));
+  return out;
+}
+
+/**
+ * A slide's text with the prompt's own ids taken out, the leak #274 found in strategy goals:
+ * "Shops come back weekly (P3)" is "Shops come back weekly". Empty brackets and doubled commas
+ * left behind go too. Text with none comes back as it was. Pure.
+ */
+export function withoutLabels(text: string, labels: ReadonlySet<string>): string {
+  if (!labelsIn(text, labels).length) return text;
+  // A run of ids, such as "P1, P2 and P3", goes as one.
+  const id = `\\b(?:${[...labels].join("|")})\\b`;
+  const run = new RegExp(`\\s*${id}(?:\\s*(?:,|;|and|&)\\s*${id})*`, "g");
+  return text
+    .replace(run, "")
+    .replace(/[([]\s*[)\]]/g, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }

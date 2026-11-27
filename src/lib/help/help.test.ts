@@ -1056,6 +1056,12 @@ describe("Search", () => {
     vi.unstubAllEnvs();
   });
 
+  it("says on Languages that decks stay in English for now, only while the Raise kit is on", () => {
+    const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.languages!({ raiseKit }), "https://app.example.com");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) are in English for now, whatever your language.");
+    expect(md(false)).not.toContain("Raise kit");
+  });
+
   it("lists the Raise kit's decks in what search covers only while the Raise kit is on, as the drawer is told", () => {
     const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.search!({ raiseKit }), "https://app.example.com");
     expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md), slide by slide");

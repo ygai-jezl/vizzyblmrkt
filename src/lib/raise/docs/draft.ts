@@ -10,6 +10,7 @@ import { pointsCap } from "./layouts";
 import { fillBlock, metricReader, type BlockRequest, type MetricDeps, type MetricReader } from "./metrics";
 import { AMOUNT_NEED, DEFAULT_LAYOUT, MISSING_SECTION, SECTION_BRIEF, guidanceFor, kindLabel, outlineFor, outlineIdFor, type Outline } from "./outlines";
 import { raiseContext, type RaisePack, type RaisePackDeps } from "./pack";
+import { promptLabels, withoutLabels } from "./text";
 import { createRaiseDoc, type RaiseResult, type StoreDeps } from "./store";
 import {
   LAYOUT_KEYS,
@@ -38,7 +39,7 @@ import { MISSING_WORDS, NOTE_WORDS, OUTLINE_NEED, SECTION_LABEL, SOURCE_LABEL_WO
  * Saved as version 1, a draft: nothing is sent or shared.
  */
 
-export const DRAFT_PROMPT = { id: "raise.deck_draft", version: 1 } as const;
+export const DRAFT_PROMPT = { id: "raise.deck_draft", version: 2 } as const;
 export const DRAFT_PROMPT_TAG = `${DRAFT_PROMPT.id}@${DRAFT_PROMPT.version}`;
 export const DRAFT_TIMEOUT_MS = 75_000;
 const THINKING = 512;
@@ -301,7 +302,7 @@ export function teamPeople(asked: ModelSlide["people"], pack: RaisePack, n: numb
       continue;
     }
     if (picked.some((x) => x.authorId === a.id)) continue;
-    picked.push({ name: a.name, role: a.role, line: clip(p.line, L.personLine) || clip(a.bio, L.personLine), authorId: a.id });
+    picked.push({ name: a.name, role: a.role, line: clip(withoutLabels(p.line, promptLabels(pack)), L.personLine) || clip(a.bio, L.personLine), authorId: a.id });
   }
   if (!picked.length) for (const a of pack.authors) picked.push({ name: a.name, role: a.role, line: clip(a.bio, L.personLine), authorId: a.id });
   return picked.slice(0, L.people);
@@ -344,7 +345,8 @@ export async function buildSlide(m: ModelSlide, at: BuildSlide, c: BuildCtx, war
   needTexts.push(...more.needs);
 
   const dropped: string[] = [];
-  const t = (s: string, max: number) => clip(renameTokens(s, ids, dropped), max);
+  const labels = promptLabels(c.pack);
+  const t = (s: string, max: number) => clip(withoutLabels(renameTokens(s, ids, dropped), labels), max);
   const headline = t(m.headline, L.headline);
   const points = m.points.map((p) => t(p, L.point)).filter(Boolean).slice(0, pointsCap(layout, section, c.outline.stage));
   const compare =
@@ -363,7 +365,7 @@ export async function buildSlide(m: ModelSlide, at: BuildSlide, c: BuildCtx, war
   const people = section === "team" || layout === "team" ? teamPeople(m.people, c.pack, n, warnings) : undefined;
 
   const known = new Set(c.pack.lines.map((l) => l.id));
-  const notes = clip(m.notes, L.notes);
+  const notes = clip(withoutLabels(m.notes, labels), L.notes);
   return {
     id: newId("sl"),
     section,

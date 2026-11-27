@@ -74,8 +74,8 @@ describe("drafting a deck", () => {
     expect(drafted).toBe(true);
     expect(doc.current.slides.map((s) => s.section)).toEqual(sections);
     expect(doc.versions[0]).toMatchObject({ n: 1, by: "vizzy", note: "First draft by Vizzy." });
-    expect(doc.made).toMatchObject({ promptId: "raise.deck_draft", version: 1 });
-    expect(doc.current.slides[1]!.ai).toEqual({ headline: doc.current.slides[1]!.headline, points: ["Built with shop owners"], notes: doc.current.slides[1]!.notes, at: NOW.toISOString(), prompt: "raise.deck_draft@1" });
+    expect(doc.made).toMatchObject({ promptId: "raise.deck_draft", version: 2 });
+    expect(doc.current.slides[1]!.ai).toEqual({ headline: doc.current.slides[1]!.headline, points: ["Built with shop owners"], notes: doc.current.slides[1]!.notes, at: NOW.toISOString(), prompt: "raise.deck_draft@2" });
     // Pack ids only: P99 isn't a line.
     expect(doc.current.slides[1]!.sources).toEqual(["P1"]);
     expect(await readRaiseDoc(ACME, doc.id, { db })).toEqual(doc);
@@ -123,6 +123,30 @@ describe("drafting a deck", () => {
     if (!r.ok) throw new Error(r.error);
     expect(r.value.doc.current.slides[8]!.people).toEqual([{ name: "Ana Diaz", role: "Engineer", line: "Built till software for a decade", authorId: "au_2" }]);
     expect(r.value.warnings).toContain("Slide 9 named someone who isn't on your team list, so they were left out.");
+  });
+
+  it("takes the prompt's own ids out of a slide's words, as #274 found in strategy goals", async () => {
+    generate.mockResolvedValue(
+      JSON.stringify(answer({ 1: { layout: "three_points", headline: "Shops lose a Sunday to stock (P1)", points: ["Counts stock in minutes, see P1, P2", "Works on a T1 till"], notes: "As P1 says, stock day eats a Sunday. Acme makes it ten minutes." }, 8: { people: [{ author: "A1", line: "A1 ran two shops for ten years" }] } })),
+    );
+    const r = await draftDeck(ACME, { audience: "investor", by: "usr_admin" }, deps());
+    if (!r.ok) throw new Error(r.error);
+    const problem = r.value.doc.current.slides[1]!;
+    expect(problem.headline).toBe("Shops lose a Sunday to stock");
+    // T is a task id only in revise, and "T1" can be a slide's own words.
+    expect(problem.points).toEqual(["Counts stock in minutes, see", "Works on a T1 till"]);
+    expect(problem.notes).toBe("As says, stock day eats a Sunday. Acme makes it ten minutes.");
+    expect(problem.sources).toEqual(["P1"]);
+    expect(r.value.doc.current.slides[8]!.people?.[0]?.line).toBe("ran two shops for ten years");
+  });
+
+  it("asks for English whatever language the pack is in, and keeps the ids out of the copy", async () => {
+    const french = { ...deps().pack, site: async () => [{ text: "Acme compte le stock des petites boutiques.", url: "https://acme.example" }] };
+    const pack = await raiseContext(ACME, { audience: "investor", stage: "pre_seed" }, { ...french, loadTenant: async () => null, metrics: deps().metrics });
+    const prompt = draftPrompt(pack, outlineFor("investor", "pre_seed"), {}, NOW);
+    expect(prompt).toContain("in plain English, whatever language the pack is in: decks are in English for now.");
+    expect(prompt).not.toContain("in the language of the pack");
+    expect(prompt).toContain("The P, A and L ids are only for");
   });
 
   it("leaves Needs where the pack had nothing, and always on the ask", async () => {

@@ -29,7 +29,7 @@ import { fillBlock, metricReader, refreshBlocks, typedBlock, type BlockRequest, 
 import { AMOUNT_NEED, DEFAULT_LAYOUT, MISSING_SECTION, SECTION_BRIEF, guidanceFor, outlineFor } from "./outlines";
 import { raiseContext, type RaisePack, type RaisePackDeps } from "./pack";
 import { saveRaiseVersion, type RaiseResult, type StoreDeps } from "./store";
-import { labelWords } from "./text";
+import { labelWords, promptLabels, withoutLabels } from "./text";
 import {
   BLOCK_UNITS,
   CURRENCIES,
@@ -58,7 +58,7 @@ import { BLOCK_SHORT, CHANGE_WARNINGS, MISSING_WORDS, NOTE_WORDS, OP_ISSUES, SEC
  * Vizzy read; a deck that has moved on since is refused as stale. Always a draft: nothing is sent.
  */
 
-export const REVISE_PROMPT = { id: "raise.deck_revise", version: 1 } as const;
+export const REVISE_PROMPT = { id: "raise.deck_revise", version: 2 } as const;
 export const REVISE_PROMPT_TAG = `${REVISE_PROMPT.id}@${REVISE_PROMPT.version}`;
 export const REVISE_TIMEOUT_MS = 75_000;
 const THINKING = 512;
@@ -267,7 +267,8 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
     blocks.push(f.block);
   }
   const dropped: string[] = [];
-  const t = (text: string, max: number) => clip(renameTokens(text, ids, dropped, keep), max);
+  const labels = promptLabels(c.pack);
+  const t = (text: string, max: number) => clip(withoutLabels(renameTokens(text, ids, dropped, keep), labels), max);
   const headline = t(m.headline, L.headline) || s.headline;
   const points = m.points.map((p) => t(p, L.point)).filter(Boolean).slice(0, pointsCap(s.layout, s.section, c.stage));
   const notes = t(m.notes, L.notes) || s.notes;
@@ -303,7 +304,7 @@ async function rewritten(s: Slide, m: ModelSlide, n: number, c: TextCtx, warning
 /** Only the slide's notes again, as the model answered; the rest of the slide as it was. */
 function withNotes(s: Slide, m: ModelSlide, c: TextCtx): Slide | null {
   const dropped: string[] = [];
-  const notes = clip(renameTokens(m.notes, new Map(), dropped, new Set(s.blocks.map((b) => b.id))), L.notes);
+  const notes = clip(withoutLabels(renameTokens(m.notes, new Map(), dropped, new Set(s.blocks.map((b) => b.id))), promptLabels(c.pack)), L.notes);
   if (!notes) return null;
   return { ...s, notes, ai: { headline: s.ai?.headline ?? s.headline, points: s.ai?.points ?? s.points, notes, at: c.now.toISOString(), prompt: REVISE_PROMPT_TAG } };
 }

@@ -3,14 +3,20 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * /help/languages (CONTENT_LANGUAGE_ENABLED): the language YouGrow writes a brand's copy in. With
  * `languageReaders` (LANGUAGE_READERS_ENABLED) it also covers readers per language, the threshold
  * and the one list launches use. With ideas in the words (`ideaWords`) a launch is called an idea.
+ * With the Raise kit on (`raiseKit`) it says decks stay in English for now.
  */
-export default function LanguagesHelp({ languageReaders = isLanguageReadersEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function LanguagesHelp({
+  languageReaders = isLanguageReadersEnabled(),
+  ideaWords = isIdeaWordsEnabled(),
+  raiseKit = isRaiseKitEnabled(),
+}: HelpBodyProps = {}) {
   const w = ideaWord(ideaWords);
   return (
     <article>
@@ -57,6 +63,12 @@ export default function LanguagesHelp({ languageReaders = isLanguageReadersEnabl
         Names of brands, products and people stay as they are. A short quote from a source can stay in its own language.
         Anything given its own language in its Strategy settings keeps that one.
       </P>
+      {raiseKit ? (
+        <P>
+          Decks and lender packs from the <Open href="/help/raise-kit">Raise kit</Open> are in English for now, whatever your
+          language.
+        </P>
+      ) : null}
 
       <H2 id="labels">An article&apos;s box and section names</H2>
       <P>

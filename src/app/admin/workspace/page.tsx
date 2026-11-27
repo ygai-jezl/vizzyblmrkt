@@ -4,6 +4,9 @@ import { forTenant } from "@/lib/tenant";
 import { NewWorkspaceForm } from "@/components/admin/workspace/NewWorkspaceForm";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isNavV2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
+import { countRaiseDocs } from "@/lib/raise/docs/store";
+import { RaiseKitCard } from "@/components/admin/raise-deck/RaiseKitCard";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +16,8 @@ export default async function WorkspaceListPage() {
   const workspaces = all
     .filter((w) => !w.archivedAt)
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  // Content › Raise kit's row, only while RAISE_KIT_ENABLED is on.
+  const decks = isRaiseKitEnabled() ? await countRaiseDocs(ctx).catch(() => 0) : null;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -29,6 +34,8 @@ export default async function WorkspaceListPage() {
           </Link>
         ) : null}
       </div>
+
+      {decks !== null ? <RaiseKitCard count={decks} /> : null}
 
       <NewWorkspaceForm />
 

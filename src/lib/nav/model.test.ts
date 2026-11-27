@@ -149,6 +149,18 @@ describe("breadcrumbsFor", () => {
     expect(labels("/admin/lifecycle/lcj_1")).toEqual(["Journeys", "Journey"]);
   });
 
+  it("files the Raise kit and a deck under Content, never naming the deck", () => {
+    for (const phase3 of [false, true]) {
+      const items = buildNav({ ...ALL_ON, phase3 }).flatMap((s) => s.items);
+      expect(activeNavKey("/admin/raise", items)).toBe("content");
+      expect(activeNavKey("/admin/raise/rd_x", items)).toBe("content");
+      expect(breadcrumbsFor("/admin/raise", names, { phase3 }).map((c) => c.label)).toEqual(["Content", "Raise kit"]);
+      const deck = breadcrumbsFor("/admin/raise/rd_acme00000001", { ...names, workspaces: { rd_acme00000001: "Acme seed deck" } }, { phase3 });
+      expect(deck.map((c) => c.label)).toEqual(["Content", "Raise kit", "Deck"]);
+      expect(deck.map((c) => c.href)).toEqual(["/admin/workspace", "/admin/raise", undefined]);
+    }
+  });
+
   it("ignores paths outside the admin", () => {
     expect(breadcrumbsFor("/waitlist/x", names)).toEqual([]);
   });

@@ -314,10 +314,49 @@ export const STUDIO_WORDS = {
   footer: (n: number, date: string) => `Version ${n}, ${date}`,
 } as const;
 
+/** The editor under the slide: field names and the small actions beside them. */
+export const EDITOR_WORDS = {
+  headline: "Headline",
+  points: "Points",
+  point: (n: number) => `Point ${n}`,
+  addPoint: "Add a point",
+  removePoint: "Remove this point",
+  columns: "Columns",
+  leftTitle: "Left column",
+  rightTitle: "Right column",
+  addRow: "Add a row",
+  removeRow: "Remove this row",
+  people: "People",
+  name: "Name",
+  role: "Role",
+  line: "One line",
+  addPerson: "Add a person",
+  removePerson: "Remove this person",
+  layout: "Layout",
+  section: "Section",
+  readOnly: "Only an admin can change this deck.",
+  full: "A slide holds 3 numbers at most.",
+  typedMissing: "Say what it is and type the number.",
+  rowLabel: "Label",
+  rowValue: "Number",
+  launchPick: "Choose one",
+  working: "Working",
+  saving: "Saving",
+  noteSaved: "No change to save.",
+  close: "Close",
+} as const;
+
 export const PRESENT_WORDS = {
   hint: "Arrows or Space to move, N for notes, T to restart the timer, Esc to leave.",
   slideTime: (now: string, target: string) => `This slide ${now} of about ${target}`,
   totalTime: (now: string, target: string) => `Total ${now} of about ${target}`,
+  slideOf: (n: number, total: number) => `Slide ${n} of ${total}`,
+  back: "Back",
+  next: "Next",
+  notes: "Notes",
+  restart: "Restart the timer",
+  leave: "Leave",
+  noNotes: "No speaker notes on this slide.",
 } as const;
 
 /** The card Vizzy's chat shows after it saves a deck. */

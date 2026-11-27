@@ -14,6 +14,7 @@ import { brandLanguages, languageReaders, minReadersOf } from "./languageReaders
 import { languageName, localeInfo } from "./locale";
 import { tokensOf } from "./translate";
 import { emailsOf, journeySource, planJourney } from "./translationsTick";
+import { emailLanguageFor } from "./emailVersion";
 
 /**
  * The journey editor's language tabs and the Review row (ASSET_TRANSLATIONS_ENABLED): what each
@@ -37,6 +38,18 @@ export type TabState =
   | "out_of_date" // the published words changed: an update is on its way
   | "failed"
   | "not_translatable"; // a block layout: stays in the default language
+
+/** What GET answers: the journey's languages and each email's tabs. */
+export interface TranslationsViewBody {
+  allowed: boolean;
+  base: { code: string; name: string; nativeName: string };
+  minReaders: number;
+  languages: Array<{ code: string; name: string; nativeName: string; readers: number; ready: boolean; more: number }>;
+  baseReaders: number | null;
+  published: boolean;
+  emails: Array<{ poolId: string; itemId: string; label: string; tabs: TabView[] }>;
+  emailLanguages: Record<string, import("@/lib/email/emailRender").EmailLanguage>;
+}
 
 export interface TabView {
   lang: string;
@@ -108,6 +121,8 @@ export async function translationsView(ctx: TenantContext, journeyId: string, db
     baseReaders: readers[base] ?? null,
     published: Boolean(source),
     emails,
+    // Each language's footer and progress words, so a preview shows the email as it is sent.
+    emailLanguages: Object.fromEntries(others.map((code) => [code, emailLanguageFor(code)])),
   });
 }
 

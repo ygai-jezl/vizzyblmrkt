@@ -755,6 +755,26 @@ export const TenantSchema = z.object({
    */
   defaultLocale: z.string().optional(),
   supportedLocales: z.array(z.string()).optional(),
+  /**
+   * The brand's language rules (LANGUAGE_READERS_ENABLED): a language gets its own version of
+   * something once it has at least `minReaders` readers (10 when unset).
+   */
+  languageSettings: z
+    .object({ minReaders: z.number().int().min(1).max(1000).optional() })
+    .optional(),
+  /**
+   * Readers per language, counted from the person records by src/lib/i18n/languageReaders.ts and
+   * kept for a day: `everyone` is the brand's whole audience, `counts` the people known to read
+   * each of `list`'s other languages. Everyone else counts as the default language.
+   */
+  languageReaders: z
+    .object({
+      at: z.string(),
+      list: z.array(z.string()),
+      everyone: z.number().int().nonnegative(),
+      counts: z.record(z.string(), z.number().int().nonnegative()),
+    })
+    .optional(),
   /** AI-extracted brand kit (from an uploaded guidelines PDF); powers on-brand generation. */
   brandKit: BrandKitSchema.optional(),
   /** Authored, tenant-global brand voice (Summary/Do/Don't/guidelines); grounds all AI copy. */

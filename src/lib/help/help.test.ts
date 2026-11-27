@@ -1358,4 +1358,25 @@ describe("Drafts from Vizzy and the agent record (AGENT_RECORD_ENABLED)", () => 
       expect(aiTellsIn(line), line).toEqual([]);
     }
   });
+
+  it("says Work's suggestions and drafts aren't in the record, only while the record and Vizzy's Work tools are both on", () => {
+    const page = (p: { agentRecord: boolean; work: boolean; workVizzy: boolean }) => docToMarkdown(HELP_BODIES["review-and-approvals"]!(p), "https://app.example.com");
+    const both = page({ agentRecord: true, work: true, workVizzy: true });
+    expect(both).toContain("Tasks Vizzy suggests, and the Log notes and decisions it drafts for Work, aren't in that record");
+    expect(both).toContain("a draft nobody saves is set aside after 7 days ([Work in Review, and Vizzy](");
+    expect(both).toContain("what happened to the drafts you made this month?");
+    for (const p of [
+      { agentRecord: true, work: true, workVizzy: false },
+      { agentRecord: true, work: false, workVizzy: true },
+      { agentRecord: false, work: true, workVizzy: true },
+    ]) {
+      expect(page(p), JSON.stringify(p)).not.toContain("aren't in that record");
+    }
+    // Work's own rows still show with the record off.
+    expect(page({ agentRecord: false, work: true, workVizzy: true })).toContain("**Tasks Vizzy suggests**");
+    for (const line of both.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
 });

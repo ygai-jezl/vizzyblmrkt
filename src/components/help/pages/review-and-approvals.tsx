@@ -21,7 +21,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * While getting to know a brand is on (ONBOARDING_ENABLED), admins also see what Vizzy heard about
  * the business in a chat. While the agent record is on (AGENT_RECORD_ENABLED), Drafts from Vizzy
  * also lists, for admins, the email and image style and the notes Vizzy suggested, and Vizzy can
- * say what happened to the drafts it made.
+ * say what happened to the drafts it made; with Vizzy's Work tools on too, the page says Work's
+ * suggestions and drafts aren't in that record, as Vizzy's get_drafts line does.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -184,6 +185,14 @@ export default function ReviewAndApprovalsHelp({
             someone kept it as it was, kept it after changing it, or dismissed it. Ask Vizzy &quot;what happened to the drafts you
             made this month?&quot; and it answers from that record. The record starts when it was turned on for your brand, so
             older drafts aren&apos;t in it. A draft nobody decides closes after 90 days, which never counts as a no.
+            {work && workVizzy ? (
+              <>
+                {" "}
+                Tasks Vizzy suggests, and the Log notes and decisions it drafts for Work, aren&apos;t in that record: Vizzy answers
+                about them from Work, where a draft nobody saves is set aside after 7 days (
+                <Open href="/help/work#vizzy">Work in Review, and Vizzy</Open>).
+              </>
+            ) : null}
           </P>
         </>
       ) : null}

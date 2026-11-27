@@ -93,7 +93,7 @@ export async function authorRaiseDeck({ ctx, input, brief }: CanvasAuthorArgs, d
   if (req.mode === "draft" && !req.audience) return refused(400, "invalid_input", ["audience: investor or lender"]);
   if (req.mode === "revise" && !req.ops) return refused(400, "invalid_input", ["ops: at least one change"]);
   if (!(await canUseRaiseKit(ctx, deps))) return refused(403, "not_included");
-  const limit = req.mode === "draft" ? DRAFT_LIMIT : onlyRefresh((req.ops ?? []) as Array<{ change: string }>) ? NUMBERS_LIMIT : REVISE_LIMIT;
+  const limit = req.mode === "draft" ? DRAFT_LIMIT : onlyRefresh(req.ops ?? []) ? NUMBERS_LIMIT : REVISE_LIMIT;
   if (await overLimit(ctx, limit, deps)) return refused(429, "rate_limited");
 
   if (req.mode === "draft") {

@@ -180,6 +180,7 @@ describe("revising a deck from chat", () => {
     await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "remove", slide: 2 }] });
     expect(await author({ mode: "revise", scope: { docId: doc.id }, baseVersion: 1, ops: [{ change: "remove", slide: 2 }] })).toMatchObject({ ok: false, status: 409, error: "stale_version" });
     expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "layout", slide: 2, layout: "poster" }] })).toMatchObject({ ok: false, status: 422, error: "invalid_ops" });
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [null, "remove"] })).toMatchObject({ ok: false, status: 422, error: "invalid_ops" });
     expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "remove", slide: 40 }] })).toMatchObject({ ok: false, status: 422, issues: ["ops.0: there is no slide 40, the deck has 9"] });
     const typed = { change: "typed_number", slide: 3, name: "Monthly sales", value: 6200, unit: "money", currency: "USD", per: "month" };
     expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ ...typed, quote: "about six grand a month" }] })).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });

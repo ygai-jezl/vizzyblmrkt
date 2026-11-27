@@ -101,8 +101,9 @@ export function parseOps(raw: readonly unknown[]): { ok: true; ops: ReviseOp[] }
   return issues.length ? { ok: false, issues } : { ok: true, ops };
 }
 
-/** Whether a request only refreshes the numbers (it then counts under the numbers limit). */
-export const onlyRefresh = (ops: readonly { change: string }[]) => ops.length > 0 && ops.every((o) => o.change === "refresh_numbers");
+/** Whether a request only refreshes the numbers (it then counts under the numbers limit). Safe on ops not yet checked. */
+export const onlyRefresh = (ops: readonly unknown[]) =>
+  ops.length > 0 && ops.every((o) => typeof o === "object" && o !== null && (o as { change?: unknown }).change === "refresh_numbers");
 
 /**
  * Whether the person's own words hold this number: its digits, with commas, spaces and currency

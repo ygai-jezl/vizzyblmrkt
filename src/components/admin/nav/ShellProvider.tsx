@@ -72,6 +72,10 @@ interface Shell {
   sharing: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server), for the How to drawer. */
   join: boolean;
+  /** Work is on (isWorkEnabled(), from the server), for the How to drawer. */
+  work: boolean;
+  /** Vizzy has its Work tools (isWorkVizzyEnabled(), from the server): the Ask Vizzy panel offers Work's starters there. */
+  workVizzy: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), from the server), for the How to drawer. */
   onboarding: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server), for the How to drawer. */
@@ -145,6 +149,8 @@ export function ShellProvider({
   ideaWords = false,
   sharing = false,
   join = false,
+  work = false,
+  workVizzy = false,
   onboarding = false,
   onboardingVoice = false,
   settingsHistory = false,
@@ -207,6 +213,10 @@ export function ShellProvider({
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server): the How to drawer says so. */
   join?: boolean;
+  /** Work is on (isWorkEnabled(), from the server): the How to drawer can show its help. */
+  work?: boolean;
+  /** Vizzy has its Work tools (isWorkVizzyEnabled(), from the server): the panel offers Work's starters on Work. */
+  workVizzy?: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), from the server): the How to drawer says so. */
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server): the How to drawer says so. */
@@ -314,6 +324,8 @@ export function ShellProvider({
       ideaWords,
       sharing,
       join,
+      work,
+      workVizzy,
       onboarding,
       onboardingVoice,
       settingsHistory,
@@ -323,7 +335,7 @@ export function ShellProvider({
       raiseFollowUps,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

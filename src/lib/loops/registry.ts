@@ -55,6 +55,9 @@ export const RULE_DECISIONS = {
   auto_plug: { label: "Auto plug comment", file: "src/lib/distribute/autoPlug.ts" },
   next_action_order: { label: "Your next action order", file: "src/lib/onboarding/homeOrder.ts" },
   sidebar_fit: { label: "Sidebar sections that wait", file: "src/lib/onboarding/sidebarFit.ts" },
+  work_check_due: { label: "Work check due", file: "src/lib/work/service.ts" },
+  work_ready: { label: "Ready to start", file: "src/lib/work/service.ts" },
+  work_measure_kind: { label: "Suggested kind of win", file: "src/lib/work/measureKind.ts" },
   investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
@@ -174,6 +177,12 @@ const IMAGES_BY = "2027-01-31";
 const POSTS_BY = "2027-03-31";
 const LATER = "2027-05-01";
 
+/**
+ * A meaning named after one provider (ga4, cf, linkedin, google). A loop's slow outcome and a Work
+ * measure's number must hold whatever source a brand connects, so neither names one.
+ */
+export const VENDOR = /^(?:ga4|cf|linkedin|google)[A-Z]/;
+
 export const LOOPS = {
   // ----- AI purposes (src/lib/plans/resources.ts), in the order the meter lists them -----
   brand_map_research: own("brand_map", "A name, subject or group your team dismissed on the brand map is kept there and not proposed again."),
@@ -213,7 +222,10 @@ export const LOOPS = {
   judge: own("learned", "Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays."),
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
   images: none("This is the image style learner itself, and it is judged by the images its learned look shapes."),
-  vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
+  vizzy_chat: gap(
+    "Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.",
+    LATER,
+  ),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
   next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
@@ -277,6 +289,9 @@ export const LOOPS = {
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
   next_action_order: gap("When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.", "2027-02-26"),
   sidebar_fit: none("A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept."),
+  work_check_due: none("A person sets the date, the task to wait for or the measure; the rule only shows the check once it is due."),
+  work_ready: gap("Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.", LATER),
+  work_measure_kind: gap("The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.", LATER),
   investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----

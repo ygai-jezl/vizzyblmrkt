@@ -168,7 +168,7 @@ describe("post results", () => {
 describe("the meanings", () => {
   it("set better and family together, on every meaning the learning loops name", () => {
     for (const [k, m] of Object.entries(MEANINGS) as Array<[string, Meaning]>) expect(m.better === undefined, k).toBe(m.family === undefined);
-    for (const k of ["editShare", "keptShare", "declineShare", "likedShare", "unusedShare", "remadeShare", "openRate", "clickRate", "engagementRate", "searchClicks"] as const) {
+    for (const k of ["editShare", "keptShare", "declineShare", "likedShare", "unusedShare", "remadeShare", "openRate", "clickRate", "engagementRate", "searchClicks", "conversions"] as const) {
       expect((MEANINGS[k] as Meaning).better, k).toBeDefined();
     }
   });

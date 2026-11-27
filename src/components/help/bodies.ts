@@ -3,6 +3,7 @@ import type { HelpBodyProps } from "@/lib/help/pages";
 import GetSetUpHelp from "./pages/get-set-up";
 import PlanAndUsageHelp from "./pages/plan-and-usage";
 import SignInAndPasswordsHelp from "./pages/sign-in-and-passwords";
+import WorkHelp from "./pages/work";
 import EmailSendingHelp from "./pages/email-sending";
 import YourBrandHelp from "./pages/your-brand";
 import EmailStyleHelp from "./pages/email-style";
@@ -33,6 +34,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "plan-and-usage": PlanAndUsageHelp,
   "organisation-brands": OrganisationBrandsHelp,
   "sign-in-and-passwords": SignInAndPasswordsHelp,
+  "work": WorkHelp,
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,

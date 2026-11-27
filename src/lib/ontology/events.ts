@@ -3,7 +3,8 @@ import type { EmailEvent, EmailEventType } from "@/lib/types/emailEvent";
 import type { ProductEvent } from "@/lib/types/productEvent";
 import type { PersonMove } from "@/lib/types/personMove";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
-import type { AgentActionId, AgentActionState, DeclineReason } from "@/lib/types/agentAction";
+import type { AgentActionId, AgentActionState, DeclineReason, DeclineWhy } from "@/lib/types/agentAction";
+import type { WorkLogRow, WorkWho } from "@/lib/work/types";
 import { isContactPersonId, type ContactPersonId } from "./person";
 
 /**
@@ -66,6 +67,15 @@ export const EVENT_KINDS = [
   "agent.acted",
   "agent.undone",
   "agent.declined",
+  // Work (ADR-0020), mapped from work_log rows by fromWorkLog, never stored as events: a task added
+  // (with its origin's kind) or changed (with its value before and after), a log entry, a check
+  // marked or read (with the measure's kind and the read), and a decision (saying when it approves a
+  // plan).
+  "work.task_added",
+  "work.task_changed",
+  "work.logged",
+  "work.checked",
+  "work.decided",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
@@ -231,6 +241,76 @@ export function fromPersonMove(row: Omit<PersonMove, "personId" | "fromPersonId"
   };
 }
 
+/** Who did a Work row, as an event's actor: a member, Vizzy or a coding agent (agents), or the system. */
+function workActor(who: WorkWho): OntologyEvent["actor"] {
+  if (who.kind === "person") return { type: "member", id: who.id };
+  if (who.kind === "vizzy") return { type: "agent", id: "vizzy" };
+  if (who.kind === "coding_agent") return { type: "agent", id: who.id };
+  return { type: "system", id: who.id };
+}
+
+/** Where a Work change came from, in record.field_changed's words. */
+function workChangeSource(row: Pick<WorkLogRow, "source">): FieldChangeSource {
+  if (row.source.who.kind === "vizzy" || row.source.who.kind === "coding_agent") return "agent";
+  if (row.source.who.kind === "system") return "sync";
+  return row.source.tool === "import" ? "import" : "editor";
+}
+
+/**
+ * A work_log row as an event, so the loops read Work as they read everything else (ADR-0020). It
+ * names no person (Work is the team's, never a brand's people); the task, brand and organisation
+ * are in refs. A change row is shaped like record.field_changed ({field, before, after, source});
+ * the task's first change row ("added") is work.task_added with its origin's kind. A check row
+ * carries the measure's kind, which measure and the read; a decision says whether it approves a
+ * plan and whether the choice took the recommended pick. Words people wrote (an entry's note, a
+ * decision's question) stay on the row.
+ */
+export function fromWorkLog(row: WorkLogRow): OntologyEvent {
+  const base = {
+    id: row.id,
+    at: row.at,
+    person: null,
+    identity: null,
+    ideaCredited: null,
+    source: { system: row.source.who.kind === "person" || row.source.who.kind === "system" ? ("app" as const) : ("agent" as const) },
+    actor: workActor(row.source.who),
+    refs: refsOf({ organisationId: row.organisationId, brandId: row.brandId, taskId: row.taskId }),
+  };
+  switch (row.kind) {
+    case "entry":
+      return { ...base, kind: "work.logged", properties: { workstream: row.workstream, state: row.state, tool: row.source.tool } };
+    case "change": {
+      if (row.field === "added") {
+        const after = (row.after ?? {}) as { origin?: unknown; ref?: unknown };
+        return { ...base, kind: "work.task_added", properties: { origin: typeof after.origin === "string" ? after.origin : null, ref: typeof after.ref === "number" ? after.ref : null, tool: row.source.tool } };
+      }
+      return { ...base, kind: "work.task_changed", properties: { field: row.field, before: row.before ?? null, after: row.after ?? null, source: workChangeSource(row) } };
+    }
+    case "check":
+      return {
+        ...base,
+        kind: "work.checked",
+        properties: { action: row.check.action, checkKind: row.check.kind, measureKind: row.check.measureKind, which: row.check.which, read: row.check.read, counted: row.check.counted?.n ?? null },
+      };
+    case "decision":
+      return {
+        ...base,
+        kind: "work.decided",
+        properties: {
+          planApproval: row.decision.plan !== null,
+          agreed: row.decision.agreed,
+          chosen: row.decision.chosen?.option ?? null,
+          recommendedBy: row.decision.recommended?.by.kind ?? null,
+          replaces: row.decision.replaces,
+        },
+      };
+    default: {
+      const unknown: never = row;
+      throw new Error(`unknown_work_log_kind:${String((unknown as { kind?: unknown }).kind)}`);
+    }
+  }
+}
+
 /**
  * Who acted, from how the request was established (TenantContext.source): an agent for the member
  * whose chat it runs in, a signed in member, a connected product's key, the person themselves on a
@@ -277,6 +357,8 @@ export interface AgentActionProperties {
   state: AgentActionState;
   /** Why it was declined, on agent.declined. */
   reason?: DeclineReason;
+  /** Why a person dismissed it, when they said, on agent.declined with reason dismissed. */
+  why?: DeclineWhy;
   /** The draft it made, when it made one. */
   draft?: { kind: string; ref: string };
   /** The limit it acted within, when it acted on its own. */
@@ -337,7 +419,7 @@ export const SUBJECT_TYPE_REGISTRY_ID: Record<SubjectType, string> = {
  * What an agent action can be about. A consumer that needs another target adds the value and its
  * registry type id in its own change.
  */
-export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question", "brand"] as const;
+export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question", "brand", "work_task", "work_log"] as const;
 export type AgentTargetType = (typeof AGENT_TARGET_TYPES)[number];
 
 export interface AgentTarget {
@@ -357,6 +439,12 @@ export const AGENT_TARGET_REGISTRY_ID: Record<AgentTargetType, string> = {
   // Something Vizzy heard about the business in a chat, waiting for an admin to keep it in About
   // your business (ONBOARDING_ENABLED, src/lib/onboarding/factSuggestions.ts). The id is the brand's.
   brand: "brand",
+  // A task Vizzy suggests for Work (ADR-0020): the id is the one the task takes when a person adds
+  // it, so the suggestion and the task join both ways.
+  work_task: "work_task",
+  // A note or decision Vizzy drafts for Work: the id is the one the log row takes when a person
+  // saves it, so the draft and the row join both ways.
+  work_log: "work_log",
 };
 
 /**

@@ -20,8 +20,9 @@ import { PASTE_LIMITS } from "./parse";
  *   usual headers. Any other header equal to a live field's label fills that field: a People field
  *   on person rows, a company field on firm rows. Business, Shop and Store name the firm only when
  *   the brand has no field of that name (FIELD_FIRST_HEADERS).
- * - Each field is filled from the first column of its name, except that a People field goes to a
- *   column naming it exactly ("Stage") before one that names it only by the trailing s ("Stages").
+ * - Every column of a field's name is read as that field, and each row keeps the first of their
+ *   cells that fits it (rows.ts), so the kit's "Stages" ("Seed, Series A") and a "Stage" column
+ *   of the board's own stages both work, in either order and whichever of the two the field is called.
  * - Profile links (LinkedIn, X and the like) are never kept, on any row.
  * - Firm rows never fill a field from a column about a person (names, title, role, city, state,
  *   country, location, or any of those with "investor" before it), whatever the field list says,
@@ -107,18 +108,14 @@ export const PERSON_ONLY_HEADERS = [
   "Location",
 ] as const;
 
-/** A header as written: letters and digits only, lower case, accents off ("Stages" stays "stages"). */
-function plainKey(header: string): string {
+/** A header as compared: letters and digits only, lower case, accents off, a trailing s dropped. */
+export function headerKey(header: string): string {
   return header
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-/** A header as compared: letters and digits only, lower case, accents off, a trailing s dropped. */
-export function headerKey(header: string): string {
-  return plainKey(header).replace(/s$/, "");
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/s$/, "");
 }
 
 const STANDARD_BY_KEY = new Map<string, StandardColumn>(STANDARD_COLUMNS.flatMap((c) => STANDARD_HEADERS[c].map((h) => [headerKey(h), c] as const)));
@@ -174,11 +171,6 @@ const shown = (header: string) => header.slice(0, PASTE_LIMITS.headerChars);
 export function mapColumns(header: readonly string[], fields: { person: readonly RecordField[]; company: readonly RecordField[] }): ColumnMap {
   const person = fields.person.filter((f) => f.object === "person" && fillable(f));
   const company = fields.company.filter((f) => f.object === "company" && fillable(f));
-  const used = { person: new Set<string>(), company: new Set<string>() };
-  // A People field goes to the column that names it exactly when the list has one, so the kit's
-  // "Stages" never takes the board's Stage from a "Stage" column added after it.
-  const exact = new Set(header.filter((h) => !isProfileHeader(h)).map(plainKey));
-  const takes = (f: RecordField, h: string) => plainKey(f.label) === plainKey(h) || !exact.has(plainKey(f.label));
   const columns: ColumnRead[] = [];
   const read: ColumnMap["read"] = [];
   const left: string[] = [];
@@ -187,10 +179,10 @@ export function mapColumns(header: readonly string[], fields: { person: readonly
   for (const h of header) {
     const key = headerKey(h);
     let col: ColumnRead = { kind: "left" };
-    // The brand's fields of this header's name, not yet taken by an earlier column.
+    // The brand's fields of this header's name. Another column may name them too: each row keeps the first cell that fits.
     const fieldsNamed = () => {
-      const p = person.find((f) => !used.person.has(f.key) && headerKey(f.label) === key && takes(f, h)) ?? null;
-      const c = isPersonOnlyHeader(h) ? null : (company.find((f) => !used.company.has(f.key) && headerKey(f.label) === key) ?? null);
+      const p = person.find((f) => headerKey(f.label) === key) ?? null;
+      const c = isPersonOnlyHeader(h) ? null : (company.find((f) => headerKey(f.label) === key) ?? null);
       return p || c ? { p, c } : null;
     };
     const named = key && !isProfileHeader(h) && (!STANDARD_BY_KEY.has(key) || FIELD_FIRST_KEYS.has(key)) ? fieldsNamed() : null;
@@ -201,8 +193,6 @@ export function mapColumns(header: readonly string[], fields: { person: readonly
       profileLinks = true;
     } else if (named) {
       col = { kind: "field", person: named.p, company: named.c };
-      if (named.p) used.person.add(named.p.key);
-      if (named.c) used.company.add(named.c.key);
     } else if (STANDARD_BY_KEY.has(key)) col = { kind: "standard", column: STANDARD_BY_KEY.get(key)! };
     columns.push(col);
     if (col.kind !== "left") known = true;

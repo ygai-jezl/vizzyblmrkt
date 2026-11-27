@@ -9,7 +9,7 @@ import type { BoardAnswer, BoardCard, BoardColumn } from "./investorsApi";
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { BoardView, cardLines, countsLine, MoveMenu, movedCard, moveTargets, opensPublicList, PasteButton, placeCard } = await import("./InvestorBoard");
+const { BoardView, boardPasteButton, cardLines, countsLine, MoveMenu, movedCard, moveTargets, opensPublicList, PasteButton, placeCard } = await import("./InvestorBoard");
 
 /** Every element in a tree with a given tag. */
 function elementsOf(node: ReactNode, type: string, out: ReactElement[] = []): ReactElement[] {
@@ -252,6 +252,19 @@ describe("Paste a list on the board (S2b)", () => {
     expect(opensPublicList(board())).toBe(false);
     // Its card lists investor directories: never for loans and grants.
     expect(opensPublicList({ ...empty(), kind: "funding" })).toBe(false);
+  });
+
+  it("draws the board's button for its kind: an empty Funding board never opens the investor list", () => {
+    const pressed = (b: BoardAnswer) => {
+      const onPaste = vi.fn();
+      const el = boardPasteButton(b, onPaste);
+      expect(el.type).toBe(PasteButton);
+      (PasteButton(el.props as Parameters<typeof PasteButton>[0]).props as { onClick: () => void }).onClick();
+      return onPaste.mock.calls[0]?.[0];
+    };
+    expect(pressed(empty())).toBe(true);
+    expect(pressed({ ...empty(), kind: "funding" })).toBe(false);
+    expect(pressed(board())).toBe(false);
   });
 
   it("passes on whether to open Start from a public list when pressed", () => {

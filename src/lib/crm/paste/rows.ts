@@ -264,26 +264,32 @@ function aboutAPerson(c: ColumnMap["columns"][number], header: string): boolean 
   return isPersonOnlyHeader(header);
 }
 
-/** One row's field values for one object, each converted and checked; what doesn't fit is noted and left out. */
+/**
+ * One row's field values for one object, each converted and checked. Where several columns name a
+ * field, the first cell that fits it is kept and the rest are passed over. A field none of them
+ * could fill, though one had something in it, is noted and left out, as is a value kept in part.
+ */
 function valuesOf(cells: ReadonlyArray<string | null>, map: ColumnMap, object: "person" | "company", notes: Set<PasteNote>): Record<string, FieldValue> {
   const out: Record<string, FieldValue> = {};
+  const unfit = new Set<string>();
   map.columns.forEach((c, i) => {
     if (c.kind !== "field") return;
     const field: RecordField | null = object === "person" ? c.person : c.company;
-    if (!field) return;
+    if (!field || field.key in out) return;
     const cell = cells[i];
     if (cell === null) {
-      notes.add("values_left_out");
+      unfit.add(field.key);
       return;
     }
     if (!cell) return;
     const v = convertValue(field, cell, { badLink: (u) => isProfileSite(u.hostname) });
     if (!v.ok) {
-      notes.add("values_left_out");
+      unfit.add(field.key);
       return;
     }
     if (v.partial) notes.add("values_left_out");
     if (v.value !== null) out[field.key] = v.value;
   });
+  if ([...unfit].some((key) => !(key in out))) notes.add("values_left_out");
   return out;
 }

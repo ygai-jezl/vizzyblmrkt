@@ -187,17 +187,42 @@ describe("readRows", () => {
 });
 
 describe("a list pasted onto an investor board", () => {
-  it("puts each person in the stage their own Stage column names, beside the kit's Stages", () => {
-    const BOARD = field("fld_0000000bstag", "Stage", "status", "person", {
+  // The board's Stage on People, and a company field for the firm's investment stages, as the kit's rows have them.
+  const board = (label = "Stage") =>
+    field("fld_0000000bstag", label, "status", "person", {
       options: [
         { id: "opt_research01", label: "Research" },
         { id: "opt_contact001", label: "Contacted" },
       ],
     });
-    const header = [...KIT_HEADER, "Email", "Stage"].join("\t");
-    const row = ["Ada", "Example", "Northfield Ventures", "northfield-ventures.test", "", "", "Partner", "Leeds", "", "United Kingdom", "Seed, Series A", "", "", "", "", "", "ada@example.com", "Research"].join("\t");
-    const r = read(`${header}\n${row}`, { person: [BOARD], company: [STAGE] });
+  const KIT_CELLS = ["Ada", "Example", "Northfield Ventures", "northfield-ventures.test", "", "", "Partner", "Leeds", "", "United Kingdom", "Seed, Series A", "", "", "", "", ""];
+  const FIRM_CELLS = ["", "", "Harbour Lane Capital", "harbour-lane.test", "", "", "", "", "", "", "Seed", "", "", "", "", ""];
+  const paste = (header: string[], rows: string[][], person: RecordField) =>
+    read([header, ...rows].map((r) => r.join("\t")).join("\n"), { person: [person], company: [STAGE] });
+
+  it("puts each person in the stage their own Stage column names, with that column before or after the kit's", () => {
+    const last = paste([...KIT_HEADER, "Email", "Stage"], [[...KIT_CELLS, "ada@example.com", "Research"], [...FIRM_CELLS, "", ""]], board());
+    const first = paste(["Email", "Stage", ...KIT_HEADER], [["ada@example.com", "Research", ...KIT_CELLS], ["", "", ...FIRM_CELLS]], board());
+    for (const r of [last, first]) {
+      const ada = r.rows.find((x) => x.kind === "person");
+      const firm = r.rows.find((x) => x.kind === "company");
+      expect(ada && ada.kind === "person" && ada.values["fld_0000000bstag"]).toBe("opt_research01");
+      // The firm keeps the kit's investment stage, whichever column came first.
+      expect(firm && firm.kind === "company" && firm.values[STAGE.key]).toEqual(["opt_00000000"]);
+      expect(r.notes).not.toContain("values_left_out");
+    }
+  });
+
+  it("works when the board's field is called Stages, as the kit's column is", () => {
+    const r = paste([...KIT_HEADER, "Email", "Stages"], [[...KIT_CELLS, "ada@example.com", "Contacted"]], board("Stages"));
     const ada = r.rows.find((x) => x.kind === "person");
-    expect(ada && ada.kind === "person" && ada.values[BOARD.key]).toBe("opt_research01");
+    expect(ada && ada.kind === "person" && ada.values["fld_0000000bstag"]).toBe("opt_contact001");
+  });
+
+  it("notes a value left out only when no column of that field fits", () => {
+    const none = paste([...KIT_HEADER, "Email", "Stage"], [[...KIT_CELLS, "ada@example.com", "Someday"]], board());
+    const ada = none.rows.find((x) => x.kind === "person");
+    expect(ada && ada.kind === "person" && "fld_0000000bstag" in ada.values).toBe(false);
+    expect(none.notes).toContain("values_left_out");
   });
 });

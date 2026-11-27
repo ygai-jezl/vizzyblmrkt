@@ -140,8 +140,9 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
         <P>
           Admins add people and firms from a sheet with <strong>{PASTE_WORDS.button}</strong>, beside {BOARD_WORDS.howItWorks} (
           <Open href="/help/paste-a-list">Paste a list</Open>). The new people you paste join the board once they have a Stage: add
-          a column named after your Stage field (Stage, unless you renamed it) with one of your stages in each row, such as
-          Research. An empty board says so: &quot;{boardStageHint("Stage")}&quot; Someone already in People is left as they are, so
+          a column named after your Stage field (Stage, unless you renamed it) with one of your stages in each row, such as{" "}
+          {RAISING_STAGES[0]!.label} ({FUNDING_STAGES[0]!.label} on a {NOUNS.funding.tab} board). It can go anywhere in the list, even
+          beside the kit&apos;s own Stages column. An empty board says so: &quot;{boardStageHint("Stage")}&quot; Someone already in People is left as they are, so
           give them a Stage on their page. A firm with no one to reach goes to Companies, not onto the board. On an{" "}
           {NOUNS.raising.tab} board with no one on it yet, {PASTE_WORDS.button} opens {PUBLIC_LIST.title} too.
         </P>

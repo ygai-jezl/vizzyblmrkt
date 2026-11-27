@@ -223,6 +223,11 @@ export function PasteButton({ openPublicList, onPaste }: { openPublicList: boole
   );
 }
 
+/** The board header's Paste a list, for this board. No hooks: BoardView draws exactly this. */
+export function boardPasteButton(board: Pick<BoardAnswer, "kind" | "totals">, onPaste: (openPublicList: boolean) => void) {
+  return <PasteButton openPublicList={opensPublicList(board)} onPaste={onPaste} />;
+}
+
 /**
  * The board as it is drawn, from one board answer. Read only without `onMove`, or when the board
  * says this user can't move people.
@@ -262,7 +267,7 @@ export function BoardView({
             {BOARD_WORDS.howItWorks}
           </HowToLink>
           {actions}
-          {onPaste ? <PasteButton openPublicList={opensPublicList(board)} onPaste={onPaste} /> : null}
+          {onPaste ? boardPasteButton(board, onPaste) : null}
         </div>
       </div>
       {error ? <Banner tone="err">{error}</Banner> : null}

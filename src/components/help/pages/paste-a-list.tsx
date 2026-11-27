@@ -113,8 +113,8 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
             Any other column whose header is the name of one of your own fields fills that field: a People field on a person, a
             company field on a company. A firm row never fills a field from a person&apos;s name, title, role, city, state or
             country. Business, Shop and Store fill your own field of that name if you have one, and name the firm otherwise.
-            When two columns name one field, the first fills it, but a People field takes the column with its exact name
-            first, so your own Stage column fills Stage before a Stages column does.
+            When two columns name one field, each row keeps the first of their cells that fits it, so your own Stage column
+            and the kit&apos;s Stages column both work, in either order.
           </li>
         ) : null}
       </UL>
@@ -122,7 +122,7 @@ export default function PasteAListHelp({ people = isPeopleNameEnabled(), fields 
         From The AI Fundraising Kit: Company Name and Website are kept. First Name and Last Name are kept only on a row where
         you added an email or a phone yourself, and the LinkedIn columns are never kept.
         {fields
-          ? " Title and the investor's city, state and country fill People fields of those names on a person. Stages, Sectors, Fund HQ and the investment counts fill company fields of those names on a company. On a person, Stages fills a People field named Stage only when your list has no Stage column of its own."
+          ? " Title and the investor's city, state and country fill People fields of those names on a person. Stages, Sectors, Fund HQ and the investment counts fill company fields of those names on a company. On a person, a Stages cell such as Seed fills a People field named Stage only when Seed is one of its options."
           : ""}
       </P>
 

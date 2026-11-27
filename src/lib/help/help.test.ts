@@ -1520,6 +1520,7 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
     expect(board(true)).toContain(`"${boardStageHint("Stage")}"`);
     expect(board(true)).toContain(`On an Investors board with no one on it yet, Paste a list opens ${PUBLIC_LIST.title} too`);
     expect(board(true)).toContain("a column named after your Stage field (Stage, unless you renamed it)");
+    expect(board(true)).toContain("such as Research (Plan on a Funding board). It can go anywhere in the list");
     expect(board(true)).toContain("Someone already in People is left as they are");
     // The page's Next link still names Paste a list, the page after it.
     expect(board(false)).not.toContain("beside How the board works");

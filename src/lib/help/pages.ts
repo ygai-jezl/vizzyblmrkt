@@ -97,6 +97,8 @@ export interface HelpBodyProps {
   nextActionCard?: boolean;
   /** Review lists the email and image style and the notes Vizzy suggested (isAgentRecordEnabled(), a server switch: the drawer gets it from the admin shell). */
   agentRecord?: boolean;
+  /** Readers per language and one language list (isLanguageReadersEnabled(), a server switch: the drawer gets it from the admin shell). */
+  languageReaders?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

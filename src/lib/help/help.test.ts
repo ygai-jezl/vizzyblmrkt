@@ -77,6 +77,7 @@ vi.hoisted(() => {
   process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED = "true";
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
   process.env.CONTENT_LANGUAGE_ENABLED = "true";
+  process.env.LANGUAGE_READERS_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";

@@ -12,7 +12,7 @@ import type { ContactAddedBy } from "@/lib/types/contact";
 import { isAgentActionId } from "@/lib/types/agentAction";
 import { checkFieldValue, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { fillable } from "./columns";
-import { PasteProposalSchema, pasteFieldLists, type PasteDeps, type PasteRow } from "./batch";
+import { PasteProposalSchema, pasteFieldLists, valueAt, type PasteDeps, type PasteRow } from "./batch";
 import { isPasteBatch } from "./review";
 
 /**
@@ -89,8 +89,8 @@ export async function addPasteBatch(ctx: TenantContext, id: string, rev: number,
     const values: Record<string, FieldValue> = {};
     let dropped = false;
     for (const [fieldId, column] of Object.entries(fields)) {
-      const v = column?.[i];
-      if (v == null) continue;
+      const v = valueAt(column, i);
+      if (v === null) continue;
       const field = byId.get(fieldId);
       // A value for the other object's field belongs to the other kind of row.
       if (!field && (row.kind === "person" ? live.company : live.person).has(fieldId)) continue;

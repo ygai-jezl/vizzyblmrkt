@@ -58,11 +58,13 @@ export const PasteProposalSchema = z.object({
     )
     .max(PASTE_LIMITS.rows),
   /**
-   * Field values by field id, aligned with `rows`, null where a row has none. A People field's
-   * values are for person rows, a company field's for company rows. A field whose values were
-   * erased since is null whole (blankFieldInAgentActions).
+   * Field values by field id, each a map from a row's index in `rows` ("0", "2") to its value,
+   * leaving out rows with none. A map, not an array: a multi select value is itself an array, and
+   * Firestore stores no array directly inside another. A People field's values are for person
+   * rows, a company field's for company rows. A field whose values were erased since is null
+   * whole (blankFieldInAgentActions).
    */
-  fields: z.record(z.string(), z.array(FieldValueSchema.nullable()).nullable()),
+  fields: z.record(z.string(), z.record(z.string().regex(/^(0|[1-9]\d*)$/), FieldValueSchema).nullable()),
   /** How the header was read: header names only, never a cell. */
   columns: z.object({ read: z.array(z.object({ header: z.string(), as: z.string() })), left: z.array(z.string()) }),
 });
@@ -136,10 +138,18 @@ function storedRow(r: RowRead): PasteRow {
     : { row: r.row, kind: "company", domain: r.domain, name: r.name };
 }
 
-/** Field values column by column, aligned with the rows; only fields some row fills. */
-function columnsOfValues(rows: readonly RowRead[]): Record<string, Array<FieldValue | null>> {
-  const ids = [...new Set(rows.flatMap((r) => Object.keys(r.values)))];
-  return Object.fromEntries(ids.map((id) => [id, rows.map((r) => r.values[id] ?? null)]));
+/** Field values column by column, each keyed by the row's index; only fields some row fills, only rows with a value. */
+function columnsOfValues(rows: readonly RowRead[]): Record<string, Record<string, FieldValue>> {
+  const out: Record<string, Record<string, FieldValue>> = {};
+  rows.forEach((r, i) => {
+    for (const [id, v] of Object.entries(r.values)) (out[id] ??= {})[String(i)] = v;
+  });
+  return out;
+}
+
+/** A row's value in a stored column, or null. */
+export function valueAt(column: Record<string, FieldValue> | null | undefined, i: number): FieldValue | null {
+  return column && Object.hasOwn(column, String(i)) ? (column[String(i)] ?? null) : null;
 }
 
 /** The view of a stored card. Null when its rows are gone or can't be read. */
@@ -148,7 +158,7 @@ export function batchViewOf(a: AgentAction): PasteBatchView | null {
   const b = PasteBasisSchema.safeParse(a.basis);
   if (!p.success || !b.success) return null;
   const { rows, fields, source, columns } = p.data;
-  const valuesIn = (i: number) => Object.values(fields).filter((col) => col?.[i] != null).length;
+  const valuesIn = (i: number) => Object.values(fields).filter((col) => valueAt(col, i) !== null).length;
   const left = LEFT_REASONS.reduce((n, r) => n + b.data.left[r], 0);
   return {
     id: a.id,

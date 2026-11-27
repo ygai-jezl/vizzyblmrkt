@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { blankFieldInAgentActions } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { addPerson } from "@/lib/audience/addPerson";
 import { parseNewPerson } from "@/lib/audience/newPerson";
@@ -8,6 +9,7 @@ import type { AgentAction } from "@/lib/types/agentAction";
 import { cleanSource, dismissPasteBatch, readPaste, readPasteBatch } from "./batch";
 import { PASTE_ACTION } from "./review";
 import { DONE_WHEN_TSV, KIT_TSV } from "./testing/samples";
+import { firestoreSafe, nestedArrayPath } from "./testing/firestoreShape";
 import { addField, F, optionId } from "./testing/world";
 
 const DAY = 86_400_000;
@@ -121,10 +123,18 @@ describe("readPaste", () => {
     expect(r.batch.columns.read).toEqual(expect.arrayContaining([{ header: "Stages", as: "Stage" }, { header: "Title", as: "Title" }]));
     expect(r.batch.columns.left).toEqual(expect.arrayContaining(["Person Linkedin Url", "Investor City"]));
     const a = actions(db)[0]!;
+    // Each column keyed by the row's index, rows with no value left out: a multi select is an
+    // array, and Firestore takes no array directly inside another.
     expect(a.proposal?.fields).toEqual({
-      [F.stage]: [[optionId(F.stage, 0), optionId(F.stage, 1)], null, [optionId(F.stage, 1)]],
-      [F.hq]: ["Leeds", "Bristol", "Cardiff"],
+      [F.stage]: { "0": [optionId(F.stage, 0), optionId(F.stage, 1)], "2": [optionId(F.stage, 1)] },
+      [F.hq]: { "0": "Leeds", "1": "Bristol", "2": "Cardiff" },
     });
+    expect(firestoreSafe(db.dump("agent_actions"))).toBeNull();
+    expect(r.batch.rows.map((x) => x.fields)).toEqual([2, 1, 2]);
+    // An owner's erase of a field blanks its whole column, and the card still reads.
+    await blankFieldInAgentActions(ctx, F.hq, { nowIso: new Date(T0 + 1000).toISOString(), db });
+    expect((actions(db)[0]!.proposal?.fields as Record<string, unknown>)[F.hq]).toBeNull();
+    expect((await readPasteBatch(ctx, r.batch.id, { db, nowMs: T0 + 2000 }))?.batch.rows.map((x) => x.fields)).toEqual([1, 0, 1]);
     expect(a.fieldIds.sort()).toEqual(Object.keys(a.proposal!.fields as object).sort());
     // Firm rows: their name and domain only. No partner's name, title, city or profile link anywhere.
     expect(a.proposal?.rows).toEqual([
@@ -171,6 +181,14 @@ describe("readPaste", () => {
     expect(await readPaste(ctx, { text: "jo@example.com\tJo", source: "A sheet", from: "box" }, { db })).toEqual({ ok: false, error: "no_header" });
     expect(cleanSource("  An\n event  ")).toBe("An event");
     expect(actions(db)).toHaveLength(0);
+  });
+});
+
+describe("nestedArrayPath", () => {
+  it("finds an array held directly inside an array, and nothing else", () => {
+    expect(nestedArrayPath({ a: [1, 2], b: { c: ["x"] }, d: [{ e: ["y"] }] })).toBeNull();
+    expect(nestedArrayPath({ fields: { f: [["opt_a"], null] } })).toBe("$.fields.f[0]");
+    expect(nestedArrayPath([{ rows: [{ v: [[1]] }] }])).toBe("$[0].rows[0].v[0]");
   });
 });
 

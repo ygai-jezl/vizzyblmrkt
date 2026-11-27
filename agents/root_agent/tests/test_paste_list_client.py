@@ -116,6 +116,10 @@ def test_root_reads_pasted_lists_through_the_app_and_never_records_consent():
     # page, which is served only while Paste a list is switched on.
     assert "Fundraising Kit" not in ROOT_SYSTEM_INSTRUCTION and "VC Corner" not in ROOT_SYSTEM_INSTRUCTION
     assert "call `read_help_page` with `paste-a-list`" in ROOT_SYSTEM_INSTRUCTION
+    # Its public lists are investor directories: no lender or grant list is named from them, and a
+    # setup guide that is off is not mistaken for pasting being off.
+    assert "investor directories only: for lenders, grant bodies or stockists, say it has no list for those" in ROOT_SYSTEM_INSTRUCTION
+    assert "if it says the setup guide isn't available, say you can't open that help page here" in ROOT_SYSTEM_INSTRUCTION
     # The pasted list line comes right after the add a person line.
     assert ROOT_SYSTEM_INSTRUCTION.index("To **add a pasted list**") > ROOT_SYSTEM_INSTRUCTION.index("To **add a person**")
     for text in [*plc._ERRORS.values(), plc._TOO_LONG]:

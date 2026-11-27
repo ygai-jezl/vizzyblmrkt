@@ -3,15 +3,20 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 import { SEARCH_TEXT_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { isSearchFamilyIndexEnabled } from "@/lib/search/flags";
 
 /**
  * /help/search. `connectorsSearchText` is whether Search Console's searches are in brand search
  * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), and `searchFamily` whether the brand map family is
- * kept there with its first questions (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025); the How to drawer
- * passes what the server said.
+ * kept there with its first questions (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025), and `raiseKit`
+ * whether the Raise kit's decks are (RAISE_KIT_ENABLED); the How to drawer passes what the server said.
  */
-export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTextEnabled(), searchFamily = isSearchFamilyIndexEnabled() }: HelpBodyProps = {}) {
+export default function SearchHelp({
+  connectorsSearchText = isConnectorsSearchTextEnabled(),
+  searchFamily = isSearchFamilyIndexEnabled(),
+  raiseKit = isRaiseKitEnabled(),
+}: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Search</H1>
@@ -75,6 +80,12 @@ export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTe
         <li>Your brand voice, brand kit and author bios</li>
         <li>Your brand map: subjects, questions, buying situations, research you imported, and What we&apos;ve seen notes</li>
         <li>Knowledge sources, your product map, competitors and what their articles cover, and image prompts</li>
+        {raiseKit ? (
+          <li>
+            Decks and lender packs from the <Open href="/help/raise-kit">Raise kit</Open>, slide by slide: each slide&apos;s words
+            and its speaker notes
+          </li>
+        ) : null}
         {connectorsSearchText ? (
           <li>
             Google searches from your <Open href="/help/connected-data#search-text">Search Console connection</Open>: the

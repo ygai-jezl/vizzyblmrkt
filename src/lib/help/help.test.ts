@@ -1035,6 +1035,14 @@ describe("Search", () => {
     vi.unstubAllEnvs();
   });
 
+  it("lists the Raise kit's decks in what search covers only while the Raise kit is on, as the drawer is told", () => {
+    const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.search!({ raiseKit }), "https://app.example.com");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md), slide by slide");
+    expect(md(false)).not.toContain("Decks and lender packs");
+    expect(drawerBodyProps({ raiseKit: true } as never).raiseKit).toBe(true);
+    expect(drawerBodyProps(null as never).raiseKit).toBe(false);
+  });
+
   it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0025)", () => {
     const md = (searchFamily: boolean) => docToMarkdown(HELP_BODIES.search!({ searchFamily }), "https://app.example.com");
     const on = md(true);

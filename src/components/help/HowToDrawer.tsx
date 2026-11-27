@@ -58,6 +58,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     nextActionCard: shell?.nextActionCard ?? false,
     agentRecord: shell?.agentRecord ?? false,
     raiseFollowUps: shell?.raiseFollowUps ?? false,
+    raiseKit: shell?.raiseKit ?? false,
   };
 }
 

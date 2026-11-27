@@ -101,6 +101,8 @@ export interface HelpBodyProps {
   agentRecord?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
   raiseFollowUps?: boolean;
+  /** The Raise kit's decks are in brand search (isRaiseKitEnabled(), a server switch: the drawer gets it from the admin shell). */
+  raiseKit?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

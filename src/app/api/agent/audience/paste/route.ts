@@ -3,7 +3,7 @@ import { z } from "zod";
 import { pasteAgentGate, pasteBody } from "@/lib/crm/paste/admin";
 import { readPaste } from "@/lib/crm/paste/batch";
 import { pasteHref } from "@/lib/crm/paste/review";
-import { agentSummary, PASTE_CARD, PASTE_MESSAGES, ROW_REASONS, type PasteMessage } from "@/lib/crm/paste/words";
+import { agentSummary, cardStats, PASTE_CARD, PASTE_MESSAGES, ROW_REASONS, type PasteMessage } from "@/lib/crm/paste/words";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,12 +54,9 @@ export async function POST(req: Request) {
           id,
           title: PASTE_CARD.title,
           url,
-          stats: [
-            { label: "people", value: counts.people },
-            { label: "companies", value: counts.companies },
-            { label: "left out", value: skipped },
-          ],
-          warnings: skipped,
+          stats: cardStats({ people: counts.people, companies: counts.companies, skipped }),
+          // Rows left out show as a stat: the card can't fix them, and one already here needs nothing.
+          warnings: 0,
           note: PASTE_CARD.note,
           cta: PASTE_CARD.cta,
         },

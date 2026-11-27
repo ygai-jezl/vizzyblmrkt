@@ -26,7 +26,8 @@ _TOO_LONG = "That's too much text to read at once. Paste fewer rows or columns."
 
 # The client's own words for the gate's answers; for a paste code the route's own `message` is relayed.
 _ERRORS = {
-    "unavailable": "Pasting a list into chat isn't switched on here. Use Paste a list on People instead.",
+    "unavailable": "Pasting a list isn't switched on here.",
+    "chat_unavailable": "Pasting a list into chat isn't switched on here. Use Paste a list on People instead.",
     "canvas_auth_unconfigured": "Pasting a list into chat isn't enabled in this environment yet. Use Paste a list on People instead.",
     "unauthorized": "My session to the app expired. Please send your message again.",
     "forbidden": "Only an admin on the team can add a list, so I can't read it into a card for you.",

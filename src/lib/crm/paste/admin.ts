@@ -71,12 +71,15 @@ export type AgentGate = { ok: true; ctx: TenantContext } | { ok: false; status: 
 
 /**
  * The gate for Vizzy's tool (/api/agent/audience/paste), as viewsAgentGate and authorNewPerson
- * have it: the switch (pasting into the chat also needs AUDIENCE_VIZZY_ADD_PERSON_ENABLED), the
- * signed canvas token, which names the brand and the member asking, the admin role, then the
- * brand's rate limit.
+ * have it: the switch, the signed canvas token, which names the brand and the member asking, the
+ * admin role, then the brand's rate limit. Two answers for the switch, so Vizzy never points to a
+ * box that isn't there: `unavailable` while Paste a list is off here (or People isn't on screen,
+ * so its card couldn't open), and `chat_unavailable` while only pasting into the chat is off
+ * (AUDIENCE_VIZZY_ADD_PERSON_ENABLED), when the box on People works.
  */
 export async function pasteAgentGate(req: Request, db?: FirestoreLike): Promise<AgentGate> {
-  if (!isVizzyPasteEnabled()) return { ok: false, status: 503, body: { error: "unavailable" } };
+  if (!isPasteEnabled() || !isNavV2Phase3Enabled()) return { ok: false, status: 503, body: { error: "unavailable" } };
+  if (!isVizzyPasteEnabled()) return { ok: false, status: 503, body: { error: "chat_unavailable" } };
   if (!isCanvasAuthConfigured()) return { ok: false, status: 503, body: { error: "canvas_auth_unconfigured" } };
   const verified = verifyCanvasContext(req.headers.get("x-canvas-context") ?? "");
   if (!verified.ok) return { ok: false, status: 401, body: { error: "unauthorized" } };

@@ -86,6 +86,7 @@ def test_relays_the_apps_own_words_for_a_paste_code(monkeypatch):
 def test_gate_answers_become_its_own_plain_words(monkeypatch):
     for status, body, code in [
         (503, {"error": "unavailable"}, "unavailable"),
+        (503, {"error": "chat_unavailable"}, "chat_unavailable"),
         (503, {"error": "canvas_auth_unconfigured"}, "canvas_auth_unconfigured"),
         (401, {"error": "unauthorized"}, "unauthorized"),
         (403, {"error": "forbidden"}, "forbidden"),
@@ -99,7 +100,10 @@ def test_gate_answers_become_its_own_plain_words(monkeypatch):
         assert out["status"] == "error" and out["code"] == code and out["message"]
         if code in plc._ERRORS:
             assert out["message"] == plc._ERRORS[code]
-    assert plc._ERRORS["unavailable"] == "Pasting a list into chat isn't switched on here. Use Paste a list on People instead."
+    # Off here: no box to point to. Only the chat off: the box on People works.
+    assert plc._ERRORS["unavailable"] == "Pasting a list isn't switched on here."
+    assert "People" not in plc._ERRORS["unavailable"]
+    assert plc._ERRORS["chat_unavailable"] == "Pasting a list into chat isn't switched on here. Use Paste a list on People instead."
     assert plc._ERRORS["forbidden"] == "Only an admin on the team can add a list, so I can't read it into a card for you."
 
 
@@ -108,7 +112,10 @@ def test_root_reads_pasted_lists_through_the_app_and_never_records_consent():
     assert "add a pasted list" in ROOT_SYSTEM_INSTRUCTION
     assert "you never record consent" in ROOT_SYSTEM_INSTRUCTION
     assert "Never type out, complete or invent a list yourself" in ROOT_SYSTEM_INSTRUCTION
-    assert "The AI Fundraising Kit, made by The VC Corner with Notion" in ROOT_SYSTEM_INSTRUCTION
+    # The static prompt names no public list: where to find one comes from the paste-a-list help
+    # page, which is served only while Paste a list is switched on.
+    assert "Fundraising Kit" not in ROOT_SYSTEM_INSTRUCTION and "VC Corner" not in ROOT_SYSTEM_INSTRUCTION
+    assert "call `read_help_page` with `paste-a-list`" in ROOT_SYSTEM_INSTRUCTION
     # The pasted list line comes right after the add a person line.
     assert ROOT_SYSTEM_INSTRUCTION.index("To **add a pasted list**") > ROOT_SYSTEM_INSTRUCTION.index("To **add a person**")
     for text in [*plc._ERRORS.values(), plc._TOO_LONG]:

@@ -134,6 +134,18 @@ export const PASTE_CARD = {
   cta: "Open the list",
 } as const;
 
+/**
+ * The card's stats, each only when not zero, in the singular for one: "1 person · 3 companies ·
+ * 2 left out". `skipped` is the rows left out plus those already here, as the summary counts them.
+ */
+export function cardStats(c: { people: number; companies: number; skipped: number }): Array<{ label: string; value: number }> {
+  return [
+    { label: c.people === 1 ? "person" : "people", value: c.people },
+    { label: c.companies === 1 ? "company" : "companies", value: c.companies },
+    { label: "left out", value: c.skipped },
+  ].filter((s) => s.value > 0);
+}
+
 /** The Review section and its items. */
 export const PASTE_REVIEW = {
   title: "Pasted lists",

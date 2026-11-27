@@ -7,6 +7,7 @@ import {
   ALL_PASTE_STRINGS,
   alreadyAtAdd,
   batchCountWords,
+  cardStats,
   companyPastedLine,
   fromReview,
   pasteErrorText,
@@ -38,6 +39,22 @@ describe("paste words", () => {
     expect(batchCountWords({ people: 0, companies: 0 })).toBe("nobody");
     expect(addWords({ people: 10, companies: 3 })).toBe("Add 10 people and 3 companies");
     expect(addedWords({ people: 1, companies: 2 })).toBe("Added 1 person and 2 companies. Each timeline says where the list is from.");
+  });
+
+  it("give the card's stats only when not zero, in the singular for one", () => {
+    expect(cardStats({ people: 10, companies: 3, skipped: 2 })).toEqual([
+      { label: "people", value: 10 },
+      { label: "companies", value: 3 },
+      { label: "left out", value: 2 },
+    ]);
+    expect(cardStats({ people: 1, companies: 1, skipped: 0 })).toEqual([
+      { label: "person", value: 1 },
+      { label: "company", value: 1 },
+    ]);
+    expect(cardStats({ people: 0, companies: 2, skipped: 1 })).toEqual([
+      { label: "companies", value: 2 },
+      { label: "left out", value: 1 },
+    ]);
   });
 
   it("sum up a read list, each part only when not zero", () => {

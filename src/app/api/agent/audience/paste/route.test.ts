@@ -18,7 +18,17 @@ const { DONE_WHEN_ROWS, DONE_WHEN_TSV } = await import("@/lib/crm/paste/testing/
 
 const admin = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
 const member = { ...admin, userId: "u_member", role: "member" };
-const SWITCHES = ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED", "AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "RAISE_PASTE_ENABLED"];
+const SWITCHES = [
+  "AUDIENCE_PERSON_LINKS_ENABLED",
+  "AUDIENCE_ONE_VIEW_ENABLED",
+  "ONTOLOGY_PERSON_IDS_ENABLED",
+  "AUDIENCE_ADD_PERSON_ENABLED",
+  "AUDIENCE_VIZZY_ADD_PERSON_ENABLED",
+  "NEXT_PUBLIC_NAV_V2_ENABLED",
+  "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED",
+  "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED",
+  "RAISE_PASTE_ENABLED",
+];
 
 const post = (body: unknown) =>
   POST(new Request("http://localhost/api/agent/audience/paste?tenantId=ten_B", { method: "POST", headers: { "content-type": "application/json", "x-canvas-context": "tok" }, body: JSON.stringify(body) }));
@@ -35,14 +45,22 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("POST /api/agent/audience/paste", () => {
-  it("is unavailable with the paste switch off, or with Vizzy's New person off", async () => {
+  it("is unavailable with the paste switch off or People not on screen, and chat_unavailable with only Vizzy's New person off", async () => {
     vi.stubEnv("RAISE_PASTE_ENABLED", "false");
     const off = await post({ text: DONE_WHEN_TSV, source: "An event" });
     expect(off.status).toBe(503);
     expect(await off.json()).toEqual({ error: "unavailable" });
     vi.stubEnv("RAISE_PASTE_ENABLED", "true");
+    // Without People on screen the card couldn't open, so there is no box to point to either.
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "false");
+    const noPeople = await post({ text: DONE_WHEN_TSV, source: "An event" });
+    expect(noPeople.status).toBe(503);
+    expect(await noPeople.json()).toEqual({ error: "unavailable" });
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "true");
     vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
-    expect((await post({ text: DONE_WHEN_TSV, source: "An event" })).status).toBe(503);
+    const chat = await post({ text: DONE_WHEN_TSV, source: "An event" });
+    expect(chat.status).toBe(503);
+    expect(await chat.json()).toEqual({ error: "chat_unavailable" });
     expect(auth.verifyCanvasContext).not.toHaveBeenCalled();
     expect(db.dump("agent_actions")).toHaveLength(0);
   });
@@ -97,7 +115,7 @@ describe("POST /api/agent/audience/paste", () => {
           { label: "companies", value: 3 },
           { label: "left out", value: 1 },
         ],
-        warnings: 1,
+        warnings: 0,
         note: "Nobody is added until an admin adds them. Everyone starts at Not yet for emails.",
         cta: "Open the list",
       },
@@ -110,6 +128,16 @@ describe("POST /api/agent/audience/paste", () => {
     // The brand is the token's, whatever the query says, and the card is Vizzy's.
     expect(db.dump("agent_actions")).toEqual([expect.objectContaining({ tenantId: "ten_A", agent: "vizzy", requestedBy: { type: "member", id: "u_admin" } })]);
     expect(db.dump("contacts")).toHaveLength(0);
+  });
+
+  it("names one person and one company in the singular, and leaves zero stats off the card", async () => {
+    const res = await post({ text: "Email\tWebsite\njo@example.com\t\n\tnorthfield-ventures.test", source: "An event" });
+    const body = await res.json();
+    expect(body.card.stats).toEqual([
+      { label: "person", value: 1 },
+      { label: "company", value: 1 },
+    ]);
+    expect(body.card.warnings).toBe(0);
   });
 
   it("says so when there is nothing to add, saving nothing", async () => {

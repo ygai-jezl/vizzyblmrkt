@@ -67,7 +67,10 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
         <li>
           Pick <strong>{SETUP_WORDS.amountsIn}</strong>: the currency of the Cheque field. It starts from your brand&apos;s time zone.
         </li>
-        <li>Read what the press adds and what it keeps as it is. Nothing changes yet.</li>
+        <li>
+          Read what the press adds, which of your own fields it uses, and what it keeps as it is. Nothing changes yet, and the button
+          waits until the box shows the kit and currency you picked.
+        </li>
         <li>
           Press the button. It says what it added and where the board is, with <strong>{SETUP_WORDS.openBoard}</strong>.
         </li>
@@ -87,6 +90,11 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
           Nothing you have is renamed or removed. A Stage field you already have is used as it is: your own stages keep their names and
           their place, and the missing ones go in beside the nearest ones. Research, Contacted, Meeting, Diligence, Committed and Passed
           become Research, Contacted, Replied, First meeting, Next meeting, Meeting, Diligence, Term sheet, Committed, Money in and Passed.
+        </li>
+        <li>
+          A field of yours with a ready-made name, such as Stage, Tier or Cheque, is used rather than added again, and the box names it
+          first: &quot;{SETUP_WORDS.uses(["Stage"])}&quot; With your own Stage it adds &quot;{SETUP_WORDS.usesStage("Stage")}&quot; If your
+          Stage means something else, such as a customer&apos;s stage at a plant shop, rename it in Data model before you press.
         </li>
         <li>A field of yours with the same name but another type stays as it is, and the box says so. The board needs Stage to be a select or status field.</li>
         <li>A field or an option you archived stays archived and isn&apos;t added again. Bring it back in Data model if you want it.</li>
@@ -168,9 +176,9 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
             <li>someone not yet in Money in, Funds in or Passed has a Next step date before today.</li>
           </UL>
           <P>
-            Each person gets one at most for each reason, and the same quiet spell or the same date never brings a second. A row says how
-            long they have been quiet, or that their next step date passed, and their stage, never their name: <strong>{REVIEW_WORDS.open}</strong>{" "}
-            goes to their page.
+            Each person gets one at most for each reason in each stage, and the same quiet spell or the same date never brings a second
+            while they stay in that stage. A row says how long they have been quiet, or that their next step date passed, and their stage,
+            never their name: <strong>{REVIEW_WORDS.open}</strong> goes to their page.
           </P>
           <UL>
             <li>
@@ -180,6 +188,11 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
               <strong>{REVIEW_WORDS.dismiss}</strong> clears it.
             </li>
             <li>A new Last touch or Next step date on their page, or a move on the board, clears it at once.</li>
+            <li>
+              A move doesn&apos;t change their Last touch. Still quiet, or still past their date, in their new stage? One more comes the next
+              morning for that stage, so set their Last touch when you were in touch.
+            </li>
+            <li>Archive the Stage field and the board goes, and so do its follow-ups in Review.</li>
             <li>One nobody decides goes after {EXPIRY_DAYS} days.</li>
             <li>Everyone on the team sees the list. Only admins see the buttons.</li>
           </UL>
@@ -204,6 +217,7 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
       <Messages
         rows={[
           [SETUP_WORDS.nothing, "Nothing to do: every field and option the board needs is there."],
+          [SETUP_WORDS.doneUses, "The press started using fields you already had, such as your own Stage. Nothing new was made."],
           [SETUP_WORDS.errors.field_list_full, "Archive fields you no longer use in Data model, then press again."],
           [SETUP_WORDS.errors.fields_changed, "Someone saved your fields at the same time. Press again."],
           [BOARD_WORDS.errors.not_set_up, "An admin presses one of the two buttons in Settings › Data model."],

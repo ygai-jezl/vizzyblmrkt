@@ -1407,6 +1407,9 @@ describe("Investors and funding (RAISE_PIPELINE_ENABLED)", () => {
     const text = md(true);
     for (const m of [
       SETUP_WORDS.nothing,
+      SETUP_WORDS.doneUses,
+      SETUP_WORDS.uses(["Stage"]),
+      SETUP_WORDS.usesStage("Stage"),
       SETUP_WORDS.errors.field_list_full,
       SETUP_WORDS.errors.fields_changed,
       BOARD_WORDS.errors.not_set_up,

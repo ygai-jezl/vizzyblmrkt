@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
@@ -8,7 +8,17 @@ import type { BoardAnswer, BoardCard, BoardColumn } from "./investorsApi";
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { BoardView, cardLines, countsLine, movedCard, moveTargets, placeCard } = await import("./InvestorBoard");
+const { BoardView, cardLines, countsLine, MoveMenu, movedCard, moveTargets, placeCard } = await import("./InvestorBoard");
+
+/** Every element in a tree with a given tag. */
+function elementsOf(node: ReactNode, type: string, out: ReactElement[] = []): ReactElement[] {
+  if (Array.isArray(node)) for (const n of node) elementsOf(n, type, out);
+  else if (isValidElement(node)) {
+    if (node.type === type) out.push(node);
+    elementsOf((node.props as { children?: ReactNode }).children, type, out);
+  }
+  return out;
+}
 
 // Made-up people at made-up firms, on a board read on 26 Nov 2026.
 const TODAY = "2026-11-26";
@@ -179,10 +189,32 @@ describe("the board as drawn", () => {
     const admin = draw(board(), () => {});
     expect(admin).toContain('draggable="true"');
     expect(admin).toContain(`aria-label="${BOARD_WORDS.moveTo}: Sam Okoro"`);
+    // A menu of buttons, never a select an arrow key could pick from.
+    expect(admin).not.toContain("<select");
+    expect(admin).toContain("<details");
     const member = draw(board({ canMove: false }), () => {});
     expect(member).toContain(BOARD_WORDS.membersOnly);
     expect(member).not.toContain('draggable="true"');
     expect(member).not.toContain(BOARD_WORDS.moveTo);
+  });
+
+  it("moves a card only when a stage's button is pressed, never by opening or moving through the menu", () => {
+    const onMove = vi.fn();
+    const targets = moveTargets(board().columns, SAM);
+    const menu = MoveMenu({ card: SAM, title: "Sam Okoro", targets, onMove });
+    expect(menu.type).toBe("details");
+    expect(elementsOf(menu, "select")).toEqual([]);
+    const [summary] = elementsOf(menu, "summary");
+    expect(Object.keys(summary!.props as object).filter((k) => k.startsWith("on"))).toEqual([]);
+    const buttons = elementsOf(menu, "button");
+    expect(buttons.map((b) => (b.props as { children: string }).children)).toEqual(["Research", "Money in", "Passed"]);
+    expect(buttons.every((b) => (b.props as { type: string }).type === "button")).toBe(true);
+    expect(onMove).not.toHaveBeenCalled();
+    const closed: string[] = [];
+    (buttons[1]!.props as { onClick: (e: unknown) => void }).onClick({ currentTarget: { closest: () => ({ removeAttribute: (a: string) => closed.push(a) }) } });
+    expect(onMove).toHaveBeenCalledTimes(1);
+    expect(onMove).toHaveBeenCalledWith(SAM, "opt_money001");
+    expect(closed).toEqual(["open"]);
   });
 
   it("says when the board is empty, a stage is capped, or stages no longer in use still hold people", () => {

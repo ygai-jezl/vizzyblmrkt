@@ -14,8 +14,9 @@ import { boardErrorText, loadBoard, moveCard, type BoardAnswer, type BoardCard, 
  * People › Investors (or Funding), the board (RAISE_PIPELINE_ENABLED): one column per Stage in the
  * field's order, each with its count and its most recently active people, and a trailing "No longer
  * in use" column while archived stages still hold people. Everyone on the team reads it. Admins move
- * a card by dragging it onto a column or with its Move to menu (keyboard and touch); moving onto
- * Passed asks why first. A move shows at once, then the card as the server saved it; a board that
+ * a card by dragging it onto a column or with its Move to menu (keyboard and touch): a disclosure
+ * of one button a stage, so only a press moves a card, never an arrow key on a closed select (which
+ * Windows browsers treat as a pick). Moving onto Passed asks why first. A move shows at once, then the card as the server saved it; a board that
  * changed meanwhile reloads. Words: src/lib/raise/pipeline/words.ts.
  */
 
@@ -104,8 +105,42 @@ export function movedCard(board: BoardAnswer, card: BoardCard, to: string, reaso
   return { ...card, stageOptionId: to, passReason, due: role && role !== "archived" ? dueReasons(card, role, board.today) : [] };
 }
 
-const selectClass =
-  "mt-2 w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950";
+const menuClass =
+  "mt-2 w-full cursor-pointer list-none rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950 [&::-webkit-details-marker]:hidden";
+const stageButtonClass =
+  "block w-full rounded px-2 py-1 text-left text-xs hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800";
+
+/**
+ * A card's Move to menu: a disclosure that opens a list of its stages, each a real button, so only
+ * pressing one moves the card (Enter, Space, a click or a tap). Opening, closing or moving through
+ * the list moves nothing. No hooks, so a test can call it and press its buttons.
+ */
+export function MoveMenu({ card, title, targets, onMove }: { card: BoardCard; title: string; targets: readonly BoardColumn[]; onMove: (card: BoardCard, to: string) => void }) {
+  return (
+    <details className="mt-2">
+      <summary aria-label={`${BOARD_WORDS.moveTo}: ${title}`} className={menuClass}>
+        {BOARD_WORDS.moveTo}
+      </summary>
+      <ul className="mt-1 space-y-0.5 rounded-md border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-950">
+        {targets.map((c) => (
+          <li key={c.optionId}>
+            <button
+              type="button"
+              className={stageButtonClass}
+              onClick={(e) => {
+                // Close the menu, then move: the card reloads in its new column.
+                e.currentTarget.closest("details")?.removeAttribute("open");
+                onMove(card, c.optionId);
+              }}
+            >
+              {c.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 function CardView({
   card,
@@ -157,25 +192,7 @@ function CardView({
       ) : null}
       {lines.quiet ? <p className="text-xs text-amber-700 dark:text-amber-400">{lines.quiet}</p> : null}
       {lines.passReason ? <p className="text-xs text-neutral-500">{lines.passReason}</p> : null}
-      {canMove && onMove && targets.length ? (
-        <select
-          aria-label={`${BOARD_WORDS.moveTo}: ${lines.title}`}
-          value=""
-          onChange={(e) => {
-            if (e.target.value) onMove(card, e.target.value);
-          }}
-          className={selectClass}
-        >
-          <option value="" disabled>
-            {BOARD_WORDS.moveTo}
-          </option>
-          {targets.map((c) => (
-            <option key={c.optionId} value={c.optionId}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      ) : null}
+      {canMove && onMove && targets.length ? <MoveMenu card={card} title={lines.title} targets={targets} onMove={onMove} /> : null}
     </li>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
+import { ClipboardPaste } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { personHref } from "@/lib/audience/paths";
+import { boardStageHint, PASTE_WORDS } from "@/lib/crm/paste/words";
 import { dueReasons, dueTallies } from "@/lib/raise/pipeline/due";
 import { BOARD_WORDS } from "@/lib/raise/pipeline/words";
 import { HowToLink } from "@/components/help/HowToLink";
@@ -198,6 +200,22 @@ function CardView({
 }
 
 /**
+ * Paste a list beside How the board works, for admins while Paste a list is on (S2b): on a board
+ * with no one on it yet it opens Start from a public list too. No hooks, so a test can press it.
+ */
+export function PasteButton({ empty, onPaste }: { empty: boolean; onPaste: (openPublicList: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPaste(empty)}
+      className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+    >
+      <ClipboardPaste size={14} aria-hidden /> {PASTE_WORDS.button}
+    </button>
+  );
+}
+
+/**
  * The board as it is drawn, from one board answer. Read only without `onMove`, or when the board
  * says this user can't move people.
  */
@@ -206,13 +224,17 @@ export function BoardView({
   actions,
   error = null,
   onMove,
+  onPaste,
 }: {
   board: BoardAnswer;
   /** Buttons beside How the board works. */
   actions?: ReactNode;
   error?: string | null;
   onMove?: (card: BoardCard, to: string) => void;
+  /** Paste a list is on for this admin: its button, told whether the board is empty. */
+  onPaste?: (openPublicList: boolean) => void;
 }) {
+  const empty = board.totals.people === 0;
   const canMove = board.canMove && !!onMove;
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -231,15 +253,18 @@ export function BoardView({
           <HowToLink path={BOARD_WORDS.helpHref} className="text-sm underline underline-offset-2">
             {BOARD_WORDS.howItWorks}
           </HowToLink>
-          {/* S2b puts Paste a list here. */}
           {actions}
+          {onPaste ? <PasteButton empty={empty} onPaste={onPaste} /> : null}
         </div>
       </div>
       {error ? <Banner tone="err">{error}</Banner> : null}
       {board.canMove ? null : <p className="text-xs text-neutral-500">{BOARD_WORDS.membersOnly}</p>}
       {board.totals.capped ? <p className="text-xs text-neutral-500">{BOARD_WORDS.capped}</p> : null}
-      {board.totals.people === 0 ? (
-        <p className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">{BOARD_WORDS.emptyBoard}</p>
+      {empty ? (
+        <div className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
+          <p>{BOARD_WORDS.emptyBoard}</p>
+          {onPaste ? <p className="mt-1">{boardStageHint(board.fields.stage?.label ?? "Stage")}</p> : null}
+        </div>
       ) : null}
       <div className="flex gap-3 overflow-x-auto pb-2">
         {board.columns.map((col) => {
@@ -311,7 +336,7 @@ export function BoardView({
 type Loaded = { state: "loading" } | { state: "failed" } | { state: "not_set_up" } | { state: "ready"; board: BoardAnswer };
 
 /** The board on People: loads it, moves cards and asks why on Passed. */
-export function InvestorBoard({ actions }: { actions?: ReactNode }) {
+export function InvestorBoard({ actions, onPaste }: { actions?: ReactNode; onPaste?: (openPublicList: boolean) => void }) {
   const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
   const [error, setError] = useState<string | null>(null);
   const [passing, setPassing] = useState<{ card: BoardCard; to: string } | null>(null);
@@ -355,7 +380,7 @@ export function InvestorBoard({ actions }: { actions?: ReactNode }) {
 
   return (
     <>
-      <BoardView board={board} actions={actions} error={error} onMove={requestMove} />
+      <BoardView board={board} actions={actions} error={error} onMove={requestMove} onPaste={onPaste} />
       {passing ? (
         <PassReasonDialog
           options={board.reasonOptions}

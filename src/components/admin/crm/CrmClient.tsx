@@ -117,8 +117,13 @@ export function CrmClient({
     window.history.replaceState(null, "", url);
   };
   const router = useRouter();
-  /** Paste a list is open, on a waiting list (from ?paste=) or on an empty box. */
-  const [pasting, setPasting] = useState<{ batchId: string | null } | null>(canPaste && pasteBatchId ? { batchId: pasteBatchId } : null);
+  /**
+   * Paste a list is open, on a waiting list (from ?paste=) or on an empty box, with Start from a
+   * public list open when it was pressed on an empty board.
+   */
+  const [pasting, setPasting] = useState<{ batchId: string | null; openPublicList?: boolean } | null>(
+    canPaste && pasteBatchId ? { batchId: pasteBatchId } : null,
+  );
   /** Bumped once a pasted list is added, so People and Companies load again. */
   const [added, setAdded] = useState(0);
   // Review's link or Vizzy's card while the page is already open.
@@ -160,7 +165,8 @@ export function CrmClient({
             {investors.tab}
           </button>
         ) : null}
-        {canPaste ? (
+        {/* The board has its own, beside How the board works. */}
+        {canPaste && tab !== "investors" ? (
           <button
             type="button"
             onClick={() => setPasting({ batchId: null })}
@@ -175,6 +181,7 @@ export function CrmClient({
           key={pasting.batchId ?? "box"}
           open
           batchId={pasting.batchId}
+          openPublicList={pasting.openPublicList}
           onClose={closePaste}
           onAdded={() => setAdded((n) => n + 1)}
         />
@@ -203,7 +210,7 @@ export function CrmClient({
       ) : tab === "product" ? (
         personView ? <PeopleList /> : <ProductUsersView />
       ) : tab === "investors" && investors ? (
-        <InvestorBoard />
+        <InvestorBoard key={`investors:${added}`} onPaste={canPaste ? (openPublicList) => setPasting({ batchId: null, openPublicList }) : undefined} />
       ) : tab === "companies" ? (
         <CompaniesView
           key={`companies:${added}`}

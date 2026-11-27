@@ -1,5 +1,8 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
+import { PUBLIC_LIST } from "@/lib/crm/paste/publicLists";
+import { boardStageHint, PASTE_WORDS } from "@/lib/crm/paste/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { QUIET_AFTER_DAYS } from "@/lib/raise/pipeline/due";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
@@ -11,10 +14,11 @@ import { RAISE_AREAS, RAISE_REASONS } from "@/lib/raise/reasons";
  * /help/investors-and-funding (RAISE_PIPELINE_ENABLED): Set up for raising or funding in Settings ›
  * Data model, the board on People, why each one passed, and Vizzy's counts. Follow-ups in Review
  * show while RAISE_FOLLOWUPS_ENABLED is on too (`raiseFollowUps`; the How to drawer passes the
- * shell's answer). Every word it quotes is the app's own (src/lib/raise/pipeline/words.ts), and the
- * reason table comes from src/lib/raise/reasons.ts, so neither can drift. Client safe: the drawer
- * loads it in the browser, so it imports no server code (help.test.ts checks the 14 day expiry and
- * the board's address against the server's).
+ * shell's answer), and Paste a list on the board while RAISE_PASTE_ENABLED is on (`paste`). Every
+ * word it quotes is the app's own (src/lib/raise/pipeline/words.ts and, for pasting,
+ * src/lib/crm/paste/words.ts), and the reason table comes from src/lib/raise/reasons.ts, so neither
+ * can drift. Client safe: the drawer loads it in the browser, so it imports no server code
+ * (help.test.ts checks the 14 day expiry and the board's address against the server's).
  */
 
 /** People › Investors (BOARD_HREF in src/lib/raise/pipeline/setup.ts). */
@@ -27,7 +31,7 @@ const list = (words: readonly string[]) => (words.length > 1 ? `${words.slice(0,
 const names = (items: ReadonlyArray<{ label: string }>) => list(items.map((i) => i.label));
 const reasonNames = (audience: string) => list(RAISE_REASONS.filter((r) => r.audience === audience).map((r) => r.label));
 
-export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollowupsEnabled() }: HelpBodyProps = {}) {
+export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollowupsEnabled(), paste = isPasteEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Investors and funding</H1>
@@ -132,6 +136,14 @@ export default function InvestorsAndFundingHelp({ raiseFollowUps = isRaiseFollow
         Admins drag a card onto another column, or pick a stage from the card&apos;s <strong>{BOARD_WORDS.moveTo}</strong> menu, which works
         with a keyboard and on a phone. It changes their Stage, just as changing it on their page does. Members read the board only.
       </P>
+      {paste ? (
+        <P>
+          Admins add people and firms from a sheet with <strong>{PASTE_WORDS.button}</strong>, beside {BOARD_WORDS.howItWorks} (
+          <Open href="/help/paste-a-list">Paste a list</Open>). The people you paste join the board once they have a Stage, so add a
+          column named Stage to your list: &quot;{boardStageHint("Stage")}&quot; A firm with no one to reach goes to Companies,
+          not onto the board. On a board with no one on it yet, {PASTE_WORDS.button} opens {PUBLIC_LIST.title} too.
+        </P>
+      ) : null}
       <UL>
         <li>{BOARD_WORDS.capped}</li>
         <li>

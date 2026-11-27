@@ -44,7 +44,7 @@ import { RAISE_REASONS } from "@/lib/raise/reasons";
 import { BOARD_HREF } from "@/lib/raise/pipeline/setup";
 import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
 import { PUBLIC_LIST } from "@/lib/crm/paste/publicLists";
-import { COMPANY_REMOVE, PASTE_MESSAGES, ROW_REASONS } from "@/lib/crm/paste/words";
+import { boardStageHint, COMPANY_REMOVE, PASTE_MESSAGES, ROW_REASONS } from "@/lib/crm/paste/words";
 
 
 /**
@@ -1512,6 +1512,20 @@ describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
   it("names your own fields only while fields are on", () => {
     expect(md("paste-a-list", { fields: true })).toContain("fills that field");
     expect(md("paste-a-list", { fields: false })).not.toContain("fills that field");
+  });
+
+  it("points to it from the investor board's page only while it is on", () => {
+    const board = (paste: boolean) => md("investors-and-funding", { raiseFollowUps: true, paste });
+    expect(board(true)).toContain("**Paste a list**, beside How the board works ([Paste a list](https://app.example.com/help/paste-a-list.md))");
+    expect(board(true)).toContain(`"${boardStageHint("Stage")}"`);
+    expect(board(true)).toContain(`opens ${PUBLIC_LIST.title} too`);
+    // The page's Next link still names Paste a list, the page after it.
+    expect(board(false)).not.toContain("beside How the board works");
+    expect(board(false)).not.toContain(boardStageHint("Stage"));
+    for (const line of board(true).split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 
   it("points to it from People and from Review only while it is on", () => {

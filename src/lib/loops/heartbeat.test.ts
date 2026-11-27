@@ -18,6 +18,7 @@ import {
   HEARTBEAT,
   holdsOldLook,
   planKeyOf,
+  reportsFrom,
   weeksToReport,
   type WeekReportInput,
 } from "./heartbeat";
@@ -113,7 +114,18 @@ describe("a brand's week", () => {
     expect(earlier.orgCells).not.toContain("next_up/week/orgs");
     expect(earlier.things).toEqual({});
     const now = brandWeekReport(input({ window: [undefined, undefined, undefined, words("next_up", { made: 2 })] }));
-    expect(now.orgCells).toEqual(expect.arrayContaining(["next_up/orgs", "next_up/week/orgs", "next_up/st/stamped/all"]));
+    expect(now.orgCells).toEqual(expect.arrayContaining(["next_up/orgs", "next_up/week/orgs", "next_up/made/orgs", "next_up/cov/orgs", "next_up/st/stamped/all"]));
+    // An answer this week, or things made two weeks before and left unused, put numbers in the row,
+    // but the organisation made nothing this week and saved nothing: it never floors made or coverage.
+    const answered = brandWeekReport(input({ window: [undefined, words("next_up", { made: 3 }), undefined, words("next_up", { kept: 1 })] }));
+    expect(answered.things).toMatchObject({ "next_up/out/none/kept": 1, "next_up/unused": 2 });
+    expect(answered.orgCells).toContain("next_up/week/orgs");
+    expect(answered.orgCells).not.toContain("next_up/made/orgs");
+    expect(answered.orgCells).not.toContain("next_up/cov/orgs");
+    // A save with no stamp is coverage, not made.
+    const unstamped = brandWeekReport(input({ window: [undefined, undefined, undefined, { u: { next_up: { person_wrote: 2 } } }] }));
+    expect(unstamped.orgCells).toContain("next_up/cov/orgs");
+    expect(unstamped.orgCells).not.toContain("next_up/made/orgs");
   });
 
   it("counts organisations per image style, and each refusal reason once for the copy however many kinds refused it", () => {
@@ -458,6 +470,36 @@ describe("a brand's heartbeat", () => {
     for (const c of [...first.cells(), ...second.cells()]) expect(c.id, c.id).not.toMatch(/^fh:image_style:/);
     // The visit after keeps the week it started from.
     expect((await readLaneState(lumen, db)).reportsFromWeek).toBe(back(3));
+  });
+
+  it("sends no week from before the loops came back on: image counts kept while only image style versions were on stay out", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const usage = async () => ({ model_tokens: { total: 0, calls: 0, lostCalls: 0, byPurpose: {}, callsByPurpose: { blog_write: 900 } } });
+    const back = (n: number) => {
+      let w = W;
+      for (let i = 0; i < n; i++) w = weekBefore(w);
+      return w;
+    };
+    // Reported through 3 weeks back; then LOOPS_ENABLED went off with image style versions on, and
+    // the brand voted on its images; the loops came back on during W.
+    seedWeek(lumen, back(2), { c: { [NATURAL]: { post_image: { v0: { none: { made: 6, voted: 3, liked: 2, "disliked.looks_fake": 1 } } } } } });
+    seedWeek(lumen, W, words("next_up", { made: 2 }));
+    const lane = { heartbeatWeek: back(3), meterMonth: NOW.toISOString().slice(0, 7), meterSeen: { blog_write: 10 } };
+    const first = new FleetBuffer();
+    expect(await heartbeat(lumen, row("ten_lumen"), state({ lane, loopsOnFrom: W }), first, { db, controlDb: db, now: NOW, usage })).toEqual({ weeks: 0, late: 0 });
+    // The weeks from before are marked done and send nothing, not even a visit.
+    expect(first.size).toBe(0);
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: back(1), reportsFromWeek: W });
+    const second = new FleetBuffer();
+    expect(await heartbeat(lumen, row("ten_lumen"), state({ lane: await readLaneState(lumen, db), loopsOnFrom: W }), second, { db, controlDb: db, now: NOW, usage })).toEqual({ weeks: 1, late: 0 });
+    const cells = Object.fromEntries(second.cells().map((c) => [c.id, c.n]));
+    expect(cells[fleetCellId.kind("image_style", back(2))]).toBeUndefined();
+    // W's window holds no week before it, so the images voted on with the loops off add no stage either.
+    expect(cells[fleetCellId.kind("image_style", W)]).toBeUndefined();
+    expect(cells[fleetCellId.kind("next_up", W)]).toMatchObject({ out: { none: { made: 2 } } });
+    // Its calls count as a first report's: none, as the meter's totals since hold the weeks before.
+    expect(cells[fleetCellId.calls(W)]).toBeUndefined();
+    expect(reportsFrom({ heartbeatWeek: back(1), reportsFromWeek: back(6) }, W, W)).toEqual({ week: W, freshCalls: false, restart: null });
   });
 
   it("counts no look in use while image style versions are off, whatever the pointers still hold", async () => {

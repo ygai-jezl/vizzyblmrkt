@@ -24,7 +24,7 @@ import {
   type EbookChapter,
 } from "@/lib/types/contentPlan";
 import { sanitizeEbookHtmlCapped, reconcileChapterImages } from "@/lib/content/create/ebookHtml";
-import { keptMade, nodeStampsAfter } from "@/lib/loops/made";
+import { nodeStampsAfter } from "@/lib/loops/made";
 import type { Made } from "@/lib/types/loopStamp";
 
 /**
@@ -359,13 +359,11 @@ export async function createContentPlan(
   }
   const id = opts.id ?? randomUUID();
   const now = new Date().toISOString();
-  const { made: givenMade, ...fields } = input;
-  const made = keptMade(givenMade);
   const plan = ContentPlanSchema.parse({
-    ...fields,
-    ...(made ? { made } : {}),
-    // A new plan's nodes have made nothing yet: only updateContentPlanNode stamps a node.
-    ...(fields.graph ? { graph: { ...fields.graph, nodes: fields.graph.nodes.map(withoutStamps) } } : {}),
+    ...input,
+    // A new plan's nodes have made nothing yet: only updateContentPlanNode stamps a node. The plan
+    // keeps no stamp of its own (learning loops step 5): it gathers pieces, which keep theirs.
+    ...(input.graph ? { graph: { ...input.graph, nodes: input.graph.nodes.map(withoutStamps) } } : {}),
     id,
     tenantId: ctx.tenantId,
     workspaceId,

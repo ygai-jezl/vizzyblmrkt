@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FLEET_CELLS, fleetCellId } from "@/lib/tenant/fleetCells";
-import { LOOP_LANE, readLoopLane } from "@/lib/tenant/loopLane";
+import { LANE_DOC_ID, LOOP_LANE, readLoopLane } from "@/lib/tenant/loopLane";
 import { LOOP_DAYS, readBrandPointers, readLaneState, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { getPatternVersion } from "@/lib/tenant/patternVersions";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -186,8 +186,31 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
   const made = (tenantId: string, n: number) => countKindSignals(ctxOf(tenantId), "next_up", { made: n }, { db, now: IN_W });
   const row = (id: string) => (db.raw(FLEET_CELLS, id) as { n: Record<string, unknown> } | undefined)?.n;
 
+  /** The loops came on well before W: every week from then on is reported. */
+  const ON_FROM = "2026-W40";
+
   beforeEach(() => {
     vi.stubEnv("LOOPS_ENABLED", "true");
+    db.seed(LOOP_LANE, LANE_DOC_ID, { d: { cursor: null, loopsOnFrom: ON_FROM } });
+  });
+
+  it("keeps the week the loops came on in, reports and lists no week before it, and forgets it while they are off", async () => {
+    db.cols.get(LOOP_LANE)?.delete(LANE_DOC_ID);
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    await made("ten_hearth", 3);
+    // Just turned on in the open week: W was counted with the loops off, so nothing of it is sent.
+    expect(await lane()).toMatchObject({ brands: 1, reported: 0, cells: 0 });
+    expect((await readLoopLane(db)).loopsOnFrom).toBe(loopWeekOf(NOW));
+    expect((await readLoopLane(db)).listedWeek).toBeUndefined();
+    expect(db.dump(FLEET_CELLS)).toEqual([]);
+    expect(await readLaneState(ctxOf("ten_hearth"), db)).toMatchObject({ heartbeatWeek: W, reportsFromWeek: loopWeekOf(NOW) });
+    // The next run keeps the week it was turned on in; the brand has nothing left to report.
+    expect(await lane()).toMatchObject({ reported: 0 });
+    expect((await readLoopLane(db)).loopsOnFrom).toBe(loopWeekOf(NOW));
+    // Off with image style versions on: the lane still runs, and forgets the week.
+    vi.stubEnv("LOOPS_ENABLED", "");
+    await lane();
+    expect((await readLoopLane(db)).loopsOnFrom).toBeUndefined();
   });
 
   it("runs with only LOOPS_ENABLED on: it folds and reports each brand's closed week, and never seeds or reads image rows", async () => {
@@ -314,6 +337,7 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
     expect(db.dump(FLEET_CELLS)).toEqual([]);
     expect(db.dump(LOOP_LANE)).toHaveLength(1);
     expect((await readLoopLane(db)).listedWeek).toBeUndefined();
+    expect((await readLoopLane(db)).loopsOnFrom).toBeUndefined();
     expect((await readLaneState(ctxOf("ten_hearth"), db)).heartbeatWeek).toBeUndefined();
   });
 });

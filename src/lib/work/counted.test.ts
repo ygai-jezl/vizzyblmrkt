@@ -7,7 +7,7 @@ import { COUNT_ROWS, countForCheck, countProductEventsExact, monthsBetween, prod
 import { aStoredTask, LUMEN_US } from "./testing/fixtures";
 import type { WorkBrand } from "./scope";
 import { CheckSchema, COUNTED_WEEKS_MAX, type Measure, type WorkCheck } from "./types";
-import { countedLine, LOOPS_COUNT_NOTE } from "./words";
+import { countedLine, IMAGES_OFF_LINE, LOOPS_COUNT_NOTE } from "./words";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -402,10 +402,14 @@ describe("what a due measure's check counts with the learning loops on (step 5, 
   });
 
   it("counts a type and a LOOPS kind, which Work v1 couldn't, with an image kind counted as the image pool", async () => {
+    // Image kinds are counted only with image style versions on (decision 22).
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
     const w = world({
       "fh:_types:2026-W48": { orgs: { content_plan: 10 }, made: { content_plan: 64 } },
-      "fh:image_style:2026-W47": { orgs: 14, week: { orgs: 11 }, out: { learned: { made: 30 } } },
-      "fh:image_style:2026-W48": { orgs: 14, week: { orgs: 12 }, out: { learned: { made: 117 }, holdback: { made: 8 } } },
+      "fh:image_style:2026-W47": { orgs: 14, week: { orgs: 11 }, made: { orgs: 11 }, out: { learned: { made: 30 } } },
+      "fh:image_style:2026-W48": { orgs: 14, week: { orgs: 12 }, made: { orgs: 12 }, out: { learned: { made: 117 }, holdback: { made: 8 } } },
     });
     const type = usedOf({ type: "content_plan" });
     const t = await countForCheck(taskOf(type), lumen, w.deps, now);
@@ -465,6 +469,19 @@ describe("what a due measure's check counts with the learning loops on (step 5, 
     expect(c).toMatchObject({ n: 1300, from: "2026-08-31T00:00:00.000Z", to: "2026-11-29T23:59:59.999Z", weeks: { read: 13, shown: 13, orgs: 20, open: 1, older: 2 } });
     expect(c?.weeks?.beforeDone).toBeUndefined();
     expect(line(long, c)).toContain("in the 13 weeks from 31 Aug to 29 Nov, from at least 20 organisations a week. Work reads the newest 13 weeks, so the 2 weeks before them are left out.");
+  });
+
+  it("counts no image kind while image style versions are off, which count no images, and says so instead of a hidden count", async () => {
+    // LOOPS_ENABLED on alone: rows for the image pool could hold numbers, but this copy writes none.
+    const w = world({ "fh:image_style:2026-W48": { orgs: 14, week: { orgs: 12 }, made: { orgs: 12 }, out: { learned: { made: 117 } } } });
+    const kind = usedOf({ loopKind: "post_image" });
+    expect(await countForCheck(taskOf(kind), lumen, w.deps, now)).toBeNull();
+    expect(w.control.collectionCalls("fleet_cells")).toBe(0);
+    const said = countedLine({ part: kind as Extract<Measure, { kind: "used" }>, counted: null, brandName: null, timeZone: "UTC", loopsOn: true, imagesOff: true });
+    expect(said).toBe(IMAGES_OFF_LINE);
+    expect(said).toBe("Work can't count images while image learning is off on this copy, so your read is the record.");
+    // Words kinds are still counted.
+    expect(await countForCheck(taskOf(usedOf({ loopKind: "next_up" })), lumen, w.deps, now)).toMatchObject({ weeks: { read: 2 } });
   });
 
   it("counts no purpose while the usage meter is off, which keeps no calls, but still counts a type", async () => {

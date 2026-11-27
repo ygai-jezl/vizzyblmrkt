@@ -7,7 +7,7 @@ import { ISO_WEEK_RE } from "./loopDay";
  * no words. Pure: shapes only.
  *
  * - `lane`: the lane's cursor, the brand count its page size follows and the learner calls made
- *   today (learning loops step 4).
+ *   today (learning loops step 4), and the week the learning loops were last turned on in (step 5).
  * - `o:<organisationId>`, or `o:t:<tenantId>` for a brand with no organisation: one mark per
  *   organisation (step 5, departure 4 of the plan for steps 4 and 5), so an organisation with
  *   several brands counts once in each cell across brands. A mark holds only its newest week.
@@ -29,6 +29,12 @@ export const LaneDocSchema = z.object({
    * loops step 5), so each week's listed count is added once.
    */
   listedWeek: z.string().regex(ISO_WEEK_RE).optional(),
+  /**
+   * The ISO week the learning loops were last turned on in (learning loops step 5): set by the
+   * first run with LOOPS_ENABLED on, and taken away by a run with it off, so no heartbeat reports
+   * a week from before it, when nothing was counted across brands.
+   */
+  loopsOnFrom: z.string().regex(ISO_WEEK_RE).optional(),
 });
 export type LaneDoc = z.infer<typeof LaneDocSchema>;
 

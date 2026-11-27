@@ -170,7 +170,7 @@ export async function authorContentPlanDraft(
         " Review them on the canvas; nothing is scheduled.",
       warnings: result.failed.map((id) => `${id}: couldn't be written`),
       card: c,
-      // The plan was counted made when Vizzy drafted it; each piece counts under its own writer's kind.
+      // The plan counts no made of its own; each piece counts under its own writer's kind.
       saved: "rewritten",
     };
   }
@@ -191,12 +191,10 @@ export async function authorContentPlanDraft(
   const fields = planFromIntake(intake.data);
   // A subject and question Vizzy named by id are checked against the saved map before they're kept.
   if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog, { db: deps.db });
-  const created = await createContentPlan(
-    ctx,
-    ws.id,
-    { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000), made },
-    deps.db,
-  );
+  // The plan keeps no stamp of its own and counts no made: it only gathers pieces, and each piece
+  // is stamped and counted under its own writer's kind, as the autopilot's are (learning loops
+  // step 5). Nothing could answer a made plan, so it would only ever read as unused.
+  const created = await createContentPlan(ctx, ws.id, { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) }, deps.db);
   // A blog hub is researched while the architect lays out the plan (neither needs the
   // other). Research is fail-soft: without it the hub is written from the brand's own
   // knowledge alone.
@@ -335,7 +333,8 @@ export async function authorContentPlanDraft(
       " Nothing is scheduled.",
     warnings: result.failed.map((id) => `${id}: couldn't be written`),
     card: c,
-    saved: "created",
+    // Its pieces count made under their writers' kinds as they are written (fillPlanNodes).
+    saved: "none",
   };
 }
 

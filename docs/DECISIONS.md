@@ -62,7 +62,9 @@ Decided:
    `countCanvasMade`): a form or suggestion already waiting, a person already in People, a brand
    map call that filed nothing, and Vizzy's new words on an invite wave that already keeps Vizzy's
    stamp, on a plan's pieces, or on a journey whose open record already keeps a stamp (a style on
-   it included) count nothing more, so made never outruns the answers. Vizzy's first words on a
+   it included) count nothing more, so made never outruns the answers. A content plan Vizzy
+   drafts counts no made of its own and keeps no stamp (`saved: "none"`), as the autopilot's
+   doesn't: it only gathers pieces, each stamped and counted under its own writer's kind. Vizzy's first words on a
    person's wave or journey, on a launch's blank welcome journey, or on a journey whose draft was
    already answered count made once (`recordDraftCounted`, `savedFrom`). A stamped post that goes out with no AI draft
    kept counts `no_draft` beside its stamp, never kept or edited, and the stuck line names it. A
@@ -96,8 +98,11 @@ Decided:
    (`LOOP_RULES.cellOrgs`): those whose week put numbers in the row (`week.orgs`), not every one seen
    in the 28 days; an image style's holdback line from 10 behind that style (`styles.<style>`); the
    longest wait for a check from 10 that wait; thumbs down by reason from 10 that gave a thumbs
-   down (`why.orgs`), and declines by reason from 10 that gave a reason (`declined.orgs`). Work's
-   Used reader floors on the same cell. Counts of organisations per stage, stuck per plan, by
+   down (`why.orgs`), and declines by reason from 10 that gave a reason (`declined.orgs`). Made
+   counts show from 10 that made the kind that week (`made.orgs`), never from those whose only
+   numbers are answers, unused things or saves with no stamp: Work's Used reader and Stamp
+   coverage's Made floor on it, and coverage on those that saved the kind, stamped or not
+   (`cov.orgs`). Counts of organisations per stage, stuck per plan, by
    refusal reason and with a Go back card show below 10, to the people who run the copy only, and
    never set defaults; refusal reasons count each organisation once for the copy
    (`_orgs.refused`), however many kinds refused it. Declines by reason never say "none": until a
@@ -119,7 +124,8 @@ Decided:
     (7 to 182 on request) and the kinds made or learned in them, learning kinds first; others by key
     or label (`?kinds=`), or all (`?all=1`). Each kind gives its line and its reason, its stage in
     words, where it is stuck over the last 4 closed weeks with the learner's top reason, its counts,
-    `keptShare`, `editShare`, `declineShare` and `unusedShare` for written things, and for the image
+    `keptShare`, `editShare`, `declineShare` and `unusedShare` for written things (but not for a
+    kind no path can answer yet, which gives `unanswered`, its reason, in their place), and for the image
     pool each look in use with its version and votes; the look's words stay with `get_image_style`,
     whose docstring now says what `learned` holds. The `loop_day` type claims those four meanings
     with `get_learning`, so no meaning is left unserved. Read only, and it needs a Vizzy redeploy
@@ -184,8 +190,8 @@ Where the build follows the code, not the plan (the plan's intent kept):
   `fh:_orgs` as one plain number per brand and week, opted out brands included, not on the lane's
   own document, since the section reads only `fh:` rows and listed already counts every brand. The
   longest wait floors on the organisations that wait, not on this week's.
-- The plan listed step 5 as ADR-0023, then 0024: dev took 0022 to 0026 (0026 is the agent record,
-  merged), Work's open PR holds 0020, the verdict moved to 0027 and step 4 to 0028.
+- The plan listed step 5 as ADR-0023, then 0024: dev took 0020 and 0022 to 0026 (0020 is Work
+  and 0026 the agent record, both merged), the verdict moved to 0027 and step 4 to 0028.
 - After merging the agent record (ADR-0026): a record whose line counts at the transition
   (`countsAt: "transition"`: launch and product journeys, a journey's own style, the email and image
   style suggestions and Vizzy's notes) keeps the stamp the canvas route (or `agentSuggestNotes`)
@@ -193,7 +199,9 @@ Where the build follows the code, not the plan (the plan's intent kept):
   closes: kept, edited when its fingerprint changed (`result.edited`), or dismissed; a close by
   the catch-up when the draft moved on another way counts kept, and superseded, stale and expired
   count nothing. A record whose line counts at its own path (invite waves, content plans, the
-  autopilot, brand map runs) keeps no stamp, so its answer still counts only there. A save of
+  autopilot, brand map runs) keeps no stamp, so its answer still counts only there; content plans
+  and the autopilot count neither made nor an answer of their own, as their pieces count under
+  their writers' kinds. A save of
   another kind on a recorded draft (a style on a journey Vizzy drafted) keeps the draft's own stamp
   (`stampOf`). The weekly strategy check (`strategy_check`, a gap line) counts made once for each
   row it opens or changes.
@@ -248,7 +256,25 @@ Where the build follows the code, not the plan (the plan's intent kept):
   `work.checked` events leave it out. With the switch off Work v1's purpose walk stays, and leaves
   out every brand whose `lb:` holds `fleetOptOut`. Product events stay the brand's own. Tested in
   `src/lib/work/counted.test.ts`, `words.test.ts`, `service.checks.test.ts`, `screenWords.test.ts`
-  and `src/lib/ontology/events.test.ts`.
+  and `src/lib/ontology/events.test.ts`. An image kind counts nothing while image style versions
+  are off (decision 22), so with only `LOOPS_ENABLED` on its check reads no row, keeps no count
+  (so it is counted once they are on) and says "Work can't count images while image learning is
+  off on this copy" (`IMAGES_OFF_LINE`).
+- After review round 5: the kinds no path can answer yet (`UNANSWERED` in
+  `src/lib/loops/unanswered.ts`, each with why: send time, the auto plug comment, templates,
+  briefs, research, the architect, eBook chapters, the strategy and its check, the competitor
+  readers, the brand map's situations and questions, the judge, trending, notes, Your next action,
+  the hand backs that sign no token, person plans and Vizzy's brand map changes) count made but
+  no unused, in the heartbeat or `get_learning`, and `get_learning` gives them no shares, since
+  every thing made would read as unused. With `LOOPS_ENABLED` off, a node write that changes the
+  words or the image drops that field's stamp, and a post re-armed with new words drops its own
+  (TenantCollection.update takes `remove`), unless the write hands back the same stamp, so once
+  the switch is back nothing answers a thing made while it was off. The lane's document keeps
+  `loopsOnFrom`, the week the loops were last turned on in: set by the first run with
+  `LOOPS_ENABLED` on, taken away by a run with it off, and a floor for every report, so no week
+  before it is reported, listed or held in a window (a short time off with image style versions
+  on included), and the first report after it counts no calls. Stamp coverage says "Nothing was
+  made in the last 28 days." in place of an empty table.
 
 Enforced where:
 
@@ -260,8 +286,9 @@ Enforced where:
   overlay, made once per saved draft and the token round trip, each token with one save; `src/lib/email/sends.test.ts`, `src/lib/lifecycle/runner.test.ts` and
   `src/lib/agents/creative.holdback.test.ts`: `records_off` and `stamp_lost`;
   `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
-- `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts` and `learnLog.test.ts`: each
-  count once, coverage and unused; `src/lib/distribute/scheduler.counts.test.ts`: a post against
+- `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts`, `unanswered.test.ts` and
+  `learnLog.test.ts`: each count once, coverage and unused, and no unused for a kind no path can
+  answer; `src/lib/distribute/scheduler.counts.test.ts`: a post against
   the words that went out; `src/lib/plans/meter.test.ts`: calls by purpose only while the switch is on; `src/lib/agentRecord/loopsCount.test.ts` and
   `src/lib/brandStrategy/check.test.ts`: each recorded draft's answer once, made once through the
   canvas route's count, and the strategy check's rows; `src/lib/content/blog/hubActions.test.ts`
@@ -282,8 +309,13 @@ Enforced where:
 
 Not yet: email assist, the hero, Edit mode Vizzy, the email layout and block image and Suggest an
 angle sign no token until their saves send one and check it (`TOKEN_SAVES`); they count made at
-hand back and no answer, so `get_learning` and the heartbeat read the words among them as unused
-until their saves count one. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
+hand back and no answer, so the words among them sit in `UNANSWERED`, made only with no unused or
+shares, until their saves count one. Work's looks by outputs (`{outputs: 10 | 20 | 40}`, which
+plan 4.10 makes countable for a `LOOPS` kind) still set no check, so the outputs hint and the Work
+help's "Work can't count those yet" stay true: the counts across brands come by closed week and
+from 10 organisations, so they can't say when a task's outputs since Done reach N, and a check
+that falls due on a count needs a run that counts before the check shows. They move to the
+company retro (step 6), with a per brand made count since Done. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
 product journeys, a journey's own style and the email and image style suggestions keep theirs only
 on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted. An email named by its enrolment keeps its
 stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not

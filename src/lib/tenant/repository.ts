@@ -226,9 +226,14 @@ export class TenantCollection<T extends TenantScoped> {
     return { id, ...doc } as unknown as T;
   }
 
+  /**
+   * Update fields of a document this tenant owns. `remove` names top level fields to take off it
+   * (FieldValue.delete), such as a stamp the record no longer holds; identity fields are never removed.
+   */
   async update(
     id: string,
     patch: Partial<CreateInput<T>>,
+    opts: { remove?: ReadonlyArray<Exclude<keyof CreateInput<T> & string, "createdAt">> } = {},
   ): Promise<void> {
     const existing = await this.getById(id); // verifies tenant ownership
     if (!existing) {
@@ -245,7 +250,13 @@ export class TenantCollection<T extends TenantScoped> {
       createdAt: _c,
       ...rest
     } = patch as Record<string, unknown>;
-    await this.db.collection(this.name).doc(id).update(rest);
+    const removed = Object.fromEntries(
+      (opts.remove ?? [])
+        .map((k): string => k)
+        .filter((k) => k !== TENANT_FIELD && k !== "id" && k !== "createdAt" && !(k in rest))
+        .map((k) => [k, FieldValue.delete()]),
+    );
+    await this.db.collection(this.name).doc(id).update({ ...rest, ...removed });
   }
 
   /**

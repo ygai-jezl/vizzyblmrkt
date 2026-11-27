@@ -24,7 +24,8 @@ def get_learning(tool_context: ToolContext, kinds: Optional[List[str]] = None, a
     own, gap, none or fleet) with `how` it learns or why it doesn't, `status` and `statusWords` (how
     far learning got), `stuck` (where it stalled over the last 4 weeks, with the learner's most
     common reason in words), `counts` (made, kept, edited, declined, voted, liked, remade, undone),
-    `shares` for written things (keptShare, editShare, declineShare, unusedShare), `learner` (what a
+    `shares` for written things (keptShare, editShare, declineShare, unusedShare), or `unanswered`
+    (why nothing lets the team keep, change or turn it down yet, so it has no shares), `learner` (what a
     learner learned or refused, and why), and for the image looks (`image_style`) `byKind` and
     `looks`, each look in use with its version, who set it and its votes. For a look's words and its
     checks in words, call get_image_style. `countsAcrossBrands` says whether the brand is in the

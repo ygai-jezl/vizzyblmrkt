@@ -77,7 +77,7 @@ const STAMPED: Stamped[] = [
   {
     collection: "content_plans",
     file: "src/lib/tenant/workspaceContent.ts",
-    creates: { createContentPlan: "drops every node's stamps and keeps the plan's own made" },
+    creates: { createContentPlan: "drops every node's stamps, and the plan keeps none of its own" },
   },
 ];
 

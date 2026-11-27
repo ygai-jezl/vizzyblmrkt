@@ -9,10 +9,11 @@ import { STAGES, STUCK_STEPS, type Stage, type StuckStep } from "./stages";
  * - Numbers of things (outputs made, kept, liked or declined, declines and thumbs by reason,
  *   unstamped saves, coverage and unused), shares and industry splits show only from
  *   LOOP_RULES.cellOrgs (10) contributing organisations: those whose week put numbers in the row
- *   (`week.orgs`), not every organisation seen in the 28 days, for an image style those behind
- *   that style (`styles.<style>`), for thumbs down by reason those that gave a thumbs down
- *   (`why.orgs`), and for declines by reason those that gave a reason (`declined.orgs`). Below
- *   that they are null or empty, and a screen says "fewer than 10".
+ *   (`week.orgs`), not every organisation seen in the 28 days, for made counts those that made
+ *   the kind that week (`made.orgs`), for coverage those that saved it (`cov.orgs`), for an image
+ *   style those behind that style (`styles.<style>`), for thumbs down by reason those that gave a
+ *   thumbs down (`why.orgs`), and for declines by reason those that gave a reason
+ *   (`declined.orgs`). Below that they are null or empty, and a screen says "fewer than 10".
  * - Counts of organisations show below 10 in four places, to the people who run the copy only
  *   (the owner's answer to question 4): per step, stuck per plan, by refusal reason and with a Go
  *   back card. They never set defaults. Every other count of organisations (the wait for a check,
@@ -65,6 +66,10 @@ export interface KindView {
   orgs: number;
   /** Organisations whose week put numbers of things in the row: the floor for `things`. */
   weekOrgs: number;
+  /** Organisations that made this kind this week: the floor for its made counts (Work's Used, Stamp coverage's Made). */
+  madeOrgs: number;
+  /** Organisations that saved this kind this week, stamped or not: the floor for its coverage. */
+  covOrgs: number;
   /** The image pool: organisations behind each style's numbers this week, the floor for that style. */
   styleOrgs: Counts;
   /** Organisations whose week gave a thumbs down: the floor for thumbs down by reason. */
@@ -191,6 +196,8 @@ export function kindView(n: unknown): KindView {
   return {
     orgs,
     weekOrgs,
+    madeOrgs: num(at(n, "made", "orgs")),
+    covOrgs: num(at(n, "cov", "orgs")),
     styleOrgs: counts(at(n, "styles")),
     downOrgs,
     declineOrgs,

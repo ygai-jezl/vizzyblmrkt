@@ -180,9 +180,9 @@ describe("Work's Used counts", () => {
     const db = new FakeFirestore();
     await addToFleetCells(
       [
-        { id: fleetCellId.kind("image_style", W), n: { orgs: 14, week: { orgs: 12 }, out: { learned: { made: 117 }, holdback: { made: 8 } } } },
-        // 11 organisations over the 28 days, but only 4 counted this week: the floor is the week's.
-        { id: fleetCellId.kind("image_style", "2026-W49"), n: { orgs: 11, week: { orgs: 4 }, out: { learned: { made: 30 } } } },
+        { id: fleetCellId.kind("image_style", W), n: { orgs: 14, week: { orgs: 13 }, made: { orgs: 12 }, out: { learned: { made: 117 }, holdback: { made: 8 } } } },
+        // 11 organisations over the 28 days, 10 with numbers this week, but only 4 made images: the floor is theirs.
+        { id: fleetCellId.kind("image_style", "2026-W49"), n: { orgs: 11, week: { orgs: 10 }, made: { orgs: 4 }, out: { learned: { made: 30 } } } },
         { id: fleetCellId.types(W), n: { orgs: { content_plan: 10 }, made: { content_plan: 64 } } },
       ],
       db,
@@ -192,5 +192,22 @@ describe("Work's Used counts", () => {
     expect(await usedAcrossBrands({ type: "content_plan" }, [W], { db })).toEqual({ note: USED_NOTE, weeks: [{ week: W, orgs: 10, count: 64 }] });
     expect(await usedAcrossBrands({ purpose: "blog_write" }, [W], { db })).toEqual({ note: USED_NOTE, weeks: [{ week: W, orgs: 0, count: null }] });
     expect([...dashesIn(USED_NOTE), ...aiTellsIn(USED_NOTE)]).toEqual([]);
+  });
+
+  it("floors a kind's made count on the organisations that made it that week, never on those with only answers or unused things", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const made = (n: number) => ({ c: { next_up: { next_up: { v0: { none: { made: n } } } } } });
+    const kept = { c: { next_up: { next_up: { v0: { none: { kept: 1 } } } } } };
+    // Hearth Bakery makes 20 this week. Nine others made 3 two weeks before, left unused, and one of them kept one this week.
+    const rows = rowsFrom([
+      { window: [undefined, undefined, undefined, made(20)], plan: "free" },
+      ...Array.from({ length: 9 }, (_, i) => ({ window: [undefined, made(3), undefined, i === 0 ? kept : undefined], plan: "free" })),
+    ]);
+    const n = rows.get(fleetCellId.kind("next_up", W))!;
+    expect(n).toMatchObject({ week: { orgs: 10 }, made: { orgs: 1 }, cov: { orgs: 1 }, out: { none: { made: 20 } } });
+    expect(kindView(n)).toMatchObject({ weekOrgs: 10, madeOrgs: 1, covOrgs: 1 });
+    await addToFleetCells([{ id: fleetCellId.kind("next_up", W), n }], db);
+    expect(await usedAcrossBrands({ loopKind: "next_up" }, [W], { db })).toEqual({ note: USED_NOTE, weeks: [{ week: W, orgs: 1, count: null }] });
   });
 });

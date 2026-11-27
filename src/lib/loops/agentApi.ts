@@ -15,6 +15,7 @@ import { keyWords, kindLabel, reasonWords, unstampedWords } from "./reasonWords"
 import { decisionKind, IMAGE_STYLE_SCOPES, LOOP_RULES, LOOPS, type Decision, type DecisionKind, type LoopKind } from "./registry";
 import { IMAGE_POOL, looksInUse, ROW_KINDS, rowKindOf, rowLine, rowsOfWeek, rowStage, STAGE_WEEKS, type LookInUse, type RowWeek, type Stage, type StuckStep } from "./stages";
 import { tallyByKind, unusedForWeek } from "./tally";
+import { UNANSWERED } from "./unanswered";
 import { shortDay } from "./verdictWords";
 
 /**
@@ -118,6 +119,7 @@ export const NOTE =
   "Learning kinds come first. `status` is how far learning got in these weeks, and `stuck` reads the last 4 closed weeks. " +
   "Counts start when learning counts were turned on for this copy, and image counts once image style versions are, so weeks before read 0. They may undercount a little: a count that fails is let go. " +
   "Shares are of things made in these weeks, and an answer in these weeks can be for something made just before them. `unusedShare` counts only weeks with 2 closed weeks after them. " +
+  "A kind nothing lets your team keep, change or turn down yet, such as an email's send time, has no `shares`, and `unanswered` says why. " +
   "A look's counts run through its last added up week. For each look's words and its checks in words, call get_image_style. " +
   "Keys such as `kind`, `reason` and `why` are for asking again: say the labels and words.";
 
@@ -403,6 +405,8 @@ export async function agentLearning(ctx: TenantContext, q: LearningQuery = {}, d
     const counts: Record<string, number> = { made: Math.max(0, t.made) };
     for (const s of PERSON_SIGNALS) if ((t.out[s] ?? 0) > 0) counts[s] = t.out[s]!;
     const words = !pool && !isImageKind(row);
+    // A kind no path can answer yet: every thing made would read as unused, so it gives no shares.
+    const unanswered = UNANSWERED[row as LoopKind];
     const learner = rowLine(row).learns || t.learned > 0 || Object.keys(t.refused).length > 0;
     return {
       kind: row,
@@ -414,7 +418,8 @@ export async function agentLearning(ctx: TenantContext, q: LearningQuery = {}, d
       statusWords,
       stuck: st.stuck ? { at: st.stuck, words: stuckWords(st.stuck, st.topReason), reason: st.topReason, reasonWords: st.topReason ? reasonWords(st.topReason) : null } : null,
       counts,
-      ...(words
+      ...(words && unanswered ? { unanswered } : {}),
+      ...(words && !unanswered
         ? {
             shares: {
               keptShare: share(counts.kept ?? 0, counts.made!),

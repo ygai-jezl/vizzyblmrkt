@@ -5,6 +5,7 @@ import {
   askAgainNotice,
   countedLine,
   doneCheckNotice,
+  IMAGES_OFF_LINE,
   IMPORT_ROW_MESSAGES,
   LOOPS_COUNT_NOTE,
   monthsWords,
@@ -149,6 +150,15 @@ describe("Work's words", () => {
     expect(countedLine({ ...LINES[7]!, loopsOn: true })).toBe("Work counts it once the check is due.");
     expect(countedLine({ ...LINES[8]!, loopsOn: true })).toBe("Work counts it once the check is due.");
     expect(countedLine(LINES[8]!)).toBe("Work can't count vizzy_chat yet, so your read is the record.");
+  });
+
+  it("say an image kind can't be counted while image learning is off on this copy, never that it counts once due", () => {
+    const image = { part: { kind: "used", counts: { loopKind: "post_image" }, look: { days: 14 } } as CountedLineInput["part"], counted: null, brandName: null, timeZone: "UTC", loopsOn: true };
+    expect(countedLine({ ...image, imagesOff: true })).toBe(IMAGES_OFF_LINE);
+    expect(countedLine(image)).toBe("Work counts it once the check is due.");
+    // A count kept from when images were counted still reads as one.
+    expect(countedLine({ ...LOOPS_LINES[5]!, imagesOff: true })).toMatch(/^Work counted about 160 images made/);
+    expect([...dashesIn(IMAGES_OFF_LINE), ...aiTellsIn(IMAGES_OFF_LINE)]).toEqual([]);
   });
 
   it("count a purpose in the resource that lists fewest purposes", () => {

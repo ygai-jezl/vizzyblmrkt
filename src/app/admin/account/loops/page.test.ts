@@ -101,6 +101,17 @@ describe("Settings › Loops", () => {
     expect(html).toContain('aria-disabled="true"');
   });
 
+  it("says so under Stamp coverage when nothing was made in the 28 days, never an empty table", async () => {
+    const [week] = loopsWeeks(new Date());
+    const db = new FakeFirestore();
+    db.seed(FLEET_CELLS, fleetCellId.orgs(week!), { n: { orgs: 3, p: { free: 3 }, i: { unknown: 3 }, visited: 3, reported: 3, listed: 3 } });
+    store.db = db;
+    const html = await open();
+    expect(html).toContain("Stamp coverage this week");
+    expect(html).toContain("Nothing was made in the last 28 days.");
+    expect(html).not.toContain('aria-labelledby="loops-stamps-h"><thead');
+  });
+
   it("is not found with the switch off, for someone it doesn't name, for an unverified address, or with the setting empty", async () => {
     vi.stubEnv("LOOPS_ENABLED", "false");
     await expect(open()).rejects.toThrow("NEXT_NOT_FOUND");

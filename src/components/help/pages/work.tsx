@@ -9,7 +9,7 @@ import { IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenW
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { DECLINE_WHY_CHOICES } from "@/lib/work/suggestion";
 import { WORK_REVIEW_COPY } from "@/lib/work/reviewCards";
-import { countedLine, LOOPS_COUNT_NOTE, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
+import { countedLine, IMAGES_OFF_LINE, LOOPS_COUNT_NOTE, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -283,7 +283,9 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
             For them, Work counts those from the learning loops&apos; weekly counts across brands, never brand by brand. It
             reads whole weeks, Monday to Sunday, up to the newest 13, so a week that isn&apos;t over yet isn&apos;t counted. A
             week shows a number only with counts from 10 organisations or more, brands that opted out are left out, and things
-            made count up to 20 for each organisation a week. Each of these counts ends &quot;{LOOPS_COUNT_NOTE}&quot;
+            made count up to 20 for each organisation a week. Each of these counts ends &quot;{LOOPS_COUNT_NOTE}&quot; Images
+            are counted only while image learning is on for your copy; until then a count of an image kind reads &quot;
+            {IMAGES_OFF_LINE}&quot;
           </li>
         ) : null}
         <li>

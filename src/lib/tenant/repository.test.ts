@@ -158,6 +158,20 @@ describe("TenantCollection isolation", () => {
     expect(db.raw("signups", "evil")).toBeUndefined(); // id never changed
   });
 
+  it("update() takes off the fields `remove` names, never an identity field", async () => {
+    const db = new FakeFirestore();
+    const repo = forTenant(ctxA, db);
+    await repo.signups.create("s1", signup({ isSpam: true, createdAt: "2026-06-15T16:00:00Z" }) as never);
+
+    await repo.signups.update("s1", { score: 3 } as never, { remove: ["isSpam", "tenantId", "createdAt"] as never });
+
+    const raw = db.raw("signups", "s1")!;
+    expect(raw).not.toHaveProperty("isSpam");
+    expect(raw.score).toBe(3);
+    expect(raw.tenantId).toBe("ten_A");
+    expect(raw.createdAt).toBe("2026-06-15T16:00:00Z");
+  });
+
   it("deleteWhere() removes only this tenant's matching docs and returns the count", async () => {
     const db = new FakeFirestore();
     // Tenant A: two signups in camp1, one in camp2.

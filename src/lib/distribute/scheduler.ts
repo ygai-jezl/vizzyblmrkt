@@ -43,7 +43,7 @@ import {
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
 import { countDraftOutcome, countMade } from "@/lib/loops/count";
-import { keptMade, rootOf } from "@/lib/loops/made";
+import { keptMade, rootOf, sameStamp } from "@/lib/loops/made";
 import { learnedFor } from "@/lib/loops/read";
 import type { Made } from "@/lib/types/loopStamp";
 import type { PpsResult } from "./pps";
@@ -1140,9 +1140,14 @@ export async function schedulePost(
         // The words were refreshed from the node, so its stamps come with them.
         ...stamps,
       };
-      await repo.update(dedupeKey, patch);
+      // With no stamp to keep (LOOPS_ENABLED off), a stamp the post kept from words it no longer
+      // holds goes, so nothing answers a made thing that was never counted once the switch is back.
+      // The same stamp handed back (the node's words unchanged) stays.
+      const stale = !made && Boolean(existing.made) && !sameStamp(input.made, existing.made);
+      await repo.update(dedupeKey, patch, stale ? { remove: ["made"] } : {});
       // Construct the result in-memory — no second read for data we just wrote.
-      return { status: "scheduled", post: { ...existing, ...patch } };
+      const { made: _was, ...kept } = existing;
+      return { status: "scheduled", post: { ...(stale ? kept : existing), ...patch } };
     }
     throw new SchedulePostConflictError(
       existing ? "already_publishing" : "conflict",

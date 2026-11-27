@@ -53,6 +53,7 @@ export const LOOPS_COPY = {
   stampsTitle: "Stamp coverage this week",
   stampsNote: `Outputs count at most ${LOOP_RULES.orgOutputsCap} per organisation per kind, however they were made, rounded to 2 figures`,
   stampsHead: ["Kind", "Organisations", "Made", "Stamped", "Not stamped, top reason", "Lost"],
+  stampsNone: `Nothing was made in the last ${LOOP_RULES.stallDays} days.`,
   fewer: "fewer than 10 organisations",
   fewerShort: "fewer than 10",
   cardsTitle: "Go back cards",
@@ -507,15 +508,17 @@ function stampRows(views: ReadonlyMap<string, KindView>): StampRow[] {
   return rows.map((row) => {
     const kv = views.get(row)!;
     const t = kv.things;
-    if (!t) return { kind: kindLabel(row), cells: null };
+    // Coverage, its saves with no stamp and its lost stamps show from 10 organisations that saved
+    // the kind this week, and Made from 10 that made it, never from those with other numbers only.
+    if (!t || !showsThings(kv.covOrgs)) return { kind: kindLabel(row), cells: null };
     const m = roundTwo(made(t, "made"));
     const { stamp_lost: lost = 0, ...unstamped } = t.unstamped;
     const top = topOf(unstamped);
     return {
       kind: kindLabel(row),
       cells: {
-        orgs: String(kv.weekOrgs),
-        made: m > 0 ? `about ${m}` : "0",
+        orgs: String(kv.covOrgs),
+        made: !showsThings(kv.madeOrgs) ? (kv.madeOrgs > 0 ? LOOPS_COPY.fewer : "0") : m > 0 ? `about ${m}` : "0",
         pct: t.coverage === null ? "none saved" : `${Math.floor(t.coverage * 100)}%`,
         not: top ? `${unstampedWords(top[0])} ${top[1]}` : "none",
         lost: String(lost),

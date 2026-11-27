@@ -30,6 +30,11 @@ export function withRoot(made: Made, root: MadeId | undefined): Made {
   return { ...made, root };
 }
 
+/** Whether two values hold the same stamp (the same made id): a write handing back the stamp already kept. */
+export function sameStamp(a: Made | null | undefined, b: Made | null | undefined): boolean {
+  return Boolean(a && b && !("unstamped" in a) && !("unstamped" in b) && a.made === b.made);
+}
+
 /** A content plan node's two stamps: what made its words (`made`) and its image (`imageMade`). */
 export interface NodeStamps {
   made?: Made;
@@ -54,12 +59,20 @@ export interface NodeWriteTouches {
  * or a brief never takes the words' stamp away. A person's own image replaces the image's stamp
  * and an image taken away removes it; a person's own words (a restored version) replace the
  * words'. A save that only records dates, where something is or a check keeps both, and words
- * written with nothing made take the words' stamp away. With LOOPS_ENABLED off, the stored ones.
+ * written with nothing made take the words' stamp away. With LOOPS_ENABLED off (or an image made
+ * with image style versions off) no new stamp is kept, and a field the write changes loses its
+ * stored one, as that stamp is of words or an image the node no longer holds: once the switch is
+ * back on, nothing answers a made thing that was never counted. A write handing back the very
+ * stamp stored (a fact check revising stamped words) keeps it.
  */
 export function nodeStampsAfter(stored: NodeStamps, made: Made, touched: NodeWriteTouches): NodeStamps {
   const out: NodeStamps = { ...(stored.made ? { made: stored.made } : {}), ...(stored.imageMade ? { imageMade: stored.imageMade } : {}) };
   const keep = keptMade(made);
-  if (!keep) return out;
+  if (!keep) {
+    if (touched.body && !sameStamp(made, out.made)) delete out.made;
+    if (touched.image && !sameStamp(made, out.imageMade)) delete out.imageMade;
+    return out;
+  }
   if ("unstamped" in keep) {
     if (KEEPS_BOTH.has(keep.unstamped)) return out;
     // No new words (a failed write empties the node, a step has none): the old words' stamp goes with them.

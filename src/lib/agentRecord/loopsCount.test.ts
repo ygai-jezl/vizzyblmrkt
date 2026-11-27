@@ -41,6 +41,9 @@ import { removeWave, sendWave } from "@/lib/invites/adminApi";
 import { createWave } from "@/lib/invites/adminApi";
 import { createLifecycleJourney } from "@/lib/lifecycle/service";
 import { journeyCanvasKind } from "@/lib/canvas/kinds/journey";
+import { authorContentPlanDraft } from "@/lib/canvas/kinds/contentPlan";
+import { getContentPlan } from "@/lib/tenant/workspaceContent";
+import type { ContentGraph, ContentNode } from "@/lib/types/contentPlan";
 import { countCanvasMade } from "@/lib/canvas/made";
 import type { CanvasKindName } from "@/lib/canvas/names";
 import type { CanvasAuthorOutcome } from "@/lib/canvas/types";
@@ -55,6 +58,7 @@ import type { AgentAction } from "@/lib/types/agentAction";
 import type { LoopStamp } from "@/lib/types/loopStamp";
 import { catchUpBrand } from "./catchUp";
 import { imageStylePrint } from "./fingerprints";
+import { closePlanDraft } from "./drafts";
 import { closeStyle, openRecordsFor, stampOf } from "./record";
 import { lineFor, SOURCES, type SourceLine } from "./sources";
 
@@ -461,5 +465,42 @@ describe("notes Vizzy suggests in a chat, counted where their records close", { 
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe("a content plan Vizzy drafts, counted only through its pieces", () => {
+  const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_admin", role: "admin" };
+  const node = (id: string, type: ContentNode["type"], x: number): ContentNode =>
+    ({ id, type, channel: type === "hub" ? "newsletter" : "linkedin", role: id, position: { x, y: 0 }, body: "", placeholderValues: {}, status: "empty", warnings: [] }) as unknown as ContentNode;
+  const graph = { nodes: [node("hub", "hub", 0), node("spoke_1", "spoke", 200)], edges: [{ id: "e1", source: "hub", target: "spoke_1" }] } as ContentGraph;
+  const intake = {
+    name: "Weekend bakes",
+    strategy: { objective: "newsletter_signups" },
+    scope: { topics: ["audience"], spark: "sourdough before the weekend" },
+    knowledge: {},
+    topology: { hubChannel: "newsletter", spokeChannels: ["linkedin"] },
+  };
+  const deps = (db: FakeFirestore) => ({
+    db,
+    architect: vi.fn(async () => ({ ok: true as const, graph })),
+    generate: vi.fn(async (input: { node: ContentNode }) => ({ body: `Copy for ${input.node.id}`, placeholderValues: {}, status: "generated" as const, warnings: [], format: "post" })) as never,
+    budgetMs: 10_000,
+  });
+
+  beforeEach(() => vi.stubEnv("CONTENT_CHAT_AUTHORING_ENABLED", "true"));
+
+  it("counts no made of its own through the route, and an approving save counts nothing for it, so made never outruns the answers", async () => {
+    const db = new FakeFirestore();
+    db.seed("workspaces", "ws1", { tenantId: "ten_A", name: "Hearth Bakery", createdAt: "2026-09-01T00:00:00.000Z" });
+    const r = await viaRoute("content_plan", admin, (made) => authorContentPlanDraft({ ctx: admin, input: { scope: { workspaceId: "ws1" }, intake }, made, brief: "Warm" }, deps(db)), db);
+    expect(r).toMatchObject({ ok: true, saved: "none" });
+    const plan = (await getContentPlan(admin, "ws1", r.id, db))!;
+    expect(plan).not.toHaveProperty("made");
+    // Its record is open; a save that approves the hub closes it as acted, and counts nothing.
+    expect((await records(db, admin)).map((a) => a.state)).toEqual(["proposed"]);
+    const approved = { ...plan, graph: { ...plan.graph, nodes: plan.graph.nodes.map((n) => (n.id === "hub" ? { ...n, status: "approved" as const } : n)) } };
+    expect(await closePlanDraft(admin, "ws1", plan, approved, { db })).toBe(1);
+    expect(answers(db, admin.tenantId, "canvas.content_plan")).toEqual({});
+    expect(JSON.stringify(sumWeek(db, admin.tenantId, week()) ?? {})).not.toContain("canvas.content_plan");
   });
 });

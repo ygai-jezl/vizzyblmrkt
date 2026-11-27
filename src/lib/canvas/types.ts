@@ -82,8 +82,9 @@ export type CanvasAuthorOutcome =
        * What the call saved (learning loops step 5, decision 20: made counts once per saved
        * record): `created`, a new draft or suggestion; `rewritten`, Vizzy's new words on a draft
        * already counted (an invite wave, a plan's pieces, a journey's draft); `none`, nothing new
-       * (the person is already in People, or the same draft is already waiting). The route counts
-       * made only for `created`.
+       * (the person is already in People, or the same draft is already waiting), or nothing of
+       * the kind's own (a content plan, whose pieces count under their writers' kinds). The route
+       * counts made only for `created`.
        */
       saved: CanvasSaved;
     }

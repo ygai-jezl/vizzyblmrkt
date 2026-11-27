@@ -402,6 +402,26 @@ describe("a closed week, every block of screen 6", () => {
     ]);
   });
 
+  it("floors Made and coverage on the organisations that made and saved the kind, never on those with other numbers only", async () => {
+    const made = (n: number) => ({ c: { next_up: { next_up: { v0: { none: { made: n } } } } } });
+    // Hearth Bakery makes 20 Next up picks this week; nine others made 3 two weeks before and left them unused.
+    const one: Org = { plan: "free", window: [undefined, undefined, undefined, made(20)] };
+    const unused: Org = { plan: "free", window: [undefined, made(3), undefined, undefined] };
+    const few = new FakeFirestore();
+    seedWeek(few, W, [one, ...Array.from({ length: 9 }, () => unused)]);
+    expect(dataOf(await open(few)).stamps.find((s) => s.kind === "Next up")).toEqual({ kind: "Next up", cells: null });
+    // Ten that made them show, under those ten.
+    const many = new FakeFirestore();
+    seedWeek(many, W, [...Array.from({ length: 10 }, () => one), ...Array.from({ length: 9 }, () => unused)]);
+    expect(dataOf(await open(many)).stamps.find((s) => s.kind === "Next up")).toEqual({ kind: "Next up", cells: { orgs: "10", made: "about 200", pct: "100%", not: "none", lost: "0" } });
+  });
+
+  it("says nothing was made when no kind was stamped in the 28 days", () => {
+    const d = loopsData({ week: W, orgs: { orgs: 3, p: { free: 3 }, i: { unknown: 3 }, visited: 3, reported: 3, listed: 3 }, rows: new Map() }, { meterOn: false, today: NOW, docsUrl: "" });
+    expect(d.stamps).toEqual([]);
+    expect(LOOPS_COPY.stampsNone).toBe("Nothing was made in the last 28 days.");
+  });
+
   it("shows stamp coverage from 10 organisations, and fewer than 10 below", async () => {
     const fake = new FakeFirestore();
     seedWeek(fake, W, copy());

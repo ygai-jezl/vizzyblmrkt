@@ -21,6 +21,7 @@ import { loopWeekOf } from "./count";
 import { weekBefore } from "./fold";
 import { LOOP_RULES } from "./registry";
 import { IMAGE_POOL, ROW_KINDS } from "./stages";
+import { UNANSWERED } from "./unanswered";
 
 /**
  * get_learning (learning loops step 5, 4.10): Hearth Bakery's own learning by kind, read from its
@@ -219,6 +220,16 @@ describe("status, stuck and the learner", () => {
       { reason: "stamp_lost", words: "a stamp lost", times: 1 },
     ]);
     expect(Object.keys(b.meanings).sort()).toEqual(["declineShare", "editShare", "keptShare", "unusedShare"]);
+  });
+
+  it("gives no shares for a kind no path can answer yet, such as send time, only its counts and why", async () => {
+    // Four closed weeks of journey emails sent: made only, which nothing can ever keep or decline.
+    for (const n of [1, 2, 3, 4]) folded(n, words("send_time", { made: 40 }));
+    const e = entry(await ask({ kinds: ["send_time"] }), "send_time")! as Entry & { unanswered?: string };
+    expect(e.counts).toEqual({ made: 160 });
+    expect(e.shares).toBeUndefined();
+    expect(e.unanswered).toBe(UNANSWERED.send_time);
+    expect(NOTE).toContain("`unanswered` says why");
   });
 });
 

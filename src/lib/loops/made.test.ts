@@ -32,7 +32,13 @@ describe("with LOOPS_ENABLED off", () => {
     expect(keptMade(words)).toBeUndefined();
     expect(keptMade({ unstamped: "person_wrote" })).toBeUndefined();
     expect(nodeStampsAfter({}, words, { body: true, image: false })).toEqual({});
-    expect(nodeStampsAfter({ made: words }, { unstamped: "person_restored" }, { body: true, image: false })).toEqual({ made: words });
+    // A stamp kept while the switch was on goes with the words or image it was for, once a write
+    // changes them, so nothing answers it later; a write that changes neither, or hands back the
+    // same stamp (a fact check revising those words), keeps it.
+    expect(nodeStampsAfter({ made: words, imageMade: image }, { unstamped: "person_restored" }, { body: true, image: false })).toEqual({ imageMade: image });
+    expect(nodeStampsAfter({ made: words, imageMade: image }, { unstamped: "image_versions_off" }, { body: false, image: true })).toEqual({ made: words });
+    expect(nodeStampsAfter({ made: words, imageMade: image }, { unstamped: "dates_only" }, { body: false, image: false })).toEqual({ made: words, imageMade: image });
+    expect(nodeStampsAfter({ made: words }, words, { body: true, image: false })).toEqual({ made: words });
     expect(await learnedFor(hearth, "content_write", { promptId: "content.fill" }, { db: untouchable })).toEqual({
       block: { look: null, holdback: false },
       stamp: { unstamped: "loops_off" },

@@ -108,6 +108,8 @@ describe.skipIf(typeof gc !== "function")("the loops lane's heap at its caps", (
     const weeks = [last];
     for (let i = 0; i < 4; i++) weeks.unshift(weekBefore(weeks[0]!));
     const page = 70;
+    // The loops have been on since before these weeks, so every one of them is reported.
+    db.seed("loop_lane", "lane", { d: { cursor: null, loopsOnFrom: weeks[0] } });
     for (let i = 0; i < page; i++) {
       const id = `ten_${String(i).padStart(5, "0")}`;
       db.seed("tenants", id, { tenantName: `Brand ${i}`, rootDomain: `b${i}.example.com`, status: "active", region: "us", allowedOrigins: [], ownerId: "usr_x", organisationId: `org_${Math.floor(i / 2)}`, orgPlan: "pro" });

@@ -128,11 +128,12 @@ describe("Work's screen words", () => {
   it("say on the help page where an operator's counts come from only while the learning loops are on", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { default: WorkHelp } = await import("@/components/help/pages/work");
-    const { LOOPS_COUNT_NOTE } = await import("./words");
+    const { IMAGES_OFF_LINE, LOOPS_COUNT_NOTE } = await import("./words");
     const page = (loops: boolean) => renderToStaticMarkup(WorkHelp({ workVizzy: false, ideaWords: false, loops }) as never).replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
     const on = page(true);
     expect(on).toContain("Work counts those from the learning loops' weekly counts across brands, never brand by brand.");
     expect(on).toContain(`Each of these counts ends "${LOOPS_COUNT_NOTE}"`);
+    expect(on).toContain(`until then a count of an image kind reads "${IMAGES_OFF_LINE}"`);
     const off = page(false);
     expect(off).not.toContain("weekly counts across brands");
     expect(off).not.toContain(LOOPS_COUNT_NOTE);

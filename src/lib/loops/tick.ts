@@ -55,6 +55,9 @@ import { seedBrand } from "./seed";
  *   more than LOOP_RULES.foldBehindDays behind is counted once a week (the fold alarm), and each
  *   closed week's brands listed (suspended brands left out, as the lane skips them) are counted
  *   once, against the brands the heartbeat visited for it (opted out and late ones included).
+ * - The lane document keeps the week the learning loops were last turned on in (`loopsOnFrom`):
+ *   a run with LOOPS_ENABLED on sets it when it is missing, one with it off takes it away, and no
+ *   week before it is reported or listed, as nothing was counted across brands then.
  * - Logs: the route adds "brands=<n> rows=<n> heapDeltaMiB=<n>" to its "[tick] loops <ms>ms"
  *   line, and "[loops] fold behind <days>" shows a fold more than 42 days behind.
  * Nothing is kept between brands. Server only.
@@ -236,7 +239,7 @@ export async function cardsAsNotice(ctx: TenantContext, pointers: Pick<BrandPoin
 }
 
 /** One brand's visit. Never throws for the brand's own trouble. */
-async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: VerdictRun; deadlineMs: number; fleet: FleetBuffer }, deps: LoopsLaneDeps): Promise<BrandVisit> {
+async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: VerdictRun; deadlineMs: number; fleet: FleetBuffer; loopsOnFrom?: string }, deps: LoopsLaneDeps): Promise<BrandVisit> {
   const ctx: TenantContext = { tenantId: row.id, region: row.region, source: "system" };
   const now = (deps.now ?? (() => new Date()))();
   const clock = deps.clock ?? Date.now;
@@ -362,7 +365,7 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
 
   // 8. The heartbeat, for each closed and folded week not yet reported.
   if (beatDue && run.deadlineMs - clock() >= LANE.MIN_LEFT_MS) {
-    const beat = await heartbeat(ctx, row, { lane, pointers, foldedThrough }, run.fleet, { db, controlDb: deps.controlDb, now, usage: deps.usage });
+    const beat = await heartbeat(ctx, row, { lane, pointers, foldedThrough, loopsOnFrom: run.loopsOnFrom }, run.fleet, { db, controlDb: deps.controlDb, now, usage: deps.usage });
     out.reported += beat.weeks - beat.late;
     out.late += beat.late;
   }
@@ -432,8 +435,11 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
   const cursor = brands.length ? brands[brands.length - 1]!.id : null;
 
   const callsToday = doc.day === today ? (doc.calls ?? 0) : 0;
+  // The week the learning loops were last turned on in: this run's open week when they just came
+  // on, and none while they are off, so a later turn on starts again from its own week.
+  const loopsOnFrom = loopsOn ? (doc.loopsOnFrom ?? loopWeekOf(now)) : undefined;
   const fleet = new FleetBuffer();
-  const run = { learn: newLearnRun({ deadlineMs: opts.deadlineMs, callsToday }), verdicts: newVerdictRun(), deadlineMs: opts.deadlineMs, fleet };
+  const run = { learn: newLearnRun({ deadlineMs: opts.deadlineMs, callsToday }), verdicts: newVerdictRun(), deadlineMs: opts.deadlineMs, fleet, loopsOnFrom };
   await pool(brands, LANE.AT_ONCE, async (row) => {
     if (row.status === "suspended" || opts.deadlineMs - clock() < LANE.MIN_LEFT_MS) return;
     result.brands += 1;
@@ -454,7 +460,8 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
   // Each closed week's brands listed, counted once: the lane document keeps the week first, so a
   // run that can't keep it adds none. Suspended brands are left out, as the lane never visits them.
   const lastClosed = lastClosedWeek(now);
-  let listNow = loopsOn && (!doc.listedWeek || doc.listedWeek < lastClosed);
+  // A week from before the loops came back on is never listed: no brand reports it.
+  let listNow = loopsOn && !(loopsOnFrom && lastClosed < loopsOnFrom) && (!doc.listedWeek || doc.listedWeek < lastClosed);
   let listed = 0;
   if (listNow) {
     try {
@@ -467,7 +474,10 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
   }
   const listedWeek = listNow ? lastClosed : doc.listedWeek;
   try {
-    await writeLoopLane({ cursor, n, nAt, day: today, calls: callsToday + run.learn.calls, at: now.toISOString(), ...(listedWeek ? { listedWeek } : {}) }, deps.controlDb);
+    await writeLoopLane(
+      { cursor, n, nAt, day: today, calls: callsToday + run.learn.calls, at: now.toISOString(), ...(listedWeek ? { listedWeek } : {}), ...(loopsOnFrom ? { loopsOnFrom } : {}) },
+      deps.controlDb,
+    );
     if (listNow) fleet.add(lastClosed, "_orgs/listed", listed);
   } catch (err) {
     console.warn("[loops] keeping the lane's cursor failed", err instanceof Error ? err.message.slice(0, 200) : "error");

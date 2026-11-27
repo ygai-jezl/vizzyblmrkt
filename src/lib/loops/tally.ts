@@ -1,4 +1,5 @@
 import { isImageKind } from "./imageKinds";
+import { isUnanswered } from "./unanswered";
 
 /**
  * A brand's counts read back by kind (learning loops step 5, 4.4 of the plan for steps 4 and 5):
@@ -110,11 +111,12 @@ export const ANSWER_WEEKS = 2;
 
 /**
  * Things of each kind made in one week that nobody kept, edited or declined (4.4), for every kind
- * but the image kinds and their learner (whose versions say it, unusedOfVersion): made in week W, less the answers
- * counted in W and the ANSWER_WEEKS weeks after it, never below 0. `weeks` is W first, then the
- * weeks after it in order; answers past W+2 are left out, so pass them only once W+2 has closed for
- * the number to be final. An answer in a later week may be for a thing made later, so it can read
- * a little low, never high.
+ * but the image kinds and their learner (whose versions say it, unusedOfVersion) and the kinds no
+ * path can answer yet (UNANSWERED in ./unanswered.ts, which would read as all unused): made in
+ * week W, less the answers counted in W and the ANSWER_WEEKS weeks after it, never below 0.
+ * `weeks` is W first, then the weeks after it in order; answers past W+2 are left out, so pass
+ * them only once W+2 has closed for the number to be final. An answer in a later week may be for
+ * a thing made later, so it can read a little low, never high.
  */
 export function unusedForWeek(weeks: readonly unknown[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -125,7 +127,7 @@ export function unusedForWeek(weeks: readonly unknown[]): Map<string, number> {
     for (const [kind, t] of tallyByKind(w)) answered.set(kind, (answered.get(kind) ?? 0) + t.kept + t.edited + t.declined);
   }
   for (const [kind, t] of made) {
-    if (isImageKind(kind) || kind === "loop_learn" || t.made <= 0) continue;
+    if (isImageKind(kind) || kind === "loop_learn" || isUnanswered(kind) || t.made <= 0) continue;
     out.set(kind, Math.max(0, t.made - (answered.get(kind) ?? 0)));
   }
   return out;

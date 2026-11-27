@@ -5,6 +5,7 @@ import { isoWeekStart, readBrandPointers } from "@/lib/tenant/loops";
 import { usageThisMonth } from "@/lib/plans/meter";
 import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { isoWeekOf } from "@/lib/connectors/period";
+import { countsFor } from "@/lib/loops/count";
 import { isLoopsEnabled } from "@/lib/loops/flags";
 import { roundTwo } from "@/lib/loops/fleetView";
 import { LOOP_RULES } from "@/lib/loops/registry";
@@ -41,9 +42,10 @@ import { SET_BY_MEASURE, type Counted, type CountedWeeks, type WorkTask } from "
  *   brand count is kept only when those brands come from at least LOOP_RULES.cellOrgs
  *   organisations (`hidden` otherwise).
  *
- * With the meter off no purpose is counted. Counts only, never which brands. Anything else (a type
- * or a LOOPS kind with the loops off, none, Moves a number, Runs better) has no number yet: the
- * check says what Work can't count, and the person's read is the record (src/lib/work/words.ts).
+ * With the meter off no purpose is counted, and with image style versions off no image kind is.
+ * Counts only, never which brands. Anything else (a type or a LOOPS kind with the loops off, none,
+ * Moves a number, Runs better) has no number yet: the check says what Work can't count, and the
+ * person's read is the record (src/lib/work/words.ts).
  */
 
 /** The most product events the fallback count reads, while the exact count's index isn't ready. */
@@ -249,6 +251,9 @@ export async function countForCheck(task: WorkTask, brand: WorkBrand | undefined
     if (isLoopsEnabled()) {
       // Calls by purpose come from the usage meter, which keeps nothing while it is off.
       if ("purpose" in c && !isUsageMeterEnabled()) return null;
+      // An image kind counts nothing while image style versions are off (decision 22), so its rows
+      // never fill: nothing is read, and the check is counted once they are on.
+      if ("loopKind" in c && !countsFor(c.loopKind)) return null;
       return loopsCountForCheck(c, from, to, now, deps);
     }
     // With the loops off, a type or a LOOPS kind has no number yet, as in Work v1.

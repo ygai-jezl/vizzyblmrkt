@@ -238,6 +238,9 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
     // Counts of things: the week's own.
     if (w) {
       for (const [arm, signals] of Object.entries(w.out)) for (const [s, n] of Object.entries(signals)) thing(n, row, "out", arm, s);
+      // The organisations that made this kind this week: the floor for its made counts (Work's
+      // Used and Stamp coverage's Made), not every one whose week holds a number here.
+      if (Object.values(w.out).some((signals) => (signals.made ?? 0) > 0)) org(row, "made", "orgs");
       for (const [style, byArm] of Object.entries(w.scope)) {
         let used = false;
         for (const [arm, signals] of Object.entries(byArm)) {
@@ -265,7 +268,11 @@ export function brandWeekReport(input: WeekReportInput): WeekReport {
       for (const [s, n] of Object.entries(w.cards)) thing(n, row, "cards", s);
     }
     const c = coverage.get(row);
-    if (c && c.s + c.u + c.l > 0) for (const [k, n] of Object.entries(scaledCoverage(c.s, c.u, c.l, cap))) thing(n, row, "cov", k);
+    if (c && c.s + c.u + c.l > 0) {
+      for (const [k, n] of Object.entries(scaledCoverage(c.s, c.u, c.l, cap))) thing(n, row, "cov", k);
+      // The organisations that saved this kind this week, stamped or not: the floor for its coverage.
+      org(row, "cov", "orgs");
+    }
     thing(unused.get(row) ?? 0, row, "unused");
     // The organisations whose week has numbers of things in this row: the floor for those numbers.
     if (withThings.has(row)) org(row, "week", "orgs");
@@ -503,23 +510,26 @@ export async function callsSince(ctx: TenantContext, lane: Pick<LaneState, "mete
  * What a brand's report may take in (decision 4, and USED_NOTE: nothing is counted across brands
  * while the loops are off or the brand is out). `week`: the first week a report's window holds,
  * the latest of the week after its time opted out (`optedOutThrough`), the week reporting started
- * again (`reportsFromWeek`, kept on `ls:`), and this visit's first week when the brand never
+ * again (`reportsFromWeek`, kept on `ls:`), the week the learning loops were last turned on in
+ * (`loopsOnFrom`, on the lane's document), and this visit's first week when the brand never
  * reported before or skipped weeks it never reported (the switch was off, or the lane fell more
  * than HEARTBEAT.CATCH_UP_WEEKS behind); null for no limit. `restart`: that first week, for `ls:`
  * to keep as `reportsFromWeek`, so every later report's window starts no earlier. `freshCalls`:
  * its calls count as a first report's (none), as its meter's totals since its last report hold
- * calls from that time. Pure.
+ * calls from that time; so do the calls of the first report after weeks skipped because the loops
+ * were off (`reportsFromWeek` is this week). Pure.
  */
 export function reportsFrom(
   lane: Pick<LaneState, "heartbeatWeek" | "optedOutThrough" | "reportsFromWeek">,
   first: string,
+  loopsOnFrom?: string,
 ): { week: string | null; freshCalls: boolean; restart: string | null } {
   const out = lane.optedOutThrough ? weekAfter(lane.optedOutThrough) : null;
   const restart = !lane.heartbeatWeek || weekAfter(lane.heartbeatWeek) < first ? first : null;
-  const week = [out, restart, lane.reportsFromWeek ?? null].filter((w): w is string => Boolean(w)).sort().pop() ?? null;
+  const week = [out, restart, lane.reportsFromWeek ?? null, loopsOnFrom ?? null].filter((w): w is string => Boolean(w)).sort().pop() ?? null;
   // Just back: the last weeks it marked done were its time out.
   const back = Boolean(lane.optedOutThrough && lane.heartbeatWeek && lane.optedOutThrough >= lane.heartbeatWeek);
-  return { week, freshCalls: back || Boolean(restart), restart };
+  return { week, freshCalls: back || Boolean(restart) || lane.reportsFromWeek === first, restart };
 }
 
 export interface HeartbeatResult {
@@ -532,20 +542,30 @@ export interface HeartbeatResult {
 /**
  * Report the brand's closed weeks not yet reported, into the run's buffer. Nothing with
  * LOOPS_ENABLED off, or before the week is folded. Never throws for the brand's own trouble.
+ * `loopsOnFrom`: the week the learning loops were last turned on in (the lane's document). Weeks
+ * before it were kept while LOOPS_ENABLED was off, with image style versions on or nothing at
+ * all, so they send nothing: they are marked done, and the next report's window starts there.
  */
 export async function heartbeat(
   ctx: TenantContext,
   row: TenantPageRow,
-  state: { lane: LaneState; pointers: BrandPointers; foldedThrough: string | undefined },
+  state: { lane: LaneState; pointers: BrandPointers; foldedThrough: string | undefined; loopsOnFrom?: string },
   buffer: FleetBuffer,
   deps: HeartbeatDeps,
 ): Promise<HeartbeatResult> {
   const none: HeartbeatResult = { weeks: 0, late: 0 };
   if (!isLoopsEnabled()) return none;
-  const weeks = weeksToReport(state.lane.heartbeatWeek, state.foldedThrough, deps.now);
-  const last = weeks[weeks.length - 1];
-  if (!last) return none;
   const warn = (what: string, err: unknown) => console.warn(`[loops] ${what} failed`, err instanceof Error ? err.message.slice(0, 200) : "error");
+  const due = weeksToReport(state.lane.heartbeatWeek, state.foldedThrough, deps.now);
+  const onFrom = state.loopsOnFrom;
+  const weeks = onFrom ? due.filter((w) => w >= onFrom) : due;
+  const last = weeks[weeks.length - 1];
+  if (!last) {
+    // Every week due is from before the loops came back on: none is reported, not even as a visit.
+    const skipped = due[due.length - 1];
+    if (skipped && onFrom) await mergeLaneState(ctx, { heartbeatWeek: skipped, reportsFromWeek: onFrom }, deps.db).catch((err: unknown) => warn("keeping the heartbeat's week", err));
+    return none;
+  }
 
   // Opted out: nothing of the brand's is sent, and the weeks are marked done, and marked as its
   // time out (optedOutThrough), so a report once it opts back in sends nothing from them. The
@@ -575,7 +595,7 @@ export async function heartbeat(
   for (let i = 1; i < STAGE_WEEKS; i++) start = weekBefore(start);
   const windowWeeks: string[] = [];
   for (let w = start; w <= last; w = weekAfter(w)) windowWeeks.push(w);
-  const from = reportsFrom(state.lane, weeks[0]!);
+  const from = reportsFrom(state.lane, weeks[0]!, onFrom);
   // Weeks before `from.week` enter no report: they add no stage, unused thing, refusal or card.
   const readWeeks = from.week ? windowWeeks.filter((w) => w >= from.week!) : windowWeeks;
   // With image style versions off, images use the look on the brand record (decision 22), so no

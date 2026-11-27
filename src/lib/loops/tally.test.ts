@@ -63,6 +63,15 @@ describe("unused", () => {
     expect(unusedForWeek([]).size).toBe(0);
   });
 
+  it("leaves out the kinds no path can answer yet, which would read as all unused", () => {
+    const sent = { c: { send_time: { send_time: { v0: { none: { made: 40 } } } }, content_write: { content_write: { v0: { none: { made: 3 } } } } } };
+    const u = unusedForWeek([sent]);
+    expect(u.has("send_time")).toBe(false);
+    expect(u.get("content_write")).toBe(3);
+    // Made still counts.
+    expect(tallyByKind(sent).get("send_time")?.made).toBe(40);
+  });
+
   it("for a learned version comes from its own totals, by kind and arm", () => {
     expect(
       unusedOfVersion({

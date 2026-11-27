@@ -114,4 +114,20 @@ describe("publishing counts what happened to Vizzy's draft", () => {
     await processScheduledPosts(ctx, 25, db);
     expect(db.dump("loop_days")).toEqual([]);
   });
+
+  it("drops a stamp kept while the switch was on when the post is re-armed with new words and the switch off, and keeps the same stamp handed back", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    const input = { workspaceId: "ws_1", contentPlanId: "plan_1", nodeId: "n_1", channel: "linkedin" as const, body: AI, aiBody: AI, scheduledBy: "uid_sam", scheduledAt: FUTURE };
+    const { post } = await schedulePost(ctx, { ...input, made: stamp }, db);
+    expect(db.raw(COLLECTION, post.id)).toMatchObject({ made: stamp });
+    vi.stubEnv("LOOPS_ENABLED", "");
+    // The node's words unchanged: its stamp comes back as it is, and stays.
+    await schedulePost(ctx, { ...input, made: stamp }, db);
+    expect(db.raw(COLLECTION, post.id)).toMatchObject({ made: stamp });
+    // New words written with the switch off: the node has no stamp, so the post keeps none.
+    const again = await schedulePost(ctx, { ...input, body: "Rye at noon.", made: { unstamped: "person_wrote" } }, db);
+    expect(db.raw(COLLECTION, post.id)).not.toHaveProperty("made");
+    expect(again.post).not.toHaveProperty("made");
+  });
 });

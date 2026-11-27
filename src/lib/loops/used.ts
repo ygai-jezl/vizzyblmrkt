@@ -10,7 +10,7 @@ import { rowKindOf } from "./stages";
  * Work's Used counts across brands (learning loops step 5, 4.10 of the plan for steps 4 and 5),
  * read from the heartbeat's closed weeks in `fleet_cells`, never by walking brands:
  *
- * - Used `{loopKind}`: the organisations whose week counted it, and the capped made counts;
+ * - Used `{loopKind}`: the organisations that made it each week, and the capped made counts;
  * - Used `{type}`: the same per ontology type (`fh:_types`);
  * - Used `{purpose}`: uses per AI purpose (`fh:_calls`), which replaces Work v1's walk over every
  *   brand's meter once LOOPS_ENABLED is on.
@@ -31,7 +31,7 @@ export type UsedAsk = { loopKind: LoopKind } | { type: string } | { purpose: str
 
 export interface UsedWeek {
   week: string;
-  /** Organisations counted that week. */
+  /** Organisations counted that week: for a kind, those that made it. */
   orgs: number;
   /** Made (or uses, for a purpose), rounded to 2 significant figures; null below 10 organisations. */
   count: number | null;
@@ -55,8 +55,10 @@ export async function usedAcrossBrands(ask: UsedAsk, weeks: readonly string[], d
     weeks: ws.map((week, i) => {
       const n = rows[i]?.n;
       if ("loopKind" in ask) {
-        // The organisations whose week put numbers in the row, not every one seen in the 28 days.
-        const orgs = kindView(n).weekOrgs;
+        // The organisations that made it that week (`made.orgs`), not every one whose week put a
+        // number in the row (an answer, an unused thing or a save with no stamp), nor every one
+        // seen in the 28 days.
+        const orgs = kindView(n).madeOrgs;
         // Made by every arm, added up before rounding.
         const out = n && typeof n.out === "object" && n.out ? Object.values(n.out as Record<string, unknown>) : [];
         const made = out.reduce<number>((sum, signals) => {

@@ -174,11 +174,16 @@ export interface CountedLineInput {
   meterOff?: boolean;
   /** The learning loops are on (LOOPS_ENABLED), so a type or a LOOPS kind is counted too. */
   loopsOn?: boolean;
+  /** The LOOPS kind is an image kind and image style versions are off, so it isn't counted on this copy. */
+  imagesOff?: boolean;
   /** A product event's label in its catalog, as the picker shows it; the raw name when there is none. */
   eventLabel?: string | null;
 }
 
 const READ_IS_RECORD = "so your read is the record.";
+
+/** The line on a check that counts an image kind while image style versions are off on this copy. */
+export const IMAGES_OFF_LINE = "Work can't count images while image learning is off on this copy, so your read is the record.";
 
 /** The line on a check that counts this copy's own purposes, types or loop kinds, for anyone who isn't an operator. */
 export const OPERATOR_COUNT_LINE = "Only the people who run this copy's own learning loop see this count, so your read is the record.";
@@ -263,6 +268,7 @@ export function countedLine(i: CountedLineInput): string {
   if ("type" in c || "loopKind" in c) {
     if (fromLoops) return loopsCountedLine(c, fromLoops);
     if (!i.loopsOn) return "type" in c ? `Work can't count ${c.type.replace(/_/g, " ")} records yet, ${READ_IS_RECORD}` : `Work can't count ${c.loopKind} yet, ${READ_IS_RECORD}`;
+    if ("loopKind" in c && i.imagesOff) return IMAGES_OFF_LINE;
     return "Work counts it once the check is due.";
   }
   if ("purpose" in c) {

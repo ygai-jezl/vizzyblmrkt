@@ -57,6 +57,25 @@ describe("with LOOPS_ENABLED off", () => {
     expect(stored(db)[0]).not.toHaveProperty("made");
     expect(stored(db)[0]).not.toHaveProperty("imageMade");
   });
+
+  it("drops a stamp kept while the switch was on once new words or a new image are written, so nothing answers it when the switch is back", async () => {
+    const db = new FakeFirestore();
+    seed(db, [node]);
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    await updateContentPlanNode(ctx, WS, PLAN, "n1", { body: "Fresh sourdough at 8.", status: "generated", made: words }, db);
+    await updateContentPlanNode(ctx, WS, PLAN, "n1", { imageAssetRef: "loaf.png", made: image }, db);
+    expect(stored(db)[0]).toMatchObject({ made: words, imageMade: image });
+    vi.stubEnv("LOOPS_ENABLED", "false");
+    // A save that changes neither field keeps both.
+    await updateContentPlanNode(ctx, WS, PLAN, "n1", { brief: "Shorter", made: { unstamped: "loops_off" } }, db);
+    expect(stored(db)[0]).toMatchObject({ made: words, imageMade: image });
+    const after = await updateContentPlanNode(ctx, WS, PLAN, "n1", { body: "Rye at noon, written with the loops off.", status: "generated", made: { unstamped: "loops_off" } }, db);
+    expect(after).not.toHaveProperty("made");
+    expect(stored(db)[0]).not.toHaveProperty("made");
+    expect(stored(db)[0]).toMatchObject({ imageMade: image });
+    await updateContentPlanNode(ctx, WS, PLAN, "n1", { imageAssetRef: "rye.png", made: { unstamped: "loops_off" } }, db);
+    expect(stored(db)[0]).not.toHaveProperty("imageMade");
+  });
 });
 
 describe("with LOOPS_ENABLED on", () => {
@@ -99,7 +118,7 @@ describe("with LOOPS_ENABLED on", () => {
     expect(n3).not.toHaveProperty("imageMade");
   });
 
-  it("creates a plan with no node stamps, keeping only the plan's own", async () => {
+  it("creates a plan with no node stamps and none of its own: a plan only gathers pieces", async () => {
     const db = new FakeFirestore();
     const plan = await createContentPlan(
       ctx,
@@ -118,7 +137,8 @@ describe("with LOOPS_ENABLED on", () => {
     );
     expect(plan.graph.nodes[0]).not.toHaveProperty("made");
     expect(plan.graph.nodes[0]).not.toHaveProperty("imageMade");
-    expect(plan.made).toMatchObject({ kind: "canvas.content_plan", by: "vizzy" });
+    expect(plan).not.toHaveProperty("made");
+    expect(db.dump(`workspaces/${WS}/content_plans`)[0]).not.toHaveProperty("made");
   });
 
   it("drops a stored stamp that no longer parses instead of failing the plan", () => {

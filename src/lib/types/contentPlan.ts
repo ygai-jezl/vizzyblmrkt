@@ -763,9 +763,6 @@ export const ContentPlanSchema = z.object({
   agentRevision: z.number().int().nonnegative().optional(),
   /** What the operator asked Vizzy for, kept for the record. */
   agentBrief: z.string().max(4000).optional(),
-  /** What made the plan when Vizzy drafted it from chat (`canvas.content_plan`, by vizzy;
-   *  LOOPS_ENABLED, learning loops step 5). Written only when the plan is created. */
-  made: MadeSchema.optional().catch(undefined),
   /**
    * The article autopilot is writing this plan (CREATE_ARTICLE_AUTOPILOT_ENABLED). While "working",
    * the plan's edit routes answer 409 so a canvas can't save over the run (or the run over a

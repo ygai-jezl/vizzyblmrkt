@@ -70,7 +70,8 @@ describe("content_plan canvas kind", () => {
   it("drafts a plan like the wizard does and writes only the hub, never approving anything", async () => {
     const db = world();
     const r = await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, made: LOOPS_OFF, brief: "Warm and practical" }, deps(db));
-    expect(r).toMatchObject({ ok: true, card: { kind: "content_plan", stats: [{ value: 3 }, { value: 1 }, { value: 2 }] } });
+    // The plan counts no made of its own: its pieces count under their writers' kinds.
+    expect(r).toMatchObject({ ok: true, saved: "none", card: { kind: "content_plan", stats: [{ value: 3 }, { value: 1 }, { value: 2 }] } });
     if (!r.ok) throw new Error("expected a draft");
     expect(r.url).toBe(`/admin/workspace/ws1/create/${r.id}`);
     const [plan] = plans(db);
@@ -104,7 +105,7 @@ describe("content_plan canvas kind", () => {
     db.seed(key, r.id, { ...plan, graph: { ...graph, nodes: graph.nodes.map((n) => (n.id === "hub" ? { ...n, status: "approved" } : n)) } });
     __resetRateLimitState();
     const ok = await refill(["spoke_1"], "Lead with the time saved");
-    // The plan was counted made when it was drafted; a refill is a rewrite (decision 20).
+    // A refill is a rewrite of pieces, each counted under its own writer's kind (decision 20).
     expect(ok).toMatchObject({ ok: true, saved: "rewritten" });
     const after = db.raw(key, r.id)!;
     expect(after.agentRevision).toBe(2);

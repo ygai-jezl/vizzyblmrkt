@@ -244,41 +244,45 @@ function Data({ data }: { data: LoopsData }) {
 
       <section aria-labelledby="loops-stamps-h" className="space-y-2">
         <SectionHead id="loops-stamps-h" title={LOOPS_COPY.stampsTitle} note={LOOPS_COPY.stampsNote} />
-        <div className={box}>
-          <table className="w-full min-w-[720px] text-sm" aria-labelledby="loops-stamps-h">
-            <thead className={head}>
-              <tr>
-                {LOOPS_COPY.stampsHead.map((h, i) => (
-                  <th key={h} scope="col" className={i === 0 || i === 4 ? "px-3 py-2" : "px-3 py-2 text-right"}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.stamps.map((s) => (
-                <tr key={s.kind} className="border-t border-neutral-200 dark:border-neutral-800">
-                  <th scope="row" className="px-3 py-2 text-left font-normal">
-                    {s.kind}
-                  </th>
-                  {s.cells ? (
-                    <>
-                      <td className={num}>{s.cells.orgs}</td>
-                      <td className={num}>{s.cells.made}</td>
-                      <td className={num}>{s.cells.pct}</td>
-                      <td className="px-3 py-2">{s.cells.not}</td>
-                      <td className={num}>{s.cells.lost}</td>
-                    </>
-                  ) : (
-                    <td colSpan={5} className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
-                      {LOOPS_COPY.fewer}
-                    </td>
-                  )}
+        {data.stamps.length ? (
+          <div className={box}>
+            <table className="w-full min-w-[720px] text-sm" aria-labelledby="loops-stamps-h">
+              <thead className={head}>
+                <tr>
+                  {LOOPS_COPY.stampsHead.map((h, i) => (
+                    <th key={h} scope="col" className={i === 0 || i === 4 ? "px-3 py-2" : "px-3 py-2 text-right"}>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {data.stamps.map((s) => (
+                  <tr key={s.kind} className="border-t border-neutral-200 dark:border-neutral-800">
+                    <th scope="row" className="px-3 py-2 text-left font-normal">
+                      {s.kind}
+                    </th>
+                    {s.cells ? (
+                      <>
+                        <td className={num}>{s.cells.orgs}</td>
+                        <td className={num}>{s.cells.made}</td>
+                        <td className={num}>{s.cells.pct}</td>
+                        <td className="px-3 py-2">{s.cells.not}</td>
+                        <td className={num}>{s.cells.lost}</td>
+                      </>
+                    ) : (
+                      <td colSpan={5} className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
+                        {LOOPS_COPY.fewer}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm">{LOOPS_COPY.stampsNone}</p>
+        )}
       </section>
 
       <div className="grid gap-4 md:grid-cols-2">

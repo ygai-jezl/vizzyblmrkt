@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { LOOP_DAYS } from "@/lib/tenant/loops";
 import { forTenant } from "@/lib/tenant";
 import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { suppressEmailCategory } from "@/lib/email/suppression";
@@ -755,5 +756,25 @@ describe("the person on a product journey's send (ONTOLOGY_PERSON_IDS_ENABLED)",
     await throughWelcome(w);
     expect(w.db.dump("email_sends")[0]).not.toHaveProperty("personId");
     expect(w.db.dump("email_events")[0]).not.toHaveProperty("personId");
+  });
+});
+
+describe("what made an email (LOOPS_ENABLED, learning loops step 5)", () => {
+  /** Every count the run wrote, its weeks and shards added up. */
+  const counted = (db: FakeFirestore) => db.dump(LOOP_DAYS).map((d) => d.d);
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("counts the welcome made once as send_time, in one write when the run ends", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const w = await world();
+    await throughWelcome(w);
+    expect(counted(w.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } } }]);
+  });
+
+  it("with LOOPS_ENABLED off sends the same email and never opens loop_days (decision 22)", async () => {
+    const w = await world();
+    await throughWelcome(w);
+    expect(w.sent).toHaveLength(1);
+    expect(w.db.collectionCalls(LOOP_DAYS)).toBe(0);
   });
 });

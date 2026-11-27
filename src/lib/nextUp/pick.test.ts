@@ -241,6 +241,16 @@ describe("choosing Next up", () => {
     expect(week.c.next_up!.next_up).toEqual({ v0: { none: { made: 3, declined: 1, kept: 1 } } });
   });
 
+  it("with LOOPS_ENABLED off keeps picks as before, with no made, and never opens loop_days (decision 22)", async () => {
+    const d = await setup();
+    d.generate = async () => null;
+    const got = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(got.ok && got.doc.picks).toHaveLength(3);
+    for (const p of (await readNextUp(A, d))!.picks) expect(p).not.toHaveProperty("made");
+    expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).not.toBeNull();
+    expect(d.db.collectionCalls("loop_days")).toBe(0);
+  });
+
   it("says when there is nothing to choose from", async () => {
     const d = await setup();
     d.candidates = async () => [];

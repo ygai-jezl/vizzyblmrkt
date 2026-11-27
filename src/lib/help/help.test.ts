@@ -43,6 +43,7 @@ import { BOARD_WORDS, PASS_WORDS, REVIEW_WORDS as FOLLOW_UP_WORDS, SETUP_WORDS }
 import { RAISE_REASONS } from "@/lib/raise/reasons";
 import { BOARD_HREF } from "@/lib/raise/pipeline/setup";
 import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
+import { REVIEW_ORDER, REVIEW_SECTIONS } from "@/lib/review/summary";
 
 
 /**
@@ -1475,5 +1476,44 @@ describe("Investors and funding (RAISE_PIPELINE_ENABLED)", () => {
   it("follow what the How to drawer is told", () => {
     expect(drawerBodyProps({ raiseFollowUps: true } as never).raiseFollowUps).toBe(true);
     expect(drawerBodyProps(null as never).raiseFollowUps).toBe(false);
+  });
+});
+
+describe("Review and approvals with Work and the board's follow-ups", () => {
+  /** Every other line the page can show, so each combination is read beside them. */
+  const REST: HelpBodyProps = { vizzyFields: true, vizzyAddPerson: true, connectorsCollect: true, connectorSignals: true, sharing: true, onboarding: true, agentRecord: true };
+  const page = (p: { work: boolean; workVizzy: boolean; raiseFollowUps: boolean }) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ ...REST, ...p }), "https://app.example.com");
+  const COMBOS = [false, true].flatMap((work) => [false, true].flatMap((workVizzy) => [false, true].map((raiseFollowUps) => ({ work, workVizzy, raiseFollowUps }))));
+
+  it("lists Work's sections and the follow-ups once each, only while their switches are on, in Review's own order", () => {
+    for (const p of COMBOS) {
+      const text = page(p);
+      const what = text.slice(text.indexOf("## What lands in Review"), text.indexOf("## Check Vizzy"));
+      const shows = { work_check: p.work, work_ready: p.work, work_suggestion: p.work && p.workVizzy, raise_followup: p.raiseFollowUps } as const;
+      for (const [kind, on] of Object.entries(shows)) {
+        const title = `**${REVIEW_SECTIONS[kind as keyof typeof shows].title}**`;
+        expect(what.split(title).length - 1, `${kind} ${JSON.stringify(p)}`).toBe(on ? 1 : 0);
+      }
+      // Up to About your business, the sections the page names come in the order Review draws them
+      // (Your next article and What your numbers suggest are the page's last lines, so they are left out here).
+      const near = REVIEW_ORDER.slice(0, REVIEW_ORDER.indexOf("business_fact") + 1).filter((k) => k !== "next_article" && k !== "data_signal");
+      const at = near.map((k) => what.indexOf(`**${REVIEW_SECTIONS[k].title}**`)).filter((i) => i >= 0);
+      expect(at.length, JSON.stringify(p)).toBeGreaterThanOrEqual(Object.values(shows).filter(Boolean).length);
+      expect(at, JSON.stringify(p)).toEqual([...at].sort((a, b) => a - b));
+      // Who sees them: Work's checks and the follow-ups are for everyone on the team.
+      if (p.work) expect(what).toContain("Everyone on the team sees these");
+      if (p.raiseFollowUps) expect(what).toContain("Everyone on the team sees them; admins press");
+      for (const line of text.split("\n")) {
+        expect(dashesIn(line), line).toEqual([]);
+        expect(aiTellsIn(line), line).toEqual([]);
+      }
+    }
+  });
+
+  it("follows what the How to drawer is told for all three", () => {
+    const told = drawerBodyProps({ work: true, workVizzy: true, raiseFollowUps: true } as never);
+    expect([told.work, told.workVizzy, told.raiseFollowUps]).toEqual([true, true, true]);
+    const none = drawerBodyProps(null as never);
+    expect([none.work, none.workVizzy, none.raiseFollowUps]).toEqual([false, false, false]);
   });
 });

@@ -5,6 +5,8 @@ import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/pe
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -19,6 +21,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * admins also see what Vizzy heard about the business in a chat. While the agent record is on
  * (AGENT_RECORD_ENABLED), Drafts from Vizzy also lists, for admins, the email and image style and the
  * notes Vizzy suggested, and Vizzy can say what happened to the drafts it made.
+ * While the investor and funding board's follow-ups are on (RAISE_FOLLOWUPS_ENABLED), the team
+ * sees Follow-ups from your board.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -28,6 +32,7 @@ export default function ReviewAndApprovalsHelp({
   sharing = isConnectorsSharingEnabled(),
   onboarding = isOnboardingEnabled(),
   agentRecord = isAgentRecordEnabled(),
+  raiseFollowUps = isRaiseFollowupsEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -102,6 +107,13 @@ export default function ReviewAndApprovalsHelp({
           <li>
             <strong>Suggestions about people</strong>: New person forms Vizzy filled in, listed for admins only. Each opens the form,
             where an admin checks it, says how they agreed and adds them (<Open href="/help/your-audience#add">Add someone by hand</Open>).
+          </li>
+        ) : null}
+        {raiseFollowUps ? (
+          <li>
+            <strong>{FOLLOW_UP_WORDS.title}</strong>: people on your investor or funding board who have been quiet for 14 days, or whose
+            next step date has passed. Everyone on the team sees them; admins press <strong>{FOLLOW_UP_WORDS.followedUp}</strong> or{" "}
+            <strong>{FOLLOW_UP_WORDS.dismiss}</strong> (<Open href="/help/investors-and-funding#follow-ups">Follow-ups in Review</Open>).
           </li>
         ) : null}
         {onboarding ? (

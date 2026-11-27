@@ -49,6 +49,7 @@ import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
@@ -242,6 +243,7 @@ export default async function AdminLayout({
             nextActionCard={isNextActionCardEnabled()}
             agentRecord={isAgentRecordEnabled()}
             languageReaders={isLanguageReadersEnabled()}
+            raiseFollowUps={isRaiseFollowupsEnabled()}
           >
             {shell}
           </ShellProvider>

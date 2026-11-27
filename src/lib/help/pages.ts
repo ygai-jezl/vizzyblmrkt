@@ -8,6 +8,7 @@ import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
+import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -30,7 +31,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "raise_pipeline";
 }
 
 /**
@@ -99,6 +100,8 @@ export interface HelpBodyProps {
   agentRecord?: boolean;
   /** Readers per language and one language list (isLanguageReadersEnabled(), a server switch: the drawer gets it from the admin shell). */
   languageReaders?: boolean;
+  /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  raiseFollowUps?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -191,6 +194,13 @@ export const HELP_PAGES: HelpPage[] = [
     "Everyone from your launches, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
     "audience_one_view",
   ),
+  page(
+    "investors-and-funding",
+    "Investors and funding",
+    "grow",
+    "Set up investor or lender fields in one press, work a board by stage, log why each one passed and get follow-ups in Review.",
+    "raise_pipeline",
+  ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
   page("invite-your-waitlist", "Invite your waitlist", "product", "Bring the people on your waitlist into your product, in waves."),
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
@@ -220,6 +230,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
+  if (p.onlyWhen === "raise_pipeline") return isRaisePipelineEnabled();
   return true;
 }
 

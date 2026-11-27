@@ -34,3 +34,49 @@ export const PerformanceExemplarSchema = z.object({
   createdAt: z.string(),
 });
 export type PerformanceExemplar = z.infer<typeof PerformanceExemplarSchema>;
+
+/**
+ * An example kept because a person approved it (CONTENT_APPROVED_EXAMPLES_ENABLED), not because of
+ * its results: a workflow email or hub piece approved on the canvas, or a blog article found live.
+ * Same store and shape as a proven post; `metric` says it was approved and one `piece:` tag says
+ * which writer follows it, so a post writer never reads it and an email never follows a newsletter.
+ */
+export const APPROVED_METRIC = "approved" as const;
+
+/** The writers that follow approved examples: workflow emails and hub pieces. */
+export type ExamplePiece = "email" | "hub";
+
+export const pieceTag = (piece: ExamplePiece) => `piece:${piece}`;
+
+/** The piece an approved example came from, so a reader can open it in its plan. */
+export interface ExampleRef {
+  workspaceId: string;
+  planId: string;
+  nodeId: string;
+}
+
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * An approved example's `sourcePostId`: `approved:<workspaceId>:<planId>:<nodeId>`, one per piece,
+ * so approving it again replaces it. Null for an id that couldn't sit in a document id safely.
+ */
+export function approvedSourceId(ref: ExampleRef): string | null {
+  const parts = [ref.workspaceId, ref.planId, ref.nodeId];
+  return parts.every((p) => SAFE_ID.test(p)) ? `approved:${parts.join(":")}` : null;
+}
+
+/** The piece behind an approved example's `sourcePostId`, or null for any other row. */
+export function approvedRefOf(sourcePostId: string): ExampleRef | null {
+  const parts = sourcePostId.split(":");
+  if (parts.length !== 4 || parts[0] !== "approved") return null;
+  const [, workspaceId, planId, nodeId] = parts as [string, string, string, string];
+  return [workspaceId, planId, nodeId].every((p) => SAFE_ID.test(p)) ? { workspaceId, planId, nodeId } : null;
+}
+
+/** The document id of an approved example, the same id recordExemplar gives any exemplar. */
+export const approvedExemplarId = (tenantId: string, sourceId: string) => `pex:${encodeURIComponent(tenantId)}:${sourceId}`;
+
+export function isApprovedExemplar(row: { metric?: { name?: unknown } | null }): boolean {
+  return row.metric?.name === APPROVED_METRIC;
+}

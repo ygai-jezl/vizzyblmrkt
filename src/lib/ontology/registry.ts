@@ -712,7 +712,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description: "An email journey on the lifecycle engine, for a product's users or a launch's waitlist: the draft, its published versions and its daily send counters.",
     place: "customers",
     status: "built",
-    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape"],
+    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner"],
     home: "brand",
     personal: "none",
     stores: [regional("lifecycle_journeys"), regional("lifecycle_versions", "published versions never change"), regional("lifecycle_counters")],
@@ -1023,20 +1023,29 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "post_learning",
     name: "What posts taught",
-    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.",
+    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.",
     place: "content",
     status: "built",
-    madeBy: ["post_feedback"],
+    madeBy: ["post_feedback", "content_email", "content_hub"],
     home: "brand",
     personal: "none",
     stores: [
-      side("performance_exemplars", "src/lib/tenant/exemplars.ts"),
+      side("performance_exemplars", "src/lib/tenant/exemplars.ts", { note: "the best posts, and the approved emails and hub pieces kept as examples" }),
       side("post_perf_vectors", "src/lib/tenant/postVectors.ts"),
       side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", { note: "append only, the source of a revert" }),
     ],
-    links: [{ to: "post_result", via: "the posts it learned from", many: true }],
+    links: [
+      { to: "post_result", via: "the posts it learned from", many: true },
+      { to: "content_plan", via: "the approved pieces it keeps as examples", many: true },
+    ],
     events: [],
-    erase: { none: "the brand's own content statistics" },
+    erase: {
+      paths: [
+        brandPath("forgetPlanExamples", "src/lib/content/create/approvedExamples.ts", "an approved example goes with its content plan; the post statistics are the brand's own and stay"),
+        brandPath("forgetRemovedExamples", "src/lib/content/create/approvedExamples.ts", "a piece taken off the canvas takes its approved example with it"),
+        brandPath("forgetWorkspaceExamples", "src/lib/content/create/approvedExamples.ts", "a deleted programme takes the approved examples of its plans with it"),
+      ],
+    },
     export: { none: NOT_PERSONAL },
     search: { none: "vectors and versions for the writer, not text to find" },
     numbers: { none: "its numbers are post results" },
@@ -1410,7 +1419,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "ai_original",
     name: "AI original",
-    description: "The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.",
+    description: "The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it and any approved pieces it followed as examples, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.",
     place: "content",
     status: "built",
     madeBy: ["blog_write", "content_write", "content_hub", "content_email", "blog_refresh"],
@@ -2016,7 +2025,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
-    numbers: { none: "a value belongs to one record and is not a brand metric" },
+    // A value belongs to one record; the investor and funding board (RAISE_PIPELINE_ENABLED) counts the
+    // board's ready-made fields across People, by stage and pass reason, for Vizzy.
+    numbers: {
+      meanings: ["pipelinePeople", "stagePeople", "passedPeople", "reasonPasses", "noReasonPasses", "quietPeople", "nextStepPastPeople", "overduePeople", "openFollowUps", "quietAfterDays"],
+      tool: "get_raise_pipeline",
+    },
   },
   {
     id: "consent_purpose",
@@ -2595,7 +2609,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
     madeBy: [
@@ -2616,6 +2630,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "brand_map_research",
       "product_map",
       "autopilot",
+      "investor_quiet",
     ],
     home: "brand",
     personal: "people",

@@ -9,6 +9,7 @@ import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
 import { isPasteEnabled } from "@/lib/crm/paste/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
+import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -18,10 +19,13 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * CONNECTORS_COLLECT_ENABLED is, and what your numbers suggest while CONNECTOR_SIGNALS_ENABLED is
  * too (the How to drawer passes the shell's answers). While organisations share connections
  * (CONNECTORS_SHARING_ENABLED, a server switch), a data source your organisation gives your brand
- * names the organisation and who can fix it. While getting to know a brand is on (ONBOARDING_ENABLED),
- * admins also see what Vizzy heard about the business in a chat. While the agent record is on
- * (AGENT_RECORD_ENABLED), Drafts from Vizzy also lists, for admins, the email and image style and the
- * notes Vizzy suggested, and Vizzy can say what happened to the drafts it made.
+ * names the organisation and who can fix it. Work's sections show while WORK_ENABLED is on, and
+ * Tasks Vizzy suggests while WORK_VIZZY_ENABLED is too (both server switches, from the shell).
+ * While getting to know a brand is on (ONBOARDING_ENABLED), admins also see what Vizzy heard about
+ * the business in a chat. While the agent record is on (AGENT_RECORD_ENABLED), Drafts from Vizzy
+ * also lists, for admins, the email and image style and the notes Vizzy suggested, and Vizzy can
+ * say what happened to the drafts it made; with Vizzy's Work tools on too, the page says Work's
+ * suggestions and drafts aren't in that record, as Vizzy's get_drafts line does.
  * While the investor and funding board's follow-ups are on (RAISE_FOLLOWUPS_ENABLED), the team
  * sees Follow-ups from your board.
  * While Paste a list is on (RAISE_PASTE_ENABLED), admins also see pasted lists waiting to be added.
@@ -32,6 +36,8 @@ export default function ReviewAndApprovalsHelp({
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorSignals = isConnectorSignalsEnabled(),
   sharing = isConnectorsSharingEnabled(),
+  work = isWorkEnabled(),
+  workVizzy = isWorkVizzyEnabled(),
   onboarding = isOnboardingEnabled(),
   agentRecord = isAgentRecordEnabled(),
   raiseFollowUps = isRaiseFollowupsEnabled(),
@@ -72,6 +78,19 @@ export default function ReviewAndApprovalsHelp({
         <li>
           <strong>AI lines for upcoming emails</strong>: personal lines waiting for approval.
         </li>
+        {work ? (
+          <>
+            <li>
+              <strong>Checks due today</strong>: tasks in Work to look at again today. A measure&apos;s check asks if the task
+              worked, with Better, Same, Worse and Too soon to tell; any other check has Done and Tomorrow. Everyone on the team
+              sees these (<Open href="/help/work#checks">Checks</Open>).
+            </li>
+            <li>
+              <strong>Ready to start</strong>: To do tasks with nothing in their way. Start moves one to In progress (
+              <Open href="/help/work#tasks">Your tasks</Open>).
+            </li>
+          </>
+        ) : null}
         <li>
           <strong>Posts that need you</strong>: scheduled posts that couldn&apos;t publish.
         </li>
@@ -92,6 +111,12 @@ export default function ReviewAndApprovalsHelp({
                 opens it on Connected (<Open href="/help/connected-data#from-organisation">A part from your organisation</Open>).
               </>
             ) : null}
+          </li>
+        ) : null}
+        {work && workVizzy ? (
+          <li>
+            <strong>Tasks Vizzy suggests</strong>: tasks Vizzy suggested in chat, with Add to Work, Edit then add and Dismiss.
+            Nothing goes on Work until someone adds it (<Open href="/help/work#vizzy">Work in Review, and Vizzy</Open>).
           </li>
         ) : null}
         <li>
@@ -182,6 +207,14 @@ export default function ReviewAndApprovalsHelp({
             someone kept it as it was, kept it after changing it, or dismissed it. Ask Vizzy &quot;what happened to the drafts you
             made this month?&quot; and it answers from that record. The record starts when it was turned on for your brand, so
             older drafts aren&apos;t in it. A draft nobody decides closes after 90 days, which never counts as a no.
+            {work && workVizzy ? (
+              <>
+                {" "}
+                Tasks Vizzy suggests, and the Log notes and decisions it drafts for Work, aren&apos;t in that record: Vizzy answers
+                about them from Work, where a draft nobody saves is set aside after 7 days (
+                <Open href="/help/work#vizzy">Work in Review, and Vizzy</Open>).
+              </>
+            ) : null}
           </P>
         </>
       ) : null}

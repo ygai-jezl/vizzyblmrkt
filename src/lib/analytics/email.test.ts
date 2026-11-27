@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   aggregateEvents,
   computeCards,
@@ -206,6 +206,53 @@ describe("computeEmailAnalytics + breakdown (fake Firestore)", () => {
     seedEvents(db, [{ signupId: "s9", type: "send", journeyId: waitlistJourneyId("c1") }]);
     const a = await computeEmailAnalytics(ctx, "c1", db);
     expect(a.sequences).toMatchObject([{ name: "Email sequence (1 email)", sent: 1, enrolled: 1 }]);
+  });
+
+  describe("a launch moved to the lifecycle engine (WAITLIST_AB_WINNER_ENABLED)", () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const item = (id: string) => ({ id, label: id, subject: id, body: id, format: "branded", messageClass: "marketing", personalization: "none" });
+    function seedMoved(db: FakeFirestore, over: Record<string, unknown> = {}) {
+      db.seed("campaigns", "c1", { tenantId: "t1", waitlistName: "Lumen", waitlistEngine: "lifecycle" });
+      db.seed("lifecycle_journeys", waitlistJourneyId("c1"), {
+        tenantId: "t1",
+        name: "Welcome",
+        connectionId: "",
+        audience: { kind: "waitlist", campaignId: "c1" },
+        draft: {
+          graph: { nodes: [{ id: "email1", type: "email", position: { x: 0, y: 0 }, data: { label: "Welcome", poolId: "p1" } }], edges: [] },
+          // Restarted in the new editor: Variant C replaced Variant A.
+          pools: [{ id: "p1", label: "Welcome", items: [item("control"), item("var_c")], abTest: { splitPercent: 50 } }],
+          settings: {},
+        },
+        ...over,
+      });
+    }
+
+    it("lists the tests of the journey new signups get, and its picks", async () => {
+      vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
+      const db = new FakeFirestore();
+      seedJourney(db);
+      seedMoved(db);
+      let node = (await computeSequenceEmailBreakdown(ctx, "journey_c1", db)).nodes[0]!;
+      expect(node).toMatchObject({ nodeId: "email1", label: "Welcome", abTest: true, status: "running", winnerVariantId: null });
+      expect(node.arms.map((a) => a.variantId)).toEqual(["control", "var_c"]);
+
+      const picked = { poolId: "p1", nodeId: "email1", itemId: "var_c", arms: ["control", "var_c"], at: "2026-11-01T00:00:00.000Z", by: "usr_1" };
+      seedMoved(db, { abWinners: { p1: "var_c" }, abWinnerHistory: [picked] });
+      node = (await computeSequenceEmailBreakdown(ctx, "journey_c1", db)).nodes[0]!;
+      expect(node).toMatchObject({ status: "promoted", winnerVariantId: "var_c" });
+    });
+
+    it("lists the original journey while the switch is off, or the launch is still on it", async () => {
+      const db = new FakeFirestore();
+      seedJourney(db);
+      seedMoved(db);
+      const arms = async () => (await computeSequenceEmailBreakdown(ctx, "journey_c1", db)).nodes[0]!.arms.map((a) => a.variantId);
+      expect(await arms()).toEqual(["control", "var_a"]);
+      vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
+      db.seed("campaigns", "c1", { tenantId: "t1", waitlistName: "Lumen", waitlistEngine: "legacy" });
+      expect(await arms()).toEqual(["control", "var_a"]);
+    });
   });
 
   it("includes sent broadcasts as rows and marks unsynced stats pending", async () => {

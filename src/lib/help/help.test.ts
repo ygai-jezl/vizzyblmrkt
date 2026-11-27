@@ -46,6 +46,7 @@ import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
 import { PERSON_ONLY_HEADERS } from "@/lib/crm/paste/columns";
 import { PUBLIC_LIST } from "@/lib/crm/paste/publicLists";
 import { boardStageHint, COMPANY_REMOVE, PASTE_MESSAGES, ROW_REASONS } from "@/lib/crm/paste/words";
+import { REVIEW_ORDER, REVIEW_SECTIONS } from "@/lib/review/summary";
 
 
 /**
@@ -87,10 +88,12 @@ vi.hoisted(() => {
   process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED = "true";
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
   process.env.CONTENT_LANGUAGE_ENABLED = "true";
+  process.env.LANGUAGE_READERS_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
   process.env.CREATE_ARTICLE_AUTOPILOT_ENABLED = "true";
+  process.env.CONTENT_APPROVED_EXAMPLES_ENABLED = "true";
   process.env.BRAND_MAP_ENABLED = "true";
   process.env.BRAND_MAP_PAGES_ENABLED = "true";
   process.env.BLOG_LIVE_WATCH_ENABLED = "true";
@@ -113,6 +116,9 @@ vi.hoisted(() => {
   process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
+  // Work and Vizzy's Work tools (ADR-0020): /help/work, and Work's lines on Review and approvals.
+  process.env.WORK_ENABLED = "true";
+  process.env.WORK_VIZZY_ENABLED = "true";
   // Tell Vizzy about your business, on the hub (the switch folds in no nav switch), with Talk with
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
@@ -374,6 +380,17 @@ describe("links into the help", () => {
     expect(helpFor("/admin/somewhere-new")).toBe("/help");
   });
 
+  it("sends Work's pages to the Work page, and leaves /admin/workspace its own", () => {
+    expect(helpFor("/admin/work")).toBe("/help/work");
+    expect(helpFor("/admin/work/73")).toBe("/help/work");
+    expect(helpFor("/admin/work/new")).toBe("/help/work#tasks");
+    expect(helpFor("/admin/work/log")).toBe("/help/work#log");
+    expect(helpFor("/admin/workspace")).toBe("/help/programmes-and-knowledge#start");
+    expect(helpFor("/admin/workspace/w1/templatize")).toBe("/help/write-and-schedule#write");
+    expect(helpFor("/admin/workspaces")).toBe("/help/programmes-and-knowledge#start");
+    expect(HELP_PLACES).toEqual(expect.arrayContaining(["/help/work", "/help/work#tasks", "/help/work#log"]));
+  });
+
   it("opens the People list's page from the People area only with People on", () => {
     expect(helpFor("/admin/crm")).toBe("/help/people");
     expect(helpFor("/admin/crm/people/pu_3f9a")).toBe("/help/people");
@@ -469,6 +486,8 @@ describe("Ideas in place of Launches", () => {
     searchFamily: true,
     searchNoteReads: true,
     ideas: true,
+    work: true,
+    workVizzy: true,
   };
   // Told, not read: the How to drawer renders in the browser, where server switches read off.
   const body = (slug: string, ideaWords: boolean) => HELP_BODIES[slug]!({ ...ALL, ideaWords });
@@ -487,6 +506,8 @@ describe("Ideas in place of Launches", () => {
     // The general sense: an example of what to ask Vizzy, and a competitor's news about itself.
     "about our launch",
     "such as a launch or an award",
+    // Work's Must have: before a business launches or opens, whatever it calls its ideas.
+    "before you launch or open",
     // The public API's own message (409 launch_closed). Piece K renames the API.
     "This launch is archived, so it takes no new sign-ups.",
   ];
@@ -1352,6 +1373,27 @@ describe("Drafts from Vizzy and the agent record (AGENT_RECORD_ENABLED)", () => 
       expect(aiTellsIn(line), line).toEqual([]);
     }
   });
+
+  it("says Work's suggestions and drafts aren't in the record, only while the record and Vizzy's Work tools are both on", () => {
+    const page = (p: { agentRecord: boolean; work: boolean; workVizzy: boolean }) => docToMarkdown(HELP_BODIES["review-and-approvals"]!(p), "https://app.example.com");
+    const both = page({ agentRecord: true, work: true, workVizzy: true });
+    expect(both).toContain("Tasks Vizzy suggests, and the Log notes and decisions it drafts for Work, aren't in that record");
+    expect(both).toContain("a draft nobody saves is set aside after 7 days ([Work in Review, and Vizzy](");
+    expect(both).toContain("what happened to the drafts you made this month?");
+    for (const p of [
+      { agentRecord: true, work: true, workVizzy: false },
+      { agentRecord: true, work: false, workVizzy: true },
+      { agentRecord: false, work: true, workVizzy: true },
+    ]) {
+      expect(page(p), JSON.stringify(p)).not.toContain("aren't in that record");
+    }
+    // Work's own rows still show with the record off.
+    expect(page({ agentRecord: false, work: true, workVizzy: true })).toContain("**Tasks Vizzy suggests**");
+    for (const line of both.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
 });
 
 describe("Investors and funding (RAISE_PIPELINE_ENABLED)", () => {
@@ -1440,6 +1482,45 @@ describe("Investors and funding (RAISE_PIPELINE_ENABLED)", () => {
   it("follow what the How to drawer is told", () => {
     expect(drawerBodyProps({ raiseFollowUps: true } as never).raiseFollowUps).toBe(true);
     expect(drawerBodyProps(null as never).raiseFollowUps).toBe(false);
+  });
+});
+
+describe("Review and approvals with Work and the board's follow-ups", () => {
+  /** Every other line the page can show, so each combination is read beside them. */
+  const REST: HelpBodyProps = { vizzyFields: true, vizzyAddPerson: true, connectorsCollect: true, connectorSignals: true, sharing: true, onboarding: true, agentRecord: true };
+  const page = (p: { work: boolean; workVizzy: boolean; raiseFollowUps: boolean }) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ ...REST, ...p }), "https://app.example.com");
+  const COMBOS = [false, true].flatMap((work) => [false, true].flatMap((workVizzy) => [false, true].map((raiseFollowUps) => ({ work, workVizzy, raiseFollowUps }))));
+
+  it("lists Work's sections and the follow-ups once each, only while their switches are on, in Review's own order", () => {
+    for (const p of COMBOS) {
+      const text = page(p);
+      const what = text.slice(text.indexOf("## What lands in Review"), text.indexOf("## Check Vizzy"));
+      const shows = { work_check: p.work, work_ready: p.work, work_suggestion: p.work && p.workVizzy, raise_followup: p.raiseFollowUps } as const;
+      for (const [kind, on] of Object.entries(shows)) {
+        const title = `**${REVIEW_SECTIONS[kind as keyof typeof shows].title}**`;
+        expect(what.split(title).length - 1, `${kind} ${JSON.stringify(p)}`).toBe(on ? 1 : 0);
+      }
+      // Up to About your business, the sections the page names come in the order Review draws them
+      // (Your next article and What your numbers suggest are the page's last lines, so they are left out here).
+      const near = REVIEW_ORDER.slice(0, REVIEW_ORDER.indexOf("business_fact") + 1).filter((k) => k !== "next_article" && k !== "data_signal");
+      const at = near.map((k) => what.indexOf(`**${REVIEW_SECTIONS[k].title}**`)).filter((i) => i >= 0);
+      expect(at.length, JSON.stringify(p)).toBeGreaterThanOrEqual(Object.values(shows).filter(Boolean).length);
+      expect(at, JSON.stringify(p)).toEqual([...at].sort((a, b) => a - b));
+      // Who sees them: Work's checks and the follow-ups are for everyone on the team.
+      if (p.work) expect(what).toContain("Everyone on the team sees these");
+      if (p.raiseFollowUps) expect(what).toContain("Everyone on the team sees them; admins press");
+      for (const line of text.split("\n")) {
+        expect(dashesIn(line), line).toEqual([]);
+        expect(aiTellsIn(line), line).toEqual([]);
+      }
+    }
+  });
+
+  it("follows what the How to drawer is told for all three", () => {
+    const told = drawerBodyProps({ work: true, workVizzy: true, raiseFollowUps: true } as never);
+    expect([told.work, told.workVizzy, told.raiseFollowUps]).toEqual([true, true, true]);
+    const none = drawerBodyProps(null as never);
+    expect([none.work, none.workVizzy, none.raiseFollowUps]).toEqual([false, false, false]);
   });
 });
 

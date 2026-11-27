@@ -11,6 +11,7 @@ import {
 import { IDEA_LIMITS, type RequiredContactDetail } from "@/lib/types/campaign";
 import { ideaMessages } from "@/lib/ideas/words";
 import { ideaWord } from "@/lib/nav/terms";
+import { WORK_COPY } from "@/lib/work/screenWords";
 import { useWords } from "./nav/WordsProvider";
 
 const CONTACT_OPTIONS: RequiredContactDetail[] = ["EMAIL", "PHONE", "BOTH", "EITHER"];
@@ -26,14 +27,30 @@ const CONTACT_OPTIONS: RequiredContactDetail[] = ["EMAIL", "PHONE", "BOTH", "EIT
  *
  * With the words on (useWords().ideas) it names an idea instead. "Launch name is required." and
  * its idea twin are written out, since the help page quotes them.
+ *
+ * From Work's Make it an idea (`workTask`, WORK_ENABLED, worked out on the server), the name starts
+ * as the task's title and, once the launch exists, the task is linked to it (PATCH the task with
+ * the idea). If that link fails the launch is made all the same: the form says so and offers Link
+ * the task, which sends the same link again.
  */
-export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothesis?: boolean }) {
+export function NewLaunchForm({
+  hypothesis: withHypothesis = false,
+  initialName = "",
+  workTask = null,
+}: {
+  hypothesis?: boolean;
+  initialName?: string;
+  workTask?: { ref: number; brandId: string } | null;
+}) {
   const router = useRouter();
   const { ideas } = useWords();
   const w = ideaWord(ideas);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [hypothesis, setHypothesis] = useState("");
   const [madeId, setMadeId] = useState<string | null>(null);
+  const [linkFailed, setLinkFailed] = useState(false);
+  const [hypothesisFailed, setHypothesisFailed] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [slug, setSlug] = useState("");
   const [contact, setContact] = useState<RequiredContactDetail>("EMAIL");
   const [verify, setVerify] = useState(false);
@@ -82,6 +99,9 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
     }
 
     const { id } = (await res.json()) as { id: string };
+    // Work's task is linked to the launch it became; the launch stands either way.
+    const linked = await linkTask(id);
+    if (!linked) setLinkFailed(true);
     if (withHypothesis && hypothesis.trim()) {
       const saved = await fetch(`/api/admin/campaigns/${encodeURIComponent(id)}/idea`, {
         method: "PATCH",
@@ -89,12 +109,40 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
         body: JSON.stringify({ hypothesis }),
       }).then((r) => r.ok, () => false);
       if (!saved) {
+        setHypothesisFailed(true);
         setMadeId(id);
         setStatus("idle");
         return;
       }
     }
+    if (!linked) {
+      setMadeId(id);
+      setStatus("idle");
+      return;
+    }
     router.push(`/admin/launches/${id}`);
+    router.refresh();
+  }
+
+  /** Link Work's task to the launch: the same PATCH on the first try and on Link the task. */
+  async function linkTask(id: string): Promise<boolean> {
+    if (!workTask) return true;
+    return fetch(`/api/admin/work/tasks/${workTask.ref}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idea: { brandId: workTask.brandId, ideaId: id }, via: "work_page" }),
+    }).then((r) => r.ok, () => false);
+  }
+
+  async function linkAgain() {
+    if (!madeId) return;
+    setLinking(true);
+    const linked = await linkTask(madeId);
+    setLinking(false);
+    if (!linked) return;
+    setLinkFailed(false);
+    if (hypothesisFailed) return;
+    router.push(`/admin/launches/${madeId}`);
     router.refresh();
   }
 
@@ -197,13 +245,25 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
 
       {madeId ? (
         <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          <p>{ideaMessages(ideas).hypothesisNotSaved}</p>
-          <Link
-            href={`/admin/launches/${madeId}`}
-            className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-          >
-            Open its Overview
-          </Link>
+          <p>{linkFailed ? (ideas ? WORK_COPY.ideaLinkFailed : WORK_COPY.launchLinkFailed) : ideaMessages(ideas).hypothesisNotSaved}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            {linkFailed ? (
+              <button
+                type="button"
+                onClick={() => void linkAgain()}
+                disabled={linking}
+                className="rounded-md border border-amber-400 px-3 py-1.5 text-sm font-medium hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:hover:bg-amber-900/40"
+              >
+                {WORK_COPY.linkTaskAgain}
+              </button>
+            ) : null}
+            <Link
+              href={`/admin/launches/${madeId}`}
+              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+            >
+              Open its Overview
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="flex items-center gap-3">

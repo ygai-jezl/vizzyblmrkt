@@ -11,7 +11,9 @@ import {
   ChartLine,
   House,
   Inbox,
+  ListTodo,
   MailPlus,
+  NotebookPen,
   PenLine,
   Plus,
   Rocket,
@@ -42,6 +44,7 @@ import { useShell } from "./ShellProvider";
 const ICONS: Record<NavKey, LucideIcon> = {
   home: House,
   review: Inbox,
+  work: ListTodo,
   launches: Rocket,
   content: PenLine,
   products: Box,
@@ -60,6 +63,7 @@ const ICONS: Record<NavKey, LucideIcon> = {
  */
 export const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   review: ["approvals", "inbox", "decisions"],
+  work: ["tasks", "backlog", "log", "to do", "checks"],
   launches: ["waitlists", "campaigns"],
   content: ["workspaces", "programmes", "posts", "newsletter"],
   products: ["connections", "app", "sandbox"],
@@ -81,11 +85,11 @@ const INVITES = isInvitesUiEnabled();
 const GUIDE = isSetupGuideEnabled();
 const SEARCH = isSearchUiEnabled();
 /**
- * The areas to jump to; `people` (from the server) names the Audience area People, and `ideas`
- * (from the server) the Launches area Ideas.
+ * The areas to jump to; `people` (from the server) names the Audience area People, `ideas`
+ * (from the server) the Launches area Ideas, and `work` (from the server) adds Work.
  */
-const navItems = (people: boolean, ideas: boolean) =>
-  buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3, people, ideas }).flatMap((s) => s.items);
+const navItems = (people: boolean, ideas: boolean, work: boolean) =>
+  buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3, people, ideas, work }).flatMap((s) => s.items);
 
 /**
  * An area's other words, in the words in use (`ideas`, from the server): Ideas were Launches, so
@@ -125,6 +129,7 @@ export function CommandPalette({
   people = false,
   ideas = false,
   canAddPerson = false,
+  work = false,
 }: {
   launches: LaunchRef[];
   archivedLaunches: LaunchRef[];
@@ -135,9 +140,11 @@ export function CommandPalette({
   ideas?: boolean;
   /** An admin with New person on (AUDIENCE_ADD_PERSON_ENABLED, worked out by the layout): Create offers New person. */
   canAddPerson?: boolean;
+  /** Work is on (isWorkEnabled(), worked out by the layout on the server): Go to offers Work, and Create a new task and a note in the Log. */
+  work?: boolean;
 }) {
   const shell = useShell();
-  const nav = useMemo(() => navItems(people, ideas), [people, ideas]);
+  const nav = useMemo(() => navItems(people, ideas, work), [people, ideas, work]);
   const word = ideaWord(ideas);
   const router = useRouter();
   const container = useThemePortalContainer();
@@ -366,6 +373,18 @@ export function CommandPalette({
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
             {PHASE3 ? "New programme" : "New content workspace"}
           </Command.Item>
+          {work ? (
+            <Command.Item value="create new task work backlog to do" onSelect={() => go("/admin/work/new")} className={ITEM}>
+              <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
+              New task
+            </Command.Item>
+          ) : null}
+          {work ? (
+            <Command.Item value="log a note work today workstream" onSelect={() => go("/admin/work/log")} className={ITEM}>
+              <NotebookPen size={16} aria-hidden className="shrink-0 text-shell-muted" />
+              Log a note
+            </Command.Item>
+          ) : null}
           {canAddPerson ? (
             <Command.Item value="create new person add someone by hand contact" onSelect={() => go("/admin/crm?new=person")} className={ITEM}>
               <UserPlus size={16} aria-hidden className="shrink-0 text-shell-muted" />

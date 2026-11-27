@@ -1,5 +1,6 @@
 import type { ContentNode } from "@/lib/types/contentPlan";
 import type { ResourcePurpose } from "@/lib/plans/resources";
+import type { ExampleRef } from "@/lib/types/performanceExemplar";
 
 /**
  * The AI original of a piece of copy (CONTENT_AI_ORIGINALS_ENABLED): the exact copy a writer made,
@@ -41,6 +42,8 @@ export interface MadeBy {
   /** A second pass rewrote the first (the blog writer's repair pass). */
   repaired?: boolean;
   sources: WriterSource[];
+  /** The pieces a person approved that the writer followed (CONTENT_APPROVED_EXAMPLES_ENABLED). */
+  examples?: ExampleRef[];
 }
 
 /** The prompt and model that made the copy, as exactly as today's code can say. */
@@ -63,6 +66,8 @@ export interface AiOriginalCopy {
   userId: string | null;
   stamp: OriginalStamp | null;
   sources: WriterSource[];
+  /** The approved pieces the writer followed as examples, when it followed any. */
+  examples?: ExampleRef[];
 }
 
 /** How a person changed the AI original before approving it. */

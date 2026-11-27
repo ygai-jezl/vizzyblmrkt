@@ -76,7 +76,9 @@ export function EmailAnalyticsSection({ campaignId }: { campaignId: string }) {
       window.alert(
         json.error === "insufficient_data"
           ? `Not enough data yet — need at least ${MIN_SAMPLE} sends for that version.`
-          : "Promotion failed. Please try again.",
+          : json.error === "already_promoted"
+            ? "Another version already won this test. Reload the page to see it."
+            : "Promotion failed. Please try again.",
       );
       return;
     }

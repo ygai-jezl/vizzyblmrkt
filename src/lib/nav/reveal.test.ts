@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { buildNav, type NavFlags, type NavKey } from "./model";
 import { REVEALABLE, REVEAL_RULE, isRevealKey, pathSections, revealKeysOf, shownSections, waitingInView } from "./reveal";
 
-const FLAGS: NavFlags = { lifecycle: true, brandKit: true, review: true, people: true, ideas: true };
+const FLAGS: NavFlags = { lifecycle: true, brandKit: true, review: true, people: true, ideas: true, work: true };
 const sections = buildNav(FLAGS);
 const keysOf = (list: { items: { key: NavKey }[] }[]) => list.flatMap((s) => s.items.map((i) => i.key));
-const ALL_KEYS: NavKey[] = ["home", "review", "launches", "content", "products", "journeys", "audience", "insights", "brand", "settings"];
+const ALL_KEYS: NavKey[] = ["home", "review", "work", "launches", "content", "products", "journeys", "audience", "insights", "brand", "settings"];
 
 describe("pathSections", () => {
   it("leaves out only what waits, keeping every group's order", () => {
     const view = pathSections(sections, new Set(["journeys"]), "home");
     expect(view.sections.map((s) => s.key)).toEqual(["start", "grow", "end"]);
-    expect(keysOf(view.sections)).toEqual(["home", "review", "launches", "journeys", "brand", "settings"]);
+    expect(keysOf(view.sections)).toEqual(["home", "review", "work", "launches", "journeys", "brand", "settings"]);
   });
 
   it("drops Understand's heading when nothing in it shows, and keeps it when one does", () => {
@@ -41,7 +41,7 @@ describe("pathSections", () => {
 
   it("never hides a section that isn't revealable, whatever is shown", () => {
     const view = pathSections(sections, new Set(["home", "settings"]), null);
-    for (const key of ["home", "review", "launches", "brand", "settings"] as NavKey[]) expect(keysOf(view.sections)).toContain(key);
+    for (const key of ["home", "review", "work", "launches", "brand", "settings"] as NavKey[]) expect(keysOf(view.sections)).toContain(key);
     for (const item of view.comingUp) expect(REVEAL_RULE[item.key]).toBe("reveal");
   });
 

@@ -65,7 +65,8 @@ import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
  * the watched competitors wrote in the last 90 days: each competitor line says what they write,
  * their stage and format mix and the asks they push; each situation line counts their articles
  * on it; and their newest articles are A evidence, so a claim about them can stand on the article
- * that makes it. All of it within PROFILE_CHARS. Off, the prompt is word for word v1's.
+ * that makes it. All of it within PROFILE_CHARS. Off, those words are left out. A draft says which
+ * it was in its sources (competitor_articles), and its prompt version in `made`.
  */
 
 export const PROPOSE_PROMPT = "brand.strategy_propose";
@@ -78,8 +79,6 @@ const MAX_CLAIMS = 8;
 const MAX_THEIRS = 2;
 const MAX_IS_NOT = 3;
 const PROPOSE_MS = 45_000;
-/** The prompt's version while nothing from competitors' articles is added: its words are v1's. */
-export const PROPOSE_V1 = 1;
 /** What competitors write adds at most this many characters to the prompt (about 2,000 tokens). */
 export const PROFILE_CHARS = 8_000;
 /** Their articles handed over as A evidence, at most, and how much of each. */
@@ -88,7 +87,7 @@ const ARTICLE_TEXT = 240;
 /** The most of the cap the competitor lines may take, then the situation lines (with what the first left): the rest is for their articles. */
 const SHARE = { competitors: 0.3, situations: 0.3 } as const;
 
-/** The prompt's words that only show while joined to Competitors (v2); "" leaves v1's words. */
+/** The prompt's words that only show while joined to Competitors; "" leaves them out. */
 export const JOINED_WORDS = {
   situations_more: ", and how many articles its competitors wrote on it in the last 90 days",
   evidence_more: " A: an article a competitor published, with what it argues.",
@@ -123,7 +122,7 @@ export interface StrategyInput {
   sources: StrategySource[];
   /**
    * Joined to Competitors and their articles read: what they wrote on each situation (by id), one
-   * short note each. Absent: the prompt is v1's, word for word.
+   * short note each. Absent: the prompt leaves the joined words out.
    */
   competitorNotes?: Record<string, string>;
 }
@@ -331,7 +330,7 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
   const decided = situations.filter((s) => s.status === "decided").sort((a, b) => b.counts.questions - a.counts.questions || a.order - b.order).slice(0, MAX_SITUATIONS);
   // Joined and their articles read: what they wrote, within PROFILE_CHARS (the prompt's own added words count too).
   // Only when at least one watched competitor has an article read in the window: with none, nothing
-  // is added and the prompt stays v1's.
+  // is added and the joined words stay out.
   const profiles = recent
     ? competitorProfiles({
         articles: recent,
@@ -427,7 +426,7 @@ export function strategyPrompt(input: StrategyInput, today: string): string {
     evidence: fence("evidence", evidence.join("\n") || "(none)"),
     focus_min: L.focusMin,
     focus_max: L.focusMax,
-    // v2's words, only while joined to Competitors with their articles read; "" is v1 word for word.
+    // The joined words, only while joined to Competitors with their articles read.
     ...(notes ? JOINED_WORDS : { situations_more: "", evidence_more: "", focus_more: "", claims_more: "" }),
   });
 }
@@ -579,8 +578,8 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
       // Joined to Competitors, the tab lists the watched ones live: nothing is copied into the draft.
       watched: isStrategyCompetitorsEnabled() ? [] : input.watched,
       sources: input.sources,
-      // v2's words are in the prompt only with competitor notes; without them it is v1's, word for word.
-      made: { promptId: PROPOSE_PROMPT, version: input.competitorNotes ? getPrompt(PROPOSE_PROMPT).version : PROPOSE_V1, model: TEXT_MODEL },
+      // Whether the joined words were in it is in `sources` (competitor_articles).
+      made: { promptId: PROPOSE_PROMPT, version: getPrompt(PROPOSE_PROMPT).version, model: TEXT_MODEL },
     },
     { db: deps.db, now: deps.now },
   );

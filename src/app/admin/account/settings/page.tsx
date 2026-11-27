@@ -13,6 +13,7 @@ import { AboutYourBusiness } from "@/components/admin/onboarding/AboutYourBusine
 import { AccountSettings } from "@/components/admin/AccountSettings";
 import { SearchSettingsCard } from "@/components/admin/search/SearchSettingsCard";
 import { isSearchUiEnabled } from "@/lib/search/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { GoogleMarketCard } from "@/components/admin/signals/GoogleMarketCard";
 import { isBrandSignalsEnabled } from "@/lib/signals/flags";
 import { TimeZoneCard } from "@/components/admin/settings/TimeZoneCard";
@@ -84,7 +85,7 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
  */
 export default async function AccountSettingsPage() {
   const ctx = await requireAdminContext();
-  const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} /> : null;
+  const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} decks={isRaiseKitEnabled()} /> : null;
   const market = isBrandSignalsEnabled() ? <GoogleMarketCard isAdmin={ctx.role === "admin"} /> : null;
   const zone = isBlogDatesEnabled() ? <TimeZoneCard isAdmin={ctx.role === "admin"} /> : null;
   const security = isPasswordSigninEnabled() ? <SignInSecurityCard /> : null;

@@ -36,6 +36,14 @@ export const KIND_GROUPS: Array<{ key: string; label: string; kinds: SearchKind[
   { key: "decks", label: "Decks", kinds: ["raise_doc"] },
 ];
 
+/**
+ * The groups the Search card lists: a group whose feature has its own switch shows only while that
+ * switch is on, so the card looks as before with it off. The server passes what is on.
+ */
+export function shownGroups(on: { decks: boolean }): typeof KIND_GROUPS {
+  return KIND_GROUPS.filter((g) => g.key !== "decks" || on.decks);
+}
+
 export function groupOf(kind: SearchKind): string {
   return KIND_GROUPS.find((g) => g.kinds.includes(kind))?.key ?? "other";
 }

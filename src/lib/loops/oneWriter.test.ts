@@ -44,8 +44,8 @@ const LEGACY_WRITERS: Record<string, { files: readonly string[]; why: string }> 
     why: "The post patterns lane keeps the patterns in use for each channel on the brand record, learned from how the brand's own posts did.",
   },
   recordExemplar: {
-    files: ["src/lib/distribute/feedback/patterns.ts", "src/lib/distribute/feedback/reconcile.ts", "src/lib/distribute/feedback/recordExemplar.ts"],
-    why: "The best posts are kept from the brand's own post results, which the post patterns lane learns from.",
+    files: ["src/lib/content/create/approvedExamples.ts", "src/lib/distribute/feedback/patterns.ts", "src/lib/distribute/feedback/reconcile.ts", "src/lib/distribute/feedback/recordExemplar.ts"],
+    why: "The best posts are kept from the brand's own post results, which the post patterns lane learns from, and where turned on the workflow emails and hub pieces a person approved are kept as examples beside them.",
   },
   addLearned: {
     files: ["src/lib/autopilot/adminApi.ts", "src/lib/autopilot/learned.ts", "src/lib/contentStrategy/adminApi.ts", "src/lib/nextUp/repeats.ts"],

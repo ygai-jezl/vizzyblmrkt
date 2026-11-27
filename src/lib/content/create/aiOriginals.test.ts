@@ -285,8 +285,8 @@ describe("Vizzy's read of a plan", () => {
     seedPlan(db, [{ ...email, body: "Hi {{first_name}}" }, { ...post, body: "Post." }]);
     const examples = [{ workspaceId: WS, planId: "plan_0", nodeId: "e0" }];
     const emailMade = { purpose: "content_email" as const, promptId: "content.email_fill", sources: ["exemplars" as const], examples };
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: email, body: "Hi {{first_name}}", made: emailMade }, deps(db));
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Post.", made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: email, body: "Hi {{first_name}}", madeBy: emailMade }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Post.", madeBy: made }, deps(db));
     expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "e1"))?.original).toMatchObject({ sources: ["exemplars"], examples });
     expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "li"))?.original).not.toHaveProperty("examples");
     const r = await agentContentPlan(person, WS, PLAN, db);

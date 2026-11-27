@@ -10,6 +10,7 @@ import { brandStrategyDocId } from "@/lib/types/brandStrategy";
 import { CHECK_NOT_INCLUDED, agentBrandStrategy } from "./agentApi";
 import { freshCheck } from "./checkRules";
 import { approveStrategy, saveFound, saveProposal, saveStrategyDraft } from "./store";
+import { allConnectors } from "@/lib/connectors/catalog";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_a", role: "admin" };
 const T0 = Date.parse("2026-11-25T10:00:00.000Z");
@@ -138,5 +139,73 @@ describe("Vizzy's get_brand_strategy with the weekly check (STRATEGY_CHECK_ENABL
     const body = (await agentBrandStrategy(A, { db, loadTenant: async () => null })).body as Record<string, unknown> & { competitors: Array<{ name: string; monitored: boolean }> };
     expect(body.againstCompetitors).toEqual({ lookedAt: null, note: CHECK_NOT_INCLUDED });
     expect(body.competitors.map((c) => c.name)).toEqual(["Rivalco"]);
+  });
+});
+
+describe("Vizzy's get_brand_strategy with How it went (STRATEGY_RESULTS_ENABLED)", () => {
+  const NOV = {
+    month: "2026-11",
+    at: "2026-12-02T00:10:00.000Z",
+    strategyAt: "2026-11-25T10:00:02.000Z",
+    partway: true,
+    rows: [
+      { id: "sit_aaaaaa01", questions: 12, answered: 1, live: 4, newLive: 2, theirs: 3, m: { searchClicks: 120, searchImpressions: 3400 } },
+      { id: "rest", questions: 40, answered: 9, live: 7, newLive: 1, theirs: 5, m: { searchClicks: 210, searchImpressions: 9000 } },
+    ],
+    site: { cfVisits: 900 },
+    roadmap: { due: 8, done: 6 },
+    did: { starsKept: 1, claimsEdited: 2 },
+    sources: { search: { connectionId: "dcn_aaaaaaaaaaaaaaaaaaaa", connector: "Google Search Console", measure: "searchClicks" }, visits: { connectionId: "dcn_bbbbbbbbbbbbbbbbbbbb", connector: "Cloudflare", measure: "cfVisits", siteOnly: true } },
+    missing: [
+      { kind: "key_actions", why: "not_connected" },
+      { kind: "ai_answers", why: "not_connected" },
+    ],
+  };
+
+  it("gives the latest month and what to connect, with a meaning for every number", async () => {
+    const db = new FakeFirestore();
+    await approved(db);
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId(A.tenantId), () => ({ months: [NOV] }));
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const body = (await agentBrandStrategy(A, { db, ...at(Date.parse("2026-12-28T10:00:00.000Z")), catalog: allConnectors })).body as Record<string, unknown> & { meanings: Record<string, unknown> };
+    expect(body.howItWent).toMatchObject({
+      month: "2026-11",
+      approvedPartway: true,
+      rows: [
+        { situation: "A client asks why a rival is named", focus: true, focusQuestions: 12, focusLiveArticles: 1, focusArticlesLive: 4, focusArticlesNew: 2, focusTheirArticles: 3, focusSearchClicks: 120, focusSearchImpressions: 3400 },
+        { situation: "Rest of your map", focus: false, focusArticlesLive: 7, focusSearchClicks: 210 },
+      ],
+      siteVisits: 900,
+      roadmap: { roadmapDue: 8, roadmapDone: 6 },
+      whatPeopleDid: { starsKept: 1, claimsEdited: 2, starsRemoved: 0, mayBeMore: false },
+      sources: { "Found in search": "Google Search Console", Visits: "Cloudflare, whole site only" },
+      notMeasured: [
+        { kind: "Sign-ups and key actions", why: "nothing that measures it is connected" },
+        { kind: "Cited in AI answers", why: "nothing that measures it is connected" },
+      ],
+    });
+    expect(body.measuring).toMatchObject({
+      kinds: [
+        { kind: "Found in search", measuredBy: null, whatToSay: "Connect Google Search Console to see which focus situations people find you for in search.", link: "/admin/account/connections/search-console" },
+        { kind: "Visits", measuredBy: null },
+        { kind: "Sign-ups and key actions", measuredBy: null, whatToSay: "Connect Google Analytics 4 to see which focus situations bring sign-ups." },
+        { kind: "Cited in AI answers", measuredBy: null },
+      ],
+    });
+    const keys = [...numberKeys(body)].filter((k) => k !== "meanings");
+    for (const k of keys) expect(body.meanings[k], `"${k}" is not explained`).toBeTruthy();
+    expect(keys).toEqual(expect.arrayContaining(["focusArticlesLive", "focusSearchClicks", "siteVisits", "roadmapDone", "starsKept", "checksDismissed"]));
+  });
+
+  it("says it is too early to tell within a month of approval, and adds nothing with the switch off", async () => {
+    const db = new FakeFirestore();
+    await approved(db);
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const early = (await agentBrandStrategy(A, { db, ...at(T0 + 3000), catalog: allConnectors })).body as Record<string, unknown>;
+    expect(early.howItWent).toMatchObject({ month: null, tooEarly: true });
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "false");
+    const off = (await agentBrandStrategy(A, { db, ...at(T0 + 3000) })).body as Record<string, unknown>;
+    expect(off).not.toHaveProperty("howItWent");
+    expect(off).not.toHaveProperty("measuring");
   });
 });

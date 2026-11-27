@@ -132,8 +132,8 @@ export async function processInviteJob(
       ctx,
       { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
       "invite",
-      // The wave's stamp: the wave was counted made once when it was sent (sendInviteWave), so
-      // each invite reads it from the wave it already loads and counts nothing more.
+      // The wave's stamp: the wave counts as one made thing (sendInviteWave), so each invite
+      // reads it from the wave it already loads and counts nothing more.
       { db, personId, made: wave.made ?? { unstamped: "person_wrote" }, kind: "canvas.invite_wave", counts },
     ),
     tags: ["invite", `wave-${wave.id}`],

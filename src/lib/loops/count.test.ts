@@ -5,6 +5,9 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { LoopStamp } from "@/lib/types/loopStamp";
 import {
   countCard,
+  countDraftOutcome,
+  countKindSignals,
+  countLearnedSignal,
   countLearnOutcome,
   countMade,
   countRefusedToken,
@@ -12,6 +15,7 @@ import {
   countSignals,
   countsFor,
   countUnstamped,
+  draftOutcome,
   isCountedSignal,
   loopWeekOf,
   MADE_AT_ONCE_MAX,
@@ -191,5 +195,69 @@ describe("with versions on", () => {
     await countSignal(hearth, stamp, "made", { db, now: NOW, random: () => 0 });
     expect(db.dump(LOOP_DAYS).map((d) => d.tenantId).sort()).toEqual(["ten_hearth", "ten_lumen"]);
     expect(sumWeek(db, "ten_lumen", WEEK)).toEqual({ c: { [NATURAL]: { post_image: { v1: { learned: { made: 1 } } } } } });
+  });
+});
+
+describe("what people did with made things (step 5, 4.4)", () => {
+  const post: LoopStamp = { made: "m1.content_write.0.n", kind: "content_write", scope: "content_write", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, at: "2027-01-14T09:00:00.000Z" };
+  const DRAFT = "Three questions Hearth Bakery asks before a new loaf goes on the shelf.";
+  const cell = (signals: Record<string, number>) => ({ c: { content_write: { content_write: { v0: { none: signals } } } } });
+
+  it("tells a draft kept word for word from one edited, and how many words changed", () => {
+    expect(draftOutcome(DRAFT, DRAFT)).toEqual({ signal: "kept", wordsChanged: 0 });
+    expect(draftOutcome(DRAFT, `${DRAFT}\n`)).toEqual({ signal: "kept", wordsChanged: 0 });
+    expect(draftOutcome(DRAFT, DRAFT.replace("new loaf", "seasonal bake"))).toEqual({ signal: "edited", wordsChanged: 2 });
+    // No draft kept: nothing to compare.
+    expect(draftOutcome(null, DRAFT)).toBeNull();
+    expect(draftOutcome("  ", DRAFT)).toBeNull();
+  });
+
+  it("counts kept or edited against the stamp, and neither with no draft or no stamp", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const deps = { db, now: NOW, random: () => 0 };
+    expect(await countDraftOutcome(hearth, post, { draft: DRAFT, final: DRAFT }, deps)).toEqual({ signal: "kept", wordsChanged: 0 });
+    expect(await countDraftOutcome(hearth, post, { draft: DRAFT, final: "Sam rewrote this one." }, deps)).toMatchObject({ signal: "edited" });
+    expect(await countDraftOutcome(hearth, post, { wordsChanged: 18 }, deps)).toEqual({ signal: "edited", wordsChanged: 18 });
+    expect(await countDraftOutcome(hearth, post, { wordsChanged: 0 }, deps)).toEqual({ signal: "kept", wordsChanged: 0 });
+    expect(await countDraftOutcome(hearth, post, { draft: null, final: DRAFT }, deps)).toBeNull();
+    expect(await countDraftOutcome(hearth, { unstamped: "person_wrote" }, { draft: DRAFT, final: DRAFT }, deps)).toBeNull();
+    expect(await countDraftOutcome(hearth, undefined, { draft: DRAFT, final: DRAFT }, deps)).toBeNull();
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual(cell({ kept: 2, edited: 2 }));
+  });
+
+  it("compares and counts nothing with LOOPS_ENABLED off (decision 22)", async () => {
+    expect(await countDraftOutcome(hearth, post, { draft: DRAFT, final: "changed" }, { db: untouchable, now: NOW })).toBeNull();
+    await countKindSignals(hearth, "brand_map_research", { declined: 2 }, { db: untouchable, now: NOW });
+    await countLearnedSignal(hearth, "post_feedback", "linkedin", 3, "undone", { db: untouchable, now: NOW });
+  });
+
+  it("counts the why behind a dismissal as given, a short key only", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    expect(isCountedSignal("canvas.person_fields", "declined.not_for_us")).toBe(true);
+    expect(isCountedSignal("canvas.person_fields", "declined.Not For Us")).toBe(false);
+    expect(isCountedSignal("canvas.person_fields", `declined.${"x".repeat(30)}`)).toBe(false);
+    const db = new FakeFirestore();
+    await countSignals(hearth, post, { declined: 1, "declined.not_now": 1, "declined.<b>": 1 } as never, { db, now: NOW, random: () => 0 });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual(cell({ declined: 1, "declined.not_now": 1 }));
+  });
+
+  it("counts things whose records keep no stamp in the cell their made count went to, never for an image kind", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    versionsOn();
+    const db = new FakeFirestore();
+    await countKindSignals(hearth, "brand_map_research", { declined: 3, "liked.colours": 1 }, { db, now: NOW, random: () => 0 });
+    await countKindSignals(hearth, "post_image", { declined: 1 }, { db: untouchable, now: NOW });
+    await countKindSignals(hearth, "loop_learn", { declined: 1 }, { db: untouchable, now: NOW });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({ c: { brand_map_research: { brand_map_research: { v0: { none: { declined: 3 } } } } } });
+  });
+
+  it("counts a learner's version undone under its own kind and scope, refusing a scope that can't name a counter", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await countLearnedSignal(hearth, "post_feedback", "linkedin", 3, "undone", { db, now: NOW, random: () => 0 });
+    await countLearnedSignal(hearth, "post_feedback", "Linked In", 3, "undone", { db: untouchable, now: NOW });
+    await countLearnedSignal(hearth, "post_feedback", "linkedin", -1, "undone", { db: untouchable, now: NOW });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({ c: { linkedin: { post_feedback: { v3: { learned: { undone: 1 } } } } } });
   });
 });

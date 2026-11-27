@@ -7,7 +7,9 @@ import type { SearchOutcome } from "@/lib/search/query";
 import { addLearned, listLearned } from "@/lib/autopilot/learned";
 import { readLearned, skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
-import { goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { dropPick, goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { StrategySchema, type Strategy } from "@/lib/types/brandStrategy";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
 
@@ -223,6 +225,20 @@ describe("choosing Next up", () => {
     expect((await listLearned(A, d))[0]).toMatchObject({ kind: "skipped_pick", questionId: "q_aaaaaaa1", reason: "not this quarter" });
     const again = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
     expect(again.ok && again.doc.picks.map((p) => p.questionId)).toEqual(["q_aaaaaaa2", "q_aaaaaaa3", "q_aaaaaaa4"]);
+  });
+
+  it("counts each pick once when it comes off the list: Not now as declined, used as kept (learning loops step 5)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const d = await setup();
+    d.generate = async () => null;
+    await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    await skipPick(A, { questionId: "q_aaaaaaa1", question: "Question 1?", reason: "not this quarter" }, { db: d.db, canUse: async () => true });
+    expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).not.toBeNull();
+    // A pick already off the list counts nothing more.
+    expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).toBeNull();
+    const week = sumWeek(d.db, A.tenantId, loopWeekOf(new Date())) as { c: Record<string, Record<string, unknown>> };
+    expect(week.c.next_up!.next_up).toEqual({ v0: { none: { made: 3, declined: 1, kept: 1 } } });
   });
 
   it("says when there is nothing to choose from", async () => {

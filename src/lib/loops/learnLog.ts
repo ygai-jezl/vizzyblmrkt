@@ -5,6 +5,8 @@ import { agentRegion } from "@/lib/agents/agentRuntime";
 import { grantedOnlyFeatures } from "@/lib/plans/brandAccess";
 import { activePlanOf } from "@/lib/plans/catalog";
 import { isPlansEnabled } from "@/lib/plans/flags";
+import { countLearnOutcome, type CountDeps } from "./count";
+import { isLoopsEnabled } from "./flags";
 
 /**
  * One structured log line for every Memory Bank learn YouGrow tries or skips (learning loops step
@@ -201,13 +203,35 @@ export function memoryListLogEntry(ctx: Pick<TenantContext, "tenantId" | "region
   };
 }
 
-/** Write a line for Cloud Logging: WARNING on stderr for an error, INFO on stdout otherwise. */
-export function writeLearnLog(entry: LearnLogEntry | MemoryListLogEntry): void {
+/**
+ * Write a line for Cloud Logging: WARNING on stderr for an error, INFO on stdout otherwise. With
+ * LOOPS_ENABLED on, a Memory Bank kind's line is also counted in the brand's week (learning loops
+ * step 5, 4.4): `r.<kind>.learned`, or `r.<kind>.<reason>` for a skip, so the stages show the
+ * Memory Bank learning or stalling. The line's brand and region are the server's own, copied from
+ * the request's context by learnLogEntry. The loops' own learners count their outcomes themselves.
+ * The promise settles once the count is written; it never rejects, so a caller may leave it.
+ */
+export function writeLearnLog(entry: LearnLogEntry | MemoryListLogEntry, deps: CountDeps = {}): Promise<void> {
   try {
     const line = JSON.stringify(entry);
     if (entry.severity === "WARNING") console.warn(line);
     else console.info(line);
   } catch {
     // A log line is never worth failing a request or a publish over.
+  }
+  return countLogged(entry, deps);
+}
+
+/** A Memory Bank line's outcome, counted. Never throws. */
+async function countLogged(entry: LearnLogEntry | MemoryListLogEntry, deps: CountDeps): Promise<void> {
+  if (entry.event !== "loop_learn" || !isLoopsEnabled()) return;
+  const kind = entry.kind;
+  if (!(MEMORY_BANK_KINDS as readonly string[]).includes(kind)) return;
+  const outcome = entry.outcome === "learned" ? "learned" : entry.reason;
+  if (!outcome) return;
+  try {
+    await countLearnOutcome({ tenantId: entry.tenantId, region: entry.region, source: "system" }, kind as MemoryBankKind, outcome, deps);
+  } catch {
+    // Counting never fails what it counts.
   }
 }

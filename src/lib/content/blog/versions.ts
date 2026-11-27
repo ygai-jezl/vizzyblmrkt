@@ -4,6 +4,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ArticleVersion, ArticleVersionsDoc, VersionReason } from "@/lib/types/articleRefresh";
 import { BlogArticleMetaSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
+import { countStamped } from "@/lib/loops/decisions";
 
 /**
  * A blog article's earlier versions (BLOG_REFRESH_ENABLED): the copy is kept just before Apply,
@@ -92,7 +93,8 @@ export type RestoreResult = { ok: true; node: ContentNode; kept: number | null }
 /**
  * Put version `n` back: its copy, its meta and its Updated. The copy it replaces is kept first.
  * The article goes back to "generated", so a person approves it again; the live mark, the hero,
- * Published and the freshness clock stay as they are.
+ * Published and the freshness clock stay as they are. The copy it replaces counts undone when
+ * YouGrow made it (LOOPS_ENABLED).
  */
 export async function restoreVersion(
   ctx: TenantContext,
@@ -129,5 +131,7 @@ export async function restoreVersion(
     },
   });
   if (!updated) return { ok: false, error: "not_found" };
+  // The copy a person turned away from counts undone against its stamp (learning loops step 5).
+  await countStamped(ctx, node.made, { undone: 1 }, { db: deps.db });
   return { ok: true, node: updated, kept };
 }

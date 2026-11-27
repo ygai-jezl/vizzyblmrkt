@@ -42,6 +42,7 @@ import {
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
+import { countDraftOutcome } from "@/lib/loops/count";
 import { keptMade, rootOf } from "@/lib/loops/made";
 import { learnedFor } from "@/lib/loops/read";
 import type { Made } from "@/lib/types/loopStamp";
@@ -337,6 +338,7 @@ async function publishPost(
       // Vizzy learns from what the person changed in its draft, now the post is public.
       // Never throws, and runs after the done stamp so it can't cause a re-post.
       await learnFromPublishedPost(ctx, post);
+      await countPublished(ctx, post, db);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -461,6 +463,7 @@ async function publishPost(
       }
       // Vizzy learns from what the person changed in its draft (never throws; see the X path).
       await learnFromPublishedPost(ctx, post);
+      await countPublished(ctx, post, db);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -488,7 +491,18 @@ async function publishPost(
     processedAt: now,
     lastError: null,
   });
+  await countPublished(ctx, post, db);
   return "done";
+}
+
+/**
+ * Once a post is out, on any path (the manual one too), what a person did with Vizzy's draft
+ * first counts against the post's stamp (learning loops step 5, 4.4): kept when its words went out
+ * as Vizzy wrote them, edited otherwise. A post with no kept draft counts neither. A retry after
+ * the done stamp returns before this, so each post counts once. Never throws.
+ */
+async function countPublished(ctx: TenantContext, post: ScheduledPost, db?: FirestoreLike): Promise<void> {
+  await countDraftOutcome(ctx, post.made, { draft: post.aiBody, final: post.body }, { db });
 }
 
 /**

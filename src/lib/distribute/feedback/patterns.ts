@@ -1,5 +1,6 @@
 import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
+import { countLearnedSignal } from "@/lib/loops/count";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { getTenantById } from "@/lib/tenant/registry";
 import {
@@ -315,6 +316,7 @@ export async function refreshLearnedPostPatterns(
 /**
  * Course-correct: pin a channel's live directive back to a PAST version and FREEZE auto-promotion
  * (so the next synthesis can't immediately overwrite the operator's choice). Resume re-enables it.
+ * The version it turns away from counts undone (LOOPS_ENABLED).
  */
 export async function revertToVersion(
   ctx: TenantContext,
@@ -361,6 +363,9 @@ export async function revertToVersion(
     pinnedVersion: newVersion,
     frozen: true,
   });
+  // A person undid the channel's learned patterns in use (learning loops step 5): counted against
+  // the version they turned away from, in the channel it was learned for.
+  if (typeof frag?.activeVersion === "number") await countLearnedSignal(ctx, "post_feedback", channel, frag.activeVersion, "undone", { db });
   return { ok: true };
 }
 

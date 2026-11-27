@@ -12,6 +12,9 @@ import { fillPlanNode } from "./fillPlan";
 import type { generateNode } from "./generateNode";
 import { followCheck, newlyApproved, pinOriginal, readOriginal, recordApproval, recordApprovals, stampOf } from "./aiOriginals";
 import { aiOriginalView } from "./aiOriginalView";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import type { LoopStamp } from "@/lib/types/loopStamp";
 
 /** The AI original of each piece: pinned when written, paired with the approved copy, gone with its plan. */
 
@@ -151,6 +154,51 @@ describe("recordApproval", () => {
     expect(await recordApprovals(person, { before, after }, deps(db))).toBe(1);
     const doc = (await readOriginal(person, PLAN, "hub", deps(db)))!;
     expect(doc.pairs[0]!.measures).toMatchObject({ sectionsAdded: ["Cost"], sectionsCut: [], figuresAdded: ["$50"] });
+  });
+});
+
+describe("approvals count kept or edited (learning loops step 5)", () => {
+  const blogStamp: LoopStamp = { made: "m1.blog_write.0.n", kind: "blog_write", scope: "blog_write", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, at: T };
+  const cell = (db: FakeFirestore, kind: string) =>
+    (sumWeek(db, TENANT, loopWeekOf(new Date())) as { c?: Record<string, Record<string, unknown>> }).c?.[kind]?.[kind];
+  const approve = (plan: ContentPlan, body: string, extra: Record<string, unknown> = {}) => ({
+    ...plan,
+    graph: { ...plan.graph, nodes: [{ ...plan.graph.nodes[0]!, ...extra, body, status: "approved" as const }] },
+  });
+
+  it("counts an article's first approval of its AI original by the words changed, once", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const before = seedPlan(db, [{ ...hub, body: ARTICLE, status: "generated" }]);
+    await pinOriginal(person, { plan: before, node: hub, body: ARTICLE, madeBy: made }, deps(db));
+    const edited = ARTICLE.replace("Buyers ask AI first.", "Most buyers ask AI first.");
+    expect(await recordApprovals(person, { before, after: approve(before, edited, { made: blogStamp }) }, deps(db))).toBe(1);
+    expect(cell(db, "blog_write")).toEqual({ v0: { none: { edited: 1 } } });
+    // Approved again with other words, the same AI original counts no more.
+    clock = 5;
+    expect(await recordApprovals(person, { before, after: approve(before, ARTICLE, { made: blogStamp }) }, deps(db))).toBe(1);
+    expect(cell(db, "blog_write")).toEqual({ v0: { none: { edited: 1 } } });
+    // Written again, its new AI original counts once more: approved as written is kept.
+    clock = 10;
+    await pinOriginal(person, { plan: before, node: hub, body: `${ARTICLE}\n\nMore.`, madeBy: made }, deps(db));
+    await recordApprovals(person, { before, after: approve(before, `${ARTICLE}\n\nMore.`, { made: blogStamp }) }, deps(db));
+    expect(cell(db, "blog_write")).toEqual({ v0: { none: { edited: 1, kept: 1 } } });
+  });
+
+  it("leaves a LinkedIn or X post to its publish, and counts nothing with LOOPS_ENABLED off", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const before = seedPlan(db, [{ ...post, body: "Post.", status: "generated" }]);
+    await pinOriginal(person, { plan: before, node: post, body: "Post.", madeBy: made }, deps(db));
+    await recordApprovals(person, { before, after: approve(before, "Post.", { made: { ...blogStamp, made: "m1.content_write.0.n", kind: "content_write", scope: "content_write" } }) }, deps(db));
+    expect(db.dump("loop_days")).toEqual([]);
+
+    vi.stubEnv("LOOPS_ENABLED", "");
+    const db2 = new FakeFirestore();
+    const plan2 = seedPlan(db2, [{ ...hub, body: ARTICLE, status: "generated" }]);
+    await pinOriginal(person, { plan: plan2, node: hub, body: ARTICLE, madeBy: made }, deps(db2));
+    await recordApprovals(person, { before: plan2, after: approve(plan2, ARTICLE, { made: blogStamp }) }, deps(db2));
+    expect(db2.dump("loop_days")).toEqual([]);
   });
 });
 

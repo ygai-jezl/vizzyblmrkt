@@ -17,6 +17,8 @@ import {
 } from "@/lib/types/aiOriginal";
 import { editMeasures } from "@/lib/content/editMeasures";
 import { isAiOriginalsEnabled } from "./flags";
+import { keepsAiDraft } from "./aiDraft";
+import { countDraftOutcome } from "@/lib/loops/count";
 
 /**
  * The AI original of each piece a writer makes (CONTENT_AI_ORIGINALS_ENABLED), kept in
@@ -133,6 +135,15 @@ export async function recordApproval(
   args: { planId: string; node: Pick<ContentNode, "id" | "type" | "channel" | "body">; trigger: PairTrigger },
   deps: OriginalDeps = {},
 ): Promise<AiEditPair | null> {
+  return (await keepApproval(ctx, args, deps))?.pair ?? null;
+}
+
+/** recordApproval, saying too whether the pair is the first kept for this AI original, so a piece counts once however often it is approved again. */
+async function keepApproval(
+  ctx: TenantContext,
+  args: { planId: string; node: Pick<ContentNode, "id" | "type" | "channel" | "body">; trigger: PairTrigger },
+  deps: OriginalDeps = {},
+): Promise<{ pair: AiEditPair; first: boolean } | null> {
   if (!isAiOriginalsEnabled() || !args.node.body.trim()) return null;
   const repo = forTenant(ctx, deps.db).aiOriginals;
   const id = aiOriginalId(args.planId, args.node.id);
@@ -152,7 +163,7 @@ export async function recordApproval(
       sections: isArticle(args.node),
     }),
   };
-  let kept: AiEditPair | null = null;
+  let kept: { pair: AiEditPair; first: boolean } | null = null;
   await repo.upsert(
     id,
     () => {
@@ -161,7 +172,7 @@ export async function recordApproval(
     (current) => {
       const top = current.pairs[0];
       if (top && top.final.body === pair.final.body && top.original.at === current.original.at) return null;
-      kept = pair;
+      kept = { pair, first: !current.pairs.some((p) => p.original.at === current.original.at) };
       // Regenerations count from one approval to the next.
       return { pairs: [pair, ...current.pairs].slice(0, PAIRS_KEPT), regenerations: 0, updatedAt: at };
     },
@@ -176,7 +187,12 @@ export function newlyApproved(before: Pick<ContentPlan, "graph">, after: Pick<Co
   return after.graph.nodes.filter((n) => n.status === "approved" && was.get(n.id) !== "approved" && n.body.trim());
 }
 
-/** Keep each approval a plan save made (the canvas Approve). Never fails the save. */
+/**
+ * Keep each approval a plan save made (the canvas Approve). Never fails the save. A piece's first
+ * approval of its AI original also counts kept or edited against the piece's stamp, by the words
+ * changed (learning loops step 5). A LinkedIn or X post counts when it is published instead, where
+ * its words go public, so a post approved and then posted counts once.
+ */
 export async function recordApprovals(
   ctx: TenantContext,
   args: { before: ContentPlan; after: ContentPlan | null },
@@ -185,11 +201,12 @@ export async function recordApprovals(
   if (!isAiOriginalsEnabled()) return 0;
   let n = 0;
   for (const node of newlyApproved(args.before, args.after)) {
-    const pair = await recordApproval(ctx, { planId: args.before.id, node, trigger: "approve" }, deps).catch((err) => {
+    const kept = await keepApproval(ctx, { planId: args.before.id, node, trigger: "approve" }, deps).catch((err) => {
       console.error("[ai originals] keeping an approval failed", err);
       return null;
     });
-    if (pair) n += 1;
+    if (kept) n += 1;
+    if (kept?.first && !keepsAiDraft(node.channel)) await countDraftOutcome(ctx, node.made, { wordsChanged: kept.pair.measures.wordsChanged }, { db: deps.db });
   }
   return n;
 }

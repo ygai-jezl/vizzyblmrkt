@@ -17,7 +17,8 @@ import { inviteConnections, inviteLock, type InviteLockReason } from "./eligibil
 import { defaultInviteCopy, ensureInviteLink } from "./render";
 import { isInviteLinksConfigured } from "./token";
 import { forgetNoInvites } from "./attribution";
-import { countMade } from "@/lib/loops/count";
+import { countMade, countSignals } from "@/lib/loops/count";
+import { countStamped } from "@/lib/loops/decisions";
 import { keptMade } from "@/lib/loops/made";
 import type { Made } from "@/lib/types/loopStamp";
 
@@ -146,11 +147,17 @@ export async function updateWaveDraft(
   const now = new Date().toISOString();
   const updated = await repos.inviteWaves.claim(waveId, (cur) => {
     if (cur.status !== "draft") return null;
+    const body = patch.body ? ensureInviteLink(patch.body) : undefined;
+    const made = keptMade(opts.made);
+    // Vizzy's new copy starts again unedited; a person changing the words of a stamped wave marks it edited.
+    const stamped = !made && keptMade(cur.made) && !("unstamped" in cur.made!);
+    const edited = stamped && ((patch.subject !== undefined && patch.subject !== cur.subject) || (body !== undefined && body !== cur.body));
     return {
       ...patch,
-      ...(patch.body ? { body: ensureInviteLink(patch.body) } : {}),
+      ...(body !== undefined ? { body } : {}),
       ...(opts.authoredBy ? { authoredBy: opts.authoredBy } : {}),
-      ...(keptMade(opts.made) ? { made: keptMade(opts.made) } : {}),
+      ...(made ? { made, madeEdited: false } : {}),
+      ...(edited ? { madeEdited: true } : {}),
       updatedAt: now,
     };
   });
@@ -163,12 +170,14 @@ export async function updateWaveDraft(
   return { ok: true, value: updated };
 }
 
+/** Delete a draft. A draft Vizzy wrote counts declined against its stamp (learning loops step 5). */
 export async function deleteWaveDraft(ctx: TenantContext, waveId: string, db?: FirestoreLike): Promise<Result<null>> {
   const repos = forTenant(ctx, db);
   const wave = await repos.inviteWaves.getById(waveId);
   if (!wave) return { ok: false, status: 404, error: "wave_not_found" };
   if (wave.status !== "draft") return { ok: false, status: 409, error: "wave_not_draft" };
   await repos.inviteWaves.delete(waveId);
+  await countStamped(ctx, wave.made, { declined: 1 }, { db });
   return { ok: true, value: null };
 }
 
@@ -272,9 +281,12 @@ export async function sendInviteWave(
   }
   const counts = { selected: selection.selected.length, created, skipped };
   await repos.inviteWaves.update(waveId, { status: "sent", counts, updatedAt: new Date().toISOString() });
-  // The wave is one made thing, counted once here however many emails it sends; each invite's send
-  // reads the wave's stamp and counts nothing more (learning loops step 5, 4.1).
-  if (created > 0) await countMade(ctx, "canvas.invite_wave", wave.made ?? { unstamped: "person_wrote" }, { type: "invite_wave", db: deps.db });
+  // The wave is one made thing however many emails it sends (learning loops step 5, 4.1): Vizzy's
+  // copy was counted made when the canvas saved it, and sending it counts kept, or edited when a
+  // person changed its words; a person's own wave counts made once here with no stamp. Each
+  // invite's send reads the wave's stamp and counts nothing more.
+  if (wave.made && !("unstamped" in wave.made)) await countSignals(ctx, wave.made, { [wave.madeEdited ? "edited" : "kept"]: 1 }, { db: deps.db });
+  else if (created > 0) await countMade(ctx, "canvas.invite_wave", wave.made ?? { unstamped: "person_wrote" }, { type: "invite_wave", db: deps.db });
   if (created > 0) {
     if (wave.connectionId) forgetNoInvites(ctx.tenantId, wave.connectionId);
     const kick = deps.kick ?? ((c: TenantContext) => processEmailJobs(c));

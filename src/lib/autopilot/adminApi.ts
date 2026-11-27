@@ -116,7 +116,7 @@ export async function skipPick(ctx: TenantContext, raw: unknown, deps: NextUpAdm
   const pick = (await readNextUp(ctx, deps))?.picks.find((p) => p.questionId === parsed.data.questionId);
   if (!pick) return { status: 404, body: { error: "not_found" } };
   await addLearned(ctx, { kind: "skipped_pick", text: pick.question, reason: parsed.data.reason ?? "", questionId: pick.questionId, from: "person" }, deps);
-  const doc = await dropPick(ctx, parsed.data.questionId, deps);
+  const doc = await dropPick(ctx, parsed.data.questionId, "declined", deps);
   return { status: 200, body: { nextUp: doc ?? (await readNextUp(ctx, deps)) } };
 }
 
@@ -171,7 +171,7 @@ export async function closePick(ctx: TenantContext, raw: unknown, deps: ClosePic
   const started = await (deps.review ?? startReview)(ctx, { plan, by: "person", question: { id: questionId, text: pick.question } }, { db: deps.db });
   if (!started.ok) return { status: started.status, body: { error: started.error } };
   await addLearned(ctx, { kind: "added_to_article", text: pick.question, reason: to.title, questionId, from: "person" }, deps);
-  const next = await dropPick(ctx, questionId, deps);
+  const next = await dropPick(ctx, questionId, "kept", deps);
   return { status: 200, body: { link: refreshHref({ planId: plan.id, workspaceId: plan.workspaceId }), started: started.started, nextUp: next ?? (await readNextUp(ctx, deps)) } };
 }
 

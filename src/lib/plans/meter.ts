@@ -14,7 +14,8 @@ import type { ResourceId, ResourcePurpose } from "./resources";
  * resource asks its meter first (`check`), then tells it what was spent (`record`).
  *
  * A record is one merged write of increments (never a read and a transaction), so many calls at
- * once never wait on each other. The check counts first and the call runs after, as the other
+ * once never wait on each other. It adds the units by purpose and, from learning loops step 5, one
+ * call by purpose (`callsByPurpose`), which the loops' heartbeat reads for uses of each purpose. The check counts first and the call runs after, as the other
  * monthly caps do, so calls at once can go a little past a cap. A failed write never fails the
  * work it was counting.
  */
@@ -101,11 +102,13 @@ function addMaps(a: Record<string, number> | undefined, b: Record<string, number
 
 export function addCounts(a: ResourceCount, b: ResourceCount): ResourceCount {
   const byModel = a.byModel || b.byModel ? { byModel: addMaps(a.byModel, b.byModel) } : {};
+  const callsByPurpose = a.callsByPurpose || b.callsByPurpose ? { callsByPurpose: addMaps(a.callsByPurpose, b.callsByPurpose) } : {};
   return {
     total: (a.total ?? 0) + (b.total ?? 0),
     calls: (a.calls ?? 0) + (b.calls ?? 0),
     lostCalls: (a.lostCalls ?? 0) + (b.lostCalls ?? 0),
     byPurpose: addMaps(a.byPurpose, b.byPurpose),
+    ...callsByPurpose,
     ...byModel,
   };
 }
@@ -153,6 +156,8 @@ export function usageMeter<R extends ResourceId>(
                 calls: 1,
                 lostCalls: lost ? 1 : 0,
                 byPurpose: { [purpose]: n },
+                // In the same merged increment: a call of this purpose, whatever it spent.
+                callsByPurpose: { [purpose]: 1 },
                 ...(model ? { byModel: { [model]: n } } : {}),
               },
             },

@@ -45,7 +45,8 @@ async function logOutcome(ctx: TenantContext, body: LearnBody, result: LearnResu
   try {
     const facts = (access ?? (await learningAccess(ctx, "edit_mode"))).facts;
     const count = "entries" in body ? body.entries.length : body.skipped;
-    writeLearnLog(learnLogEntry("edit_mode", ctx.tenantId, facts, result, count));
+    // The line, and with LOOPS_ENABLED its count in the brand's week.
+    await writeLearnLog(learnLogEntry("edit_mode", ctx.tenantId, facts, result, count));
   } catch {
     // A log line is never worth failing the close over.
   }

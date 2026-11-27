@@ -82,7 +82,7 @@ async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps
   if (!plan || autopilotHolds(plan)) return null;
   const started = await startReview(ctx, { plan, by: "autopilot" }, { db: deps.db, now: deps.now }).catch(() => null);
   if (!started?.ok || !started.started) return null;
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return {
     step: "done",
     refreshOf: plan.id,
@@ -104,7 +104,7 @@ async function takeClose(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps):
   if (!plan || autopilotHolds(plan)) return null;
   const started = await startReview(ctx, { plan, by: "autopilot", question: { id: pick.questionId, text: pick.question } }, { db: deps.db, now: deps.now }).catch(() => null);
   if (!started?.ok || !started.started) return null;
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return {
     step: "done",
     refreshOf: plan.id,
@@ -151,7 +151,7 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     if (taken) return taken;
   }
   if (!pick) return { step: "stopped", error: "nothing_to_pick" };
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName } };
 };
 

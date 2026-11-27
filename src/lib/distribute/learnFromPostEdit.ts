@@ -111,7 +111,8 @@ export async function learnFromPublishedPost(
   const logLine = async (result: LearnResult) => {
     try {
       const facts = await brandLearnFacts(ctx, load);
-      (deps.log ?? writeLearnLog)(learnLogEntry("content_write", ctx.tenantId, facts, result, 1));
+      // The line, and with LOOPS_ENABLED its count in the brand's week (writeLearnLog).
+      await (deps.log ?? writeLearnLog)(learnLogEntry("content_write", ctx.tenantId, facts, result, 1));
     } catch {
       // A log line is never worth failing a publish over.
     }

@@ -1,5 +1,6 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
 import { CountBuffer } from "@/lib/loops/count";
+import { countStamped } from "@/lib/loops/decisions";
 import { keptMade } from "@/lib/loops/made";
 import { learnedFor } from "@/lib/loops/read";
 import type { Made } from "@/lib/types/loopStamp";
@@ -328,11 +329,19 @@ export async function readNextUp(ctx: TenantContext, deps: Pick<PickDeps, "db"> 
   return forTenant(ctx, deps.db).nextUp.getById(nextUpDocId(ctx.tenantId));
 }
 
-/** Take one pick off the stored list (Not now, or picked for a run). */
-export async function dropPick(ctx: TenantContext, questionId: string, deps: Pick<PickDeps, "db"> = {}): Promise<NextUpDoc | null> {
-  return forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) =>
-    cur.picks.some((p) => p.questionId === questionId) ? { picks: cur.picks.filter((p) => p.questionId !== questionId) } : null,
-  );
+/**
+ * Take one pick off the stored list, saying why: `declined` for Not now, `kept` when it is used (a
+ * run takes it, or it is added to an article). Once it is off, the pick counts that against its
+ * stamp (learning loops step 5), so each pick counts once.
+ */
+export async function dropPick(ctx: TenantContext, questionId: string, as: "kept" | "declined", deps: Pick<PickDeps, "db"> = {}): Promise<NextUpDoc | null> {
+  let dropped: NextUpPick | undefined;
+  const doc = await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
+    dropped = cur.picks.find((p) => p.questionId === questionId);
+    return dropped ? { picks: cur.picks.filter((p) => p.questionId !== questionId) } : null;
+  });
+  if (doc && dropped) await countStamped(ctx, dropped.made, { [as]: 1 }, { db: deps.db });
+  return doc;
 }
 
 /**

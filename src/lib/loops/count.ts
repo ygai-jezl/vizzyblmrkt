@@ -1,9 +1,10 @@
 import { isoWeekOf } from "@/lib/connectors/period";
+import { changedWords } from "@/lib/content/editMeasures";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { addToLoopDay, loopDayId, loopDayTtlAt } from "@/lib/tenant/loops";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { LOOP_SIGNALS, type CounterTree, type LoopSignal } from "@/lib/types/loopDay";
-import { LoopStampSchema, UNSTAMPED_REASONS, type LoopStamp, type Made, type UnstampedReason } from "@/lib/types/loopStamp";
+import { LoopStampSchema, SCOPE_MAX_CHARS, SCOPE_RE, UNSTAMPED_REASONS, type LoopStamp, type Made, type UnstampedReason } from "@/lib/types/loopStamp";
 import { isLoopsEnabled } from "./flags";
 import { isImageKind } from "./imageKinds";
 import { LEARN_REASONS, type LearnReason } from "./learnLog";
@@ -21,8 +22,9 @@ import { STAMP_REFUSALS, type StampRefusal } from "./stamp";
  * Under the shard's `d`:
  * - `c.<scope>.<kind>.v<v>.<arm>.<signal>`: a made thing's signals, by its stamp. The signals are
  *   LOOP_SIGNALS, plus `liked.<reason>` and `disliked.<reason>` for the why behind a vote (3.11),
- *   keyed by VOTE_REASONS (./reasons.ts). A changed vote adds a negative amount, so each thing
- *   counts once whatever week it moved in.
+ *   keyed by VOTE_REASONS (./reasons.ts), and `declined.<why>` for the why a person gave for
+ *   dismissing a suggestion (Work's shared list on agent actions, counted as given). A changed vote
+ *   adds a negative amount, so each thing counts once whatever week it moved in.
  * - `t.<type>.made`: made, by ontology type.
  * - `u.<kind>.<reason>`: saved with no stamp, by UNSTAMPED_REASONS, plus `stamp_lost` (a record
  *   lost after its output was used) and `token_<refusal>` (a stamp token a save brought back that
@@ -47,14 +49,22 @@ export function countsFor(kind: LoopKind): boolean {
   return isLoopsEnabled();
 }
 
-/** A made thing's signal, or the why behind a vote: `liked.<reason>` or `disliked.<reason>`. */
-export type CountedSignal = LoopSignal | `liked.${string}` | `disliked.${string}`;
+/** A made thing's signal, the why behind a vote (`liked.<reason>`, `disliked.<reason>`), or the why behind a dismissal (`declined.<why>`). */
+export type CountedSignal = LoopSignal | `liked.${string}` | `disliked.${string}` | `declined.${string}`;
 
 const REASON_SIGNAL = /^(liked|disliked)\.([a-z_]+)$/;
 
-/** Whether a signal can be counted for this kind: a LOOP_SIGNALS key, or a reason this kind's votes can carry in that direction. */
+/**
+ * The why a person gave for dismissing a suggestion, as a key: Work's shared list on agent actions
+ * (`declined.why`), a closed list the agent action's own schema checks before it is stored, so
+ * only its short keys reach a count.
+ */
+const DECLINE_WHY_SIGNAL = /^declined\.[a-z_]{1,24}$/;
+
+/** Whether a signal can be counted for this kind: a LOOP_SIGNALS key, the why behind a dismissal, or a reason this kind's votes can carry in that direction. */
 export function isCountedSignal(kind: LoopKind, signal: string): signal is CountedSignal {
   if ((LOOP_SIGNALS as readonly string[]).includes(signal)) return true;
+  if (DECLINE_WHY_SIGNAL.test(signal)) return true;
   const m = REASON_SIGNAL.exec(signal);
   // Only image votes carry reasons until step 7 adds them for posts and drafts.
   return Boolean(m && isImageKind(kind) && isVoteReason("image", m[1] === "liked" ? "up" : "down", m[2]!));
@@ -66,7 +76,8 @@ export type UnstampedCount = UnstampedReason | "stamp_lost" | `token_${StampRefu
 
 /** What a learner did, as counted. */
 export type LearnOutcome = "learned" | LearnReason;
-const LEARN_OUTCOMES: readonly string[] = ["learned", ...LEARN_REASONS];
+/** Read when counting, not when this file loads: ./learnLog.ts counts through this file too. */
+const isLearnOutcome = (outcome: string): boolean => outcome === "learned" || (LEARN_REASONS as readonly string[]).includes(outcome);
 
 /**
  * What happened to a learning card (Go back cards from step 4; the attention rule reads these):
@@ -147,6 +158,64 @@ export function countSignal(ctx: TenantContext, stamp: LoopStamp, signal: Counte
   return countSignals(ctx, stamp, { [signal]: 1 } as Partial<Record<CountedSignal, number>>, deps);
 }
 
+/** What a person did with a kept AI draft before it went out: kept it word for word, or edited it, and how many words changed. */
+export interface DraftOutcome {
+  signal: "kept" | "edited";
+  wordsChanged: number;
+}
+
+/** A draft against the copy that went out, or null with no draft kept to compare. Pure. */
+export function draftOutcome(draft: string | null | undefined, final: string): DraftOutcome | null {
+  if (typeof draft !== "string" || !draft.trim()) return null;
+  const wordsChanged = changedWords(draft, final ?? "");
+  return { signal: wordsChanged === 0 ? "kept" : "edited", wordsChanged };
+}
+
+/**
+ * Count what a person did with a made thing's words before it went out (4.4): kept when no word
+ * changed, edited otherwise. Given the draft and the final copy, or the words changed when the
+ * caller has measured them (an approval's AI original). Nothing without a stamp, and nothing
+ * without a kept draft (the heartbeat says "no draft kept"); with the kind's switch off nothing is
+ * compared or counted. Never throws. Returns what was counted, or null.
+ */
+export async function countDraftOutcome(
+  ctx: TenantContext,
+  made: Made | null | undefined,
+  copy: { draft: string | null | undefined; final: string } | { wordsChanged: number },
+  deps: CountDeps = {},
+): Promise<DraftOutcome | null> {
+  if (!made || "unstamped" in made || !isLoopKind(made.kind) || !countsFor(made.kind)) return null;
+  let outcome: DraftOutcome | null;
+  try {
+    if ("wordsChanged" in copy) {
+      const n = Number.isFinite(copy.wordsChanged) ? Math.max(0, Math.floor(copy.wordsChanged)) : 0;
+      outcome = { signal: n === 0 ? "kept" : "edited", wordsChanged: n };
+    } else {
+      outcome = draftOutcome(copy.draft, copy.final);
+    }
+  } catch (err) {
+    // A count never fails the work it counts.
+    console.warn("[loops] comparing a draft failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+    return null;
+  }
+  if (!outcome) return null;
+  await countSignal(ctx, made, outcome.signal, deps);
+  return outcome;
+}
+
+/**
+ * Add to the signals of things of a kind whose records keep no stamp yet (a brand map
+ * suggestion): the cell their made count went to, since every kind but the image kinds is
+ * stamped at version 0, arm none, in its own scope (learnedFor). Not for image kinds, whose
+ * stamps name a style and a version. Never throws.
+ */
+export async function countKindSignals(ctx: TenantContext, kind: LoopKind, deltas: Partial<Record<CountedSignal, number>>, deps: CountDeps = {}): Promise<void> {
+  if (!isLoopKind(kind) || isImageKind(kind) || kind === "loop_learn") return;
+  const add = amounts(deltas, (k) => isCountedSignal(kind, k));
+  if (Object.keys(add).length === 0) return;
+  await addToWeek(ctx, kind, { c: { [kind]: { [kind]: { v0: { none: add } } } } }, "signals", deps);
+}
+
 /** The most things one count of made may add: a save that keeps several records from one model call. */
 export const MADE_AT_ONCE_MAX = 100;
 
@@ -198,7 +267,7 @@ export function countRefusedToken(ctx: TenantContext, kind: LoopKind, refusal: S
 
 /** Count what a learner did for a kind: learned, or why it refused. */
 export async function countLearnOutcome(ctx: TenantContext, kind: LoopKind, outcome: LearnOutcome, deps: CountDeps = {}): Promise<void> {
-  if (!LEARN_OUTCOMES.includes(outcome)) return;
+  if (!isLearnOutcome(outcome)) return;
   await addToWeek(ctx, kind, { r: { [kind]: { [outcome]: 1 } } }, "a learn", deps);
 }
 
@@ -214,7 +283,16 @@ export async function countCard(ctx: TenantContext, kind: LoopKind, signal: Card
  * (`c.<scope>.loop_learn.v<v>.learned.<signal>`). Never throws.
  */
 export async function countVersionSignal(ctx: TenantContext, scope: string, v: number, signal: "undone" | "reversed", deps: CountDeps = {}): Promise<void> {
-  await addToWeek(ctx, "loop_learn", { c: { [scope]: { loop_learn: { [`v${v}`]: { learned: { [signal]: 1 } } } } } }, signal, deps);
+  await countLearnedSignal(ctx, "loop_learn", scope, v, signal, deps);
+}
+
+/**
+ * The same for a learner of another kind, such as a person reverting a post channel's learned
+ * patterns (`c.<scope>.<kind>.v<v>.learned.<signal>`). Never throws.
+ */
+export async function countLearnedSignal(ctx: TenantContext, kind: LoopKind, scope: string, v: number, signal: "undone" | "reversed", deps: CountDeps = {}): Promise<void> {
+  if (!Number.isInteger(v) || v < 0 || scope.length > SCOPE_MAX_CHARS || !SCOPE_RE.test(scope)) return;
+  await addToWeek(ctx, kind, { c: { [scope]: { [kind]: { [`v${v}`]: { learned: { [signal]: 1 } } } } } }, signal, deps);
 }
 
 // ----- A batch run's counts (4.1) -----

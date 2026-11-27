@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
+import { loopWeekOf } from "./count";
 import { LOOPS } from "./registry";
+import { sumWeek } from "./testing/sumWeek";
 import {
   brandLearnFacts,
   errorCode,
@@ -201,5 +205,35 @@ describe("writeLearnLog", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(info.mock.calls[0]![0]))).toMatchObject({ event: "loop_learn", reason: "plan" });
     expect(JSON.parse(String(warn.mock.calls[0]![0]))).toMatchObject({ severity: "WARNING", code: "memory_bank_500" });
+  });
+});
+
+describe("writeLearnLog counts the Memory Bank's outcomes (learning loops step 5, 4.4)", () => {
+  const NOW = new Date("2027-01-15T10:00:00.000Z");
+  const untouchable = new Proxy({}, { get: (_t, p) => { throw new Error(`a count touched the database (${String(p)})`); } }) as FirestoreLike;
+
+  it("adds learned, or the reason it skipped, per kind in the brand's week with LOOPS_ENABLED on", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const deps = { db, now: NOW, random: () => 0 };
+    await writeLearnLog(learnLogEntry("edit_mode", "ten_A", facts, { outcome: "learned", via: "edit_vizzy" }, 3), deps);
+    await writeLearnLog(learnLogEntry("edit_mode", "ten_A", facts, { outcome: "skipped", reason: "plan" }), deps);
+    await writeLearnLog(learnLogEntry("content_write", "ten_A", facts, { outcome: "skipped", reason: "off_by_person" }, 1), deps);
+    // The loops' own learners count their outcomes themselves, and a memory list line is no learn.
+    await writeLearnLog(learnLogEntry("loop_learn", "ten_A", facts, { outcome: "learned", via: "votes" }, 1, "image_style.brand"), { db: untouchable });
+    await writeLearnLog(memoryListLogEntry(ctx, new Error("memory_bank_403")), { db: untouchable });
+    expect(sumWeek(db, "ten_A", loopWeekOf(NOW))).toEqual({ r: { edit_mode: { learned: 1, plan: 1 }, content_write: { off_by_person: 1 } } });
+  });
+
+  it("counts nothing with LOOPS_ENABLED off, and never fails the line", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await writeLearnLog(learnLogEntry("edit_mode", "ten_A", facts, { outcome: "skipped", reason: "plan" }), { db: untouchable });
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const broken = { collection: () => { throw new Error("down"); }, runTransaction: () => { throw new Error("down"); } } as unknown as FirestoreLike;
+    await expect(writeLearnLog(learnLogEntry("edit_mode", "ten_A", facts, { outcome: "skipped", reason: "plan" }), { db: broken, now: NOW })).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
   });
 });

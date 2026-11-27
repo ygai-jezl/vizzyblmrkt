@@ -8,6 +8,7 @@ import { AI_LINE_MARKER } from "./drafts";
 import { validateAiLine, validateAiSubject } from "./insightValidator";
 import { isPersonViewEnabled } from "@/lib/audience/flags";
 import { personHref } from "@/lib/audience/paths";
+import { countStamped, lineDecisionSignal } from "@/lib/loops/decisions";
 
 /**
  * The Approvals queue for AI lines: what's waiting (soonest send first), what
@@ -168,12 +169,20 @@ export async function decideApproval(
     patch = { status: "skipped", fallbackReason: null };
   }
 
-  const done = await repo.claim(draftId, (cur) =>
-    cur.draftVersion === parsed.data.draftVersion && DECIDABLE.includes(cur.status) && nowMs <= Date.parse(cur.approvalDeadline)
-      ? { ...patch, decidedBy: who.slice(0, 254), decidedAt: now, draftVersion: cur.draftVersion + 1, updatedAt: now }
-      : null,
-  );
+  // What the line was when this decision claimed it, for the count below.
+  let decidedFrom: AiDraft | null = null;
+  const done = await repo.claim(draftId, (cur) => {
+    if (!(cur.draftVersion === parsed.data.draftVersion && DECIDABLE.includes(cur.status) && nowMs <= Date.parse(cur.approvalDeadline))) return null;
+    decidedFrom = cur;
+    return { ...patch, decidedBy: who.slice(0, 254), decidedAt: now, draftVersion: cur.draftVersion + 1, updatedAt: now };
+  });
   if (!done) return fail(409, "stale");
+  // A first decision on a line with a stamp counts kept, edited or declined (learning loops step 5).
+  const from = decidedFrom as AiDraft | null;
+  const signal = from
+    ? lineDecisionSignal(from, action === "approve" ? { action, line: patch.aiLine ?? "", subject: patch.subjectVariant ?? null } : { action })
+    : null;
+  if (from && signal) await countStamped(ctx, from.made, { [signal]: 1 }, { db });
   const [shown] = await view(ctx, [done], nowMs, db);
   return ok({ draft: shown });
 }

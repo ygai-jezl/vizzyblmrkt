@@ -77,6 +77,7 @@ export default function RaiseKitHelp({ ideaWords }: HelpBodyProps = {}) {
         &quot;{needCalloutOnly("team bios")}&quot;, or &quot;{needCallout("team bios")}&quot; when Vizzy can work on decks in your copy of
         YouGrow. Needs show only while you edit: they never present or print.
       </P>
+      <P>Vizzy writes decks in English for now, even when your brand has another default language.</P>
       <P>
         When Vizzy can work on decks in your copy, you can also ask in the chat, for example &quot;Make me a 10 slide pre-seed
         deck&quot; or &quot;Make a lender pack for a stock loan&quot;. Vizzy saves a draft and gives you a card to open it. Nothing is

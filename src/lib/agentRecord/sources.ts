@@ -295,6 +295,9 @@ export const CANVAS_LINES: Readonly<Record<CanvasKindName, { action: RecordActio
   person_plan: { none: "a plan for one named person stays out of the record (decision 2): it would put Vizzy's drafts on that person's timeline" },
   person_fields: { none: "recorded already, as person_fields.suggest (piece B)" },
   new_person: { none: "recorded already, as new_person.draft (piece B)" },
+  raise_deck: {
+    none: "not recorded yet: a deck has no approve step and stays a draft, and what a person does next (a later save, Put this version back, Delete deck) shows only in the deck's own changes list, which get_raise_doc reads",
+  },
 };
 
 /** Superseded, stale and expired are the system's: never a person's no. */

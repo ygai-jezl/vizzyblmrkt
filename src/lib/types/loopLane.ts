@@ -24,6 +24,11 @@ export const LaneDocSchema = z.object({
   calls: z.number().int().min(0).optional(),
   /** When a run last wrote it. */
   at: z.string().max(40).optional(),
+  /**
+   * The last closed week whose brands listed (`n`) went to the counts across brands (learning
+   * loops step 5), so each week's listed count is added once.
+   */
+  listedWeek: z.string().regex(ISO_WEEK_RE).optional(),
 });
 export type LaneDoc = z.infer<typeof LaneDocSchema>;
 

@@ -1,0 +1,139 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { addToFleetCells, fleetCellId } from "@/lib/tenant/fleetCells";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { brandWeekReport, creditMark, FleetBuffer } from "./heartbeat";
+import { kindView, namedCount, orgsView, ORG_COUNTS_BELOW_FLOOR, roundTwo, showsThings } from "./fleetView";
+import { LOOP_RULES } from "./registry";
+import { usedAcrossBrands, USED_NOTE } from "./used";
+
+/**
+ * The floors on the counts across brands (learning loops step 5, 4.7): numbers of things from 10
+ * organisations, counts of organisations below 10 for the people who run the copy (question 4).
+ */
+
+const W = "2026-W50";
+
+/** The counts many organisations' reports add up to, through their marks, as the lane would write them. */
+function rowsFrom(reports: Array<{ week?: string; window: unknown[]; plan: string; looks?: Parameters<typeof brandWeekReport>[0]["looks"] }>): Map<string, Record<string, unknown>> {
+  const buffer = new FleetBuffer();
+  for (const r of reports) {
+    const report = brandWeekReport({ week: r.week ?? W, window: r.window, looks: r.looks ?? [], plan: r.plan, industry: "unknown", calls: {}, oldCopy: false });
+    const c = creditMark(null, report, "t");
+    if (c.late) continue;
+    for (const k of c.orgCells) buffer.add(report.week, k, 1);
+    for (const [k, n] of Object.entries(c.things)) buffer.add(report.week, k, n);
+  }
+  return new Map(buffer.cells().map((x) => [x.id, x.n as Record<string, unknown>]));
+}
+
+const memoryBank = (learned: boolean) => {
+  const week = { c: { edit_mode: { edit_mode: { v0: { none: { made: 3 } } } } }, r: { edit_mode: learned ? { learned: 1 } : { plan: 2 } } };
+  return [week, week, week, week];
+};
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe("the floors", () => {
+  it("shows numbers of things only from 10 organisations, and rounds them to 2 significant figures", () => {
+    expect(LOOP_RULES.cellOrgs).toBe(10);
+    expect(showsThings(9)).toBe(false);
+    expect(showsThings(10)).toBe(true);
+    expect([roundTwo(1_234), roundTwo(87), roundTwo(5), roundTwo(0), roundTwo(99_500)]).toEqual([1_200, 87, 5, 0, 100_000]);
+  });
+
+  it("hides made, kept, liked and declined counts, and the wait, under 10 organisations, and shows them from 10", () => {
+    const nine = rowsFrom(Array.from({ length: 9 }, () => ({ window: [undefined, undefined, undefined, { c: { next_up: { next_up: { v0: { none: { made: 3, kept: 1 } } } } } }], plan: "pro" })));
+    const v9 = kindView(nine.get(fleetCellId.kind("next_up", W)));
+    expect(v9.orgs).toBe(9);
+    expect(v9.things).toBeNull();
+    expect(v9.waiting).toBeNull();
+    // Counts of organisations still show below 10, to the people who run the copy.
+    expect(v9.stages.stamped).toBe(9);
+    expect(v9.plans.pro?.reached.stamped).toBe(9);
+
+    const ten = rowsFrom(Array.from({ length: 10 }, () => ({ window: [undefined, undefined, undefined, { c: { next_up: { next_up: { v0: { none: { made: 3, kept: 1 } } } } } }], plan: "pro" })));
+    const v10 = kindView(ten.get(fleetCellId.kind("next_up", W)));
+    expect(v10.things?.out).toEqual({ none: { made: 30, kept: 10 } });
+    expect(v10.things?.coverage).toBe(1);
+  });
+
+  it("shows counts of organisations below 10 in exactly the four places question 4 names", () => {
+    expect(ORG_COUNTS_BELOW_FLOOR).toEqual(["stages", "stuck", "refused", "cards"]);
+    const two = rowsFrom([
+      { window: memoryBank(false), plan: "pro" },
+      { window: [undefined, { k: { loop_learn: { proposed: 1 } } }, undefined, undefined], plan: "pro" },
+    ]);
+    const mb = kindView(two.get(fleetCellId.kind("edit_mode", W)));
+    expect(mb.refused).toEqual({ plan: 1 });
+    expect(mb.plans.pro?.stuck.signalled).toBe(1);
+    expect(kindView(two.get(fleetCellId.kind("image_style", W))).cardOrgs).toBe(1);
+  });
+});
+
+describe("stuck per plan", () => {
+  it("reads a whole plan stuck at Signalled with none learning as amber, with its top refusal reason: the Memory Bank shape", () => {
+    const rows = rowsFrom([
+      ...Array.from({ length: 3 }, () => ({ window: memoryBank(false), plan: "pro" })),
+      ...Array.from({ length: 2 }, () => ({ window: memoryBank(true), plan: "ultra" })),
+    ]);
+    const v = kindView(rows.get(fleetCellId.kind("edit_mode", W)));
+    expect(v.plans.pro).toEqual({
+      reached: { stamped: 3, signalled: 3, learning: 0, checked: 0 },
+      stuck: { stamped: 0, signalled: 3 },
+      topReason: { signalled: "plan" },
+      amber: ["signalled"],
+    });
+    expect(v.plans.ultra).toMatchObject({ reached: { learning: 2 }, stuck: { signalled: 0 }, amber: [] });
+    // Free has no Vizzy in Edit mode, so it never reaches Stamped: no row at all.
+    expect(v.plans.free).toBeUndefined();
+  });
+
+  it("counts a partial stall, 2 of 3 organisations, as 2 and not amber", () => {
+    const rows = rowsFrom([{ window: memoryBank(false), plan: "pro" }, { window: memoryBank(false), plan: "pro" }, { window: memoryBank(true), plan: "pro" }]);
+    const v = kindView(rows.get(fleetCellId.kind("edit_mode", W)));
+    expect(v.plans.pro).toMatchObject({ reached: { signalled: 3, learning: 1 }, stuck: { signalled: 2 }, amber: [] });
+  });
+});
+
+describe("industries and the copy's own row", () => {
+  it("splits by industry only where an industry and the rest both have 10 organisations, so Unknown alone never splits", () => {
+    const rows = rowsFrom(Array.from({ length: 12 }, () => ({ window: [undefined, undefined, undefined, { c: { next_up: { next_up: { v0: { none: { made: 1 } } } } } }], plan: "free" })));
+    expect(kindView(rows.get(fleetCellId.kind("next_up", W))).industries).toEqual({});
+    const mixed = { orgs: 25, st: { stamped: { p: { free: 25 }, i: { unknown: 12, bakery: 13 } } } };
+    expect(Object.keys(kindView(mixed).industries).sort()).toEqual(["bakery", "unknown"]);
+    const o = orgsView({ orgs: 12, p: { free: 12 }, i: { unknown: 12 }, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehind: { w7: 1, w10: 1 } });
+    expect(o).toEqual({ orgs: 12, plans: { free: 12 }, industries: {}, reported: 14, listed: 20, late: 1, oldCopy: 2, foldBehindWeeks: 10 });
+  });
+
+  it("hides a type's or a purpose's count under 10 organisations", () => {
+    expect(namedCount({ orgs: { content_plan: 9 }, made: { content_plan: 40 } }, "types", "content_plan")).toEqual({ orgs: 9, count: null });
+    expect(namedCount({ orgs: { blog_write: 11 }, calls: { blog_write: 1_234 } }, "calls", "blog_write")).toEqual({ orgs: 11, count: 1_200 });
+  });
+});
+
+describe("Work's Used counts", () => {
+  it("reads nothing with LOOPS_ENABLED off", async () => {
+    const db = new FakeFirestore();
+    expect(await usedAcrossBrands({ loopKind: "next_up" }, [W], { db })).toEqual({ off: "loops_off" });
+    expect(db.collectionCalls("fleet_cells")).toBe(0);
+  });
+
+  it("reads closed weeks by id, with made added up before rounding and nothing below 10 organisations", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await addToFleetCells(
+      [
+        { id: fleetCellId.kind("image_style", W), n: { orgs: 12, out: { learned: { made: 117 }, holdback: { made: 8 } } } },
+        { id: fleetCellId.kind("image_style", "2026-W49"), n: { orgs: 4, out: { learned: { made: 30 } } } },
+        { id: fleetCellId.types(W), n: { orgs: { content_plan: 10 }, made: { content_plan: 64 } } },
+      ],
+      db,
+    );
+    const kind = await usedAcrossBrands({ loopKind: "post_image" }, [W, "2026-W49", "not a week"], { db });
+    expect(kind).toEqual({ note: USED_NOTE, weeks: [{ week: "2026-W49", orgs: 4, count: null }, { week: W, orgs: 12, count: 130 }] });
+    expect(await usedAcrossBrands({ type: "content_plan" }, [W], { db })).toEqual({ note: USED_NOTE, weeks: [{ week: W, orgs: 10, count: 64 }] });
+    expect(await usedAcrossBrands({ purpose: "blog_write" }, [W], { db })).toEqual({ note: USED_NOTE, weeks: [{ week: W, orgs: 0, count: null }] });
+    expect([...dashesIn(USED_NOTE), ...aiTellsIn(USED_NOTE)]).toEqual([]);
+  });
+});

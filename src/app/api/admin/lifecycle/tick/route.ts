@@ -15,6 +15,7 @@ import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { isSettingsEraseEnabled } from "@/lib/settings/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,8 +46,8 @@ export const dynamic = "force-dynamic";
  * most once an hour across instances (src/lib/auth/cleanup.ts).
  *
  * The learning loops lane (src/lib/loops/tick.ts) rides it too while image style versions are on
- * (IMAGE_STYLE_VERSIONS_ENABLED and the switches it needs), every 5th tick at offset 1, within its
- * own 20 second budget.
+ * (IMAGE_STYLE_VERSIONS_ENABLED and the switches it needs) or the learning loops are
+ * (LOOPS_ENABLED), every 5th tick at offset 1, within its own 20 second budget.
  * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0023) moves on beside
  * them too, a page at a time from each running job's cursor; with the switch off a job waits.
  */
@@ -70,7 +71,7 @@ const FRESHNESS_BUDGET_MS = 20_000;
 const REFRESH_BUDGET_MS = 90_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
-/** The learning loops lane (IMAGE_STYLE_VERSIONS_ENABLED): a page of brands, about every 10 minutes. */
+/** The learning loops lane (IMAGE_STYLE_VERSIONS_ENABLED or LOOPS_ENABLED): a page of brands, about every 10 minutes. */
 const LOOPS_BUDGET_MS = 20_000;
 /** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */
 const FIELD_ERASE_BUDGET_MS = 20_000;
@@ -90,8 +91,7 @@ export async function POST(req: Request) {
   const freshness = isBlogFreshnessEnabled();
   const refresh = isBlogRefreshEnabled();
   const authCleanup = isPasswordSigninEnabled();
-  // Step 5 adds LOOPS_ENABLED here.
-  const loops = isImageStyleVersionsOn();
+  const loops = isImageStyleVersionsOn() || isLoopsEnabled();
   const fieldErase = isSettingsEraseEnabled();
   const journeys = product || waitlist || people;
   if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase))) {
@@ -265,7 +265,9 @@ export async function POST(req: Request) {
         ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
         ...(refreshResult?.brands ? { refresh: refreshResult } : {}),
         ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
-        ...(loopsResult?.brands ? { loops: { brands: loopsResult.brands, idle: loopsResult.idle, learned: loopsResult.learned, verdicts: loopsResult.verdicts } } : {}),
+        ...(loopsResult?.brands
+          ? { loops: { brands: loopsResult.brands, idle: loopsResult.idle, learned: loopsResult.learned, verdicts: loopsResult.verdicts, ...(loopsResult.reported ? { reported: loopsResult.reported } : {}) } }
+          : {}),
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
       });
     } finally {

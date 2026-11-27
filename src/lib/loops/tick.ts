@@ -12,16 +12,20 @@ import { clearOldCopy, hasOldCopy } from "./oldCopy";
 import { readAttention } from "./attention";
 import { expireGoBackCards, goBackOf, openGoBackCards, soonestExpiry } from "./cards";
 import { loopWeekOf } from "./count";
+import { isLoopsEnabled } from "./flags";
 import { foldClosedWeeks, lastClosedWeek } from "./fold";
+import { FleetBuffer, heartbeat, type HeartbeatDeps } from "./heartbeat";
 import { runImageVerdicts, newVerdictRun, type VerdictRun } from "./imageVerdict";
 import { isHolding, newLearnRun, readLoopCounts, runVotesLearner, type HoldState, type LearnRun, type VotesLearnerDeps, type VotesLearnerResult } from "./learners/votes";
 import { LOOP_RULES } from "./registry";
 import { seedBrand } from "./seed";
 
 /**
- * The loops lane (learning loops step 4, 4.5 of the plan for steps 4 and 5), run by the lifecycle
- * tick (src/app/api/admin/lifecycle/tick/route.ts) while image style versions are on. Step 4
- * builds it with only its image parts; step 5 widens it behind LOOPS_ENABLED.
+ * The loops lane (learning loops steps 4 and 5, 4.5 and 4.6 of the plan for steps 4 and 5), run
+ * by the lifecycle tick (src/app/api/admin/lifecycle/tick/route.ts) while image style versions
+ * (IMAGE_STYLE_VERSIONS_ENABLED) or the learning loops (LOOPS_ENABLED) are on. Its image parts
+ * (the seed, the old copy, cards, the learner and the verdict) run only with image style versions
+ * on; the fold runs with either; the heartbeat only with LOOPS_ENABLED.
  *
  * - Cadence: every 5th tick, at offset 1, about every 10 minutes, so it never shares a tick with
  *   the lanes on multiples of 5 or the connectors lane (every 15th, at offset 7).
@@ -31,10 +35,11 @@ import { seedBrand } from "./seed";
  *   on `loop_lane`'s `lane` document: 1 read and 1 write a run. K is N / 144, kept between 5 and
  *   100, with N the registry counted about weekly, so each brand is visited about once a day.
  * - Per brand, 4 at a time, each step stopping at the deadline:
- *   1. the idle check, one batched read of `lb:`, `ls:` and the open week's 5 shards: a brand
- *      seeded and folded, whose people's signals this week and whose pointers (a Pause or Resume,
- *      an Undo, a Keep) haven't moved since the last full visit, and with nothing due by time, is
- *      left at that;
+ *   1. the idle check, one batched read of `lb:`, `ls:` and (for the image parts) the open week's
+ *      5 shards: a brand folded, with no closed week left to report, and, with image style
+ *      versions on, seeded, whose people's signals this week and whose pointers (a Pause or
+ *      Resume, an Undo, a Keep) haven't moved since the last full visit, and with nothing due by
+ *      time, is left at that;
  *   2. the seed (src/lib/loops/seed.ts), on its first visit;
  *   3. a forgotten look's old copy on the brand record, cleared until it is gone;
  *   4. the fold of closed weeks (src/lib/loops/fold.ts);
@@ -42,7 +47,13 @@ import { seedBrand } from "./seed";
  *   6. the votes learner (src/lib/loops/learners/votes.ts), within the run's call budget and the
  *      copy's daily ceiling, counted on the lane document;
  *   7. the verdict for each learned look that is due (src/lib/loops/imageVerdict.ts), at most
- *      LOOP_RULES.laneVerdictReads reads a run, one read held at a time.
+ *      LOOP_RULES.laneVerdictReads reads a run, one read held at a time;
+ *   8. the heartbeat (src/lib/loops/heartbeat.ts) for each closed and folded week not yet reported,
+ *      with LOOPS_ENABLED: the brand's week moves its organisation's mark on `loop_lane`, and the
+ *      run adds every brand's credited increments to `fleet_cells` in one batched write at its end.
+ * - With LOOPS_ENABLED on, the idle check also waits for a week to report, a brand whose fold is
+ *   more than LOOP_RULES.foldBehindDays behind is counted once a week (the fold alarm), and each
+ *   closed week's brands listed are counted once, against the brands that reported it.
  * - Logs: the route adds "brands=<n> rows=<n> heapDeltaMiB=<n>" to its "[tick] loops <ms>ms"
  *   line, and "[loops] fold behind <days>" shows a fold more than 42 days behind.
  * Nothing is kept between brands. Server only.
@@ -169,6 +180,8 @@ export interface LoopsLaneDeps {
   learner?: Pick<VotesLearnerDeps, "synthesize" | "profile" | "configured" | "log" | "loadTenant">;
   /** The brand's open Go back cards (openGoBackCards by default), for tests. */
   openCards?: typeof openGoBackCards;
+  /** A brand's usage meter for a month (usageThisMonth by default), for the heartbeat's calls, for tests. */
+  usage?: HeartbeatDeps["usage"];
 }
 
 export interface LoopsLaneResult {
@@ -180,8 +193,13 @@ export interface LoopsLaneResult {
   rows: number;
   learned: number;
   verdicts: number;
-  /** Brands the run reached, in order (for tests and the coverage line in step 5). */
+  /** Brands the run reached, in order (for tests, and the coverage line in the counts across brands). */
   visited: string[];
+  /** Brand weeks the heartbeat reported, and those dropped as late (LOOPS_ENABLED). */
+  reported: number;
+  late: number;
+  /** Rows of the counts across brands the run added to. */
+  cells: number;
   heapDeltaMiB: number;
 }
 
@@ -190,7 +208,12 @@ interface BrandVisit {
   rows: number;
   learned: number;
   verdicts: number;
+  reported: number;
+  late: number;
 }
+
+/** The fold alarm's weeks behind are counted up to this many, as 10 or more. */
+const BEHIND_WEEKS_MAX = 10;
 
 /** The looks the brand record held before versions, as the seed reads them, from the projected row. */
 function legacyTenantOf(row: TenantPageRow): Pick<Tenant, "brandKit" | "imageStyle"> {
@@ -212,16 +235,19 @@ export async function cardsAsNotice(ctx: TenantContext, pointers: Pick<BrandPoin
 }
 
 /** One brand's visit. Never throws for the brand's own trouble. */
-async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: VerdictRun; deadlineMs: number }, deps: LoopsLaneDeps): Promise<BrandVisit> {
+async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: VerdictRun; deadlineMs: number; fleet: FleetBuffer }, deps: LoopsLaneDeps): Promise<BrandVisit> {
   const ctx: TenantContext = { tenantId: row.id, region: row.region, source: "system" };
   const now = (deps.now ?? (() => new Date()))();
   const clock = deps.clock ?? Date.now;
   const db = deps.db;
-  const out: BrandVisit = { idle: false, rows: 0, learned: 0, verdicts: 0 };
+  const out: BrandVisit = { idle: false, rows: 0, learned: 0, verdicts: 0, reported: 0, late: 0 };
+  const versions = isImageStyleVersionsOn();
+  const loopsOn = isLoopsEnabled();
 
-  // 1. The idle check: one batched read.
+  // 1. The idle check: one batched read (the open week's shards only for the image parts).
   const week = loopWeekOf(now);
-  const shardIds = Array.from({ length: LOOP_RULES.shards }, (_, i) => loopDayId.week(ctx.tenantId, week, i));
+  const lastClosed = lastClosedWeek(now);
+  const shardIds = versions ? Array.from({ length: LOOP_RULES.shards }, (_, i) => loopDayId.week(ctx.tenantId, week, i)) : [];
   const [lb, ls, ...shardDocs] = await readLoopDays(ctx, [loopDayId.brand(ctx.tenantId), loopDayId.lane(ctx.tenantId), ...shardIds], db);
   const pointers0 = BrandPointersSchema.safeParse(lb?.d ?? {});
   let pointers: BrandPointers = pointers0.success ? pointers0.data : BrandPointersSchema.parse({});
@@ -229,98 +255,136 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
   const lane: LaneState = lane0.success ? lane0.data : {};
   const shards = shardDocs.map((d) => d?.d);
   const hash = visitHash(shards, pointers);
-  const folded = Boolean(lane.foldedThrough && lane.foldedThrough >= lastClosedWeek(now));
-  const forgotPending = Object.entries(pointers.forgot ?? {}).filter(([scope, { at }]) => hasOldCopy(row, scope, at));
+  const folded = Boolean(lane.foldedThrough && lane.foldedThrough >= lastClosed);
+  // With LOOPS_ENABLED, a closed week not yet reported keeps the visit full.
+  const beatDue = loopsOn && !(lane.heartbeatWeek && lane.heartbeatWeek >= lastClosed);
+  const forgotPending = versions ? Object.entries(pointers.forgot ?? {}).filter(([scope, { at }]) => hasOldCopy(row, scope, at)) : [];
   const quiet = lane.seen?.week === week && lane.seen.hash === hash && Boolean(lane.quietUntil) && now.toISOString() < lane.quietUntil!;
-  if (pointers.seededAt && folded && forgotPending.length === 0 && quiet) {
+  const imagesIdle = !versions || (Boolean(pointers.seededAt) && forgotPending.length === 0 && quiet);
+  if (folded && !beatDue && imagesIdle) {
     out.idle = true;
     return out;
   }
 
-  // 2. The seed, once.
-  if (!pointers.seededAt) {
-    const seeded = await seedBrand(ctx, legacyTenantOf(row), { db, now });
-    if (!seeded.ok) return out;
-    pointers = await readBrandPointers(ctx, db);
+  if (versions) {
+    // 2. The seed, once.
+    if (!pointers.seededAt) {
+      const seeded = await seedBrand(ctx, legacyTenantOf(row), { db, now });
+      if (!seeded.ok) return out;
+      pointers = await readBrandPointers(ctx, db);
+    }
+
+    // 3. A forgotten look's old copy on the brand record, until it is gone.
+    for (const [scope, { at }] of forgotPending) await clearOldCopy(ctx, row, scope, at, { controlDb: deps.controlDb });
   }
 
-  // 3. A forgotten look's old copy on the brand record, until it is gone.
-  for (const [scope, { at }] of forgotPending) await clearOldCopy(ctx, row, scope, at, { controlDb: deps.controlDb });
-
   // 4. The fold.
+  let foldedThrough = lane.foldedThrough;
+  /** The fold alarm across brands: how many weeks behind the fold was, counted once a week. */
+  let behindWeeks: number | null = null;
   if (!folded) {
     const f = await foldClosedWeeks(ctx, lane.foldedThrough, { db, now });
+    if (f.foldedThrough) foldedThrough = f.foldedThrough;
     // A brand folded before that has fallen behind; a brand's first fold starts at the oldest week kept.
-    if (lane.foldedThrough && f.behindDays !== null && f.behindDays > LOOP_RULES.foldBehindDays) console.warn(`[loops] fold behind ${f.behindDays}`);
+    if (lane.foldedThrough && f.behindDays !== null && f.behindDays > LOOP_RULES.foldBehindDays) {
+      console.warn(`[loops] fold behind ${f.behindDays}`);
+      if (loopsOn && !pointers.fleetOptOut && lane.behindWeek !== lastClosed) behindWeeks = Math.min(BEHIND_WEEKS_MAX, Math.ceil(f.behindDays / 7));
+    }
   }
   if (run.deadlineMs - clock() < LANE.MIN_LEFT_MS) return out;
 
-  // 5. Go back cards past their 14 days.
-  let cardsRead = true;
-  const open = await (deps.openCards ?? openGoBackCards)(ctx, { db, now }).catch(() => {
-    cardsRead = false;
-    return [];
-  });
-  await expireGoBackCards(ctx, { db, now }).catch(() => 0);
+  let quietUntil: string | undefined;
+  if (versions) {
+    // 5. Go back cards past their 14 days.
+    let cardsRead = true;
+    const open = await (deps.openCards ?? openGoBackCards)(ctx, { db, now }).catch(() => {
+      cardsRead = false;
+      return [];
+    });
+    await expireGoBackCards(ctx, { db, now }).catch(() => 0);
 
-  // 6. The votes learner. It never runs on a scope whose Go back card is open, so when the cards
-  // couldn't be read it waits for the next visit instead of learning past one.
-  let retry = !cardsRead;
-  let weekWait: string | null = null;
-  const holds = new Map<string, HoldState>();
-  const learned: VotesLearnerResult = cardsRead
-    ? await runVotesLearner(ctx, run.learn, {
+    // 6. The votes learner. It never runs on a scope whose Go back card is open, so when the cards
+    // couldn't be read it waits for the next visit instead of learning past one.
+    let retry = !cardsRead;
+    let weekWait: string | null = null;
+    const holds = new Map<string, HoldState>();
+    const learned: VotesLearnerResult = cardsRead
+      ? await runVotesLearner(ctx, run.learn, {
+          db,
+          now,
+          clock,
+          laneState: await readLaneState(ctx, db),
+          // The cards read above, past their 14 days left out: no second read.
+          goBackOpen: async () => new Set(open.flatMap((a) => goBackOf(a)?.scope ?? [])),
+          ...(deps.learner ?? {}),
+        })
+      : { outcomes: [], readRows: false };
+    out.rows += learned.rows ?? 0;
+    for (const o of learned.outcomes) {
+      if (o.outcome === "learned") out.learned += 1;
+      if (o.outcome === "refused" && (o.reason === "error" || o.reason === "budget")) retry = true;
+      if (o.outcome === "waiting" && o.why === "unprofiled") retry = true;
+      if (o.outcome === "waiting" && o.why === "hold" && o.hold) holds.set(o.scope, o.hold);
+      if (o.outcome === "waiting" && o.why === "week") {
+        const adopted = pointers.scopes[o.scope]?.adoptedAt;
+        const at = adopted ? new Date(Date.parse(adopted) + LOOP_RULES.learnEveryDays * DAY_MS).toISOString() : null;
+        if (at && (!weekWait || at < weekWait)) weekWait = at;
+      }
+    }
+    if (out.learned > 0) pointers = await readBrandPointers(ctx, db);
+
+    // 7. The verdicts.
+    let dueAt: string | null = null;
+    if (run.deadlineMs - clock() >= LANE.MIN_LEFT_MS) {
+      const counts = await readLoopCounts(ctx, pointers, { now, db });
+      const v = await runImageVerdicts(ctx, pointers, counts.versions, run.verdicts, {
         db,
         now,
-        clock,
-        laneState: await readLaneState(ctx, db),
-        // The cards read above, past their 14 days left out: no second read.
-        goBackOpen: async () => new Set(open.flatMap((a) => goBackOf(a)?.scope ?? [])),
-        ...(deps.learner ?? {}),
-      })
-    : { outcomes: [], readRows: false };
-  out.rows += learned.rows ?? 0;
-  for (const o of learned.outcomes) {
-    if (o.outcome === "learned") out.learned += 1;
-    if (o.outcome === "refused" && (o.reason === "error" || o.reason === "budget")) retry = true;
-    if (o.outcome === "waiting" && o.why === "unprofiled") retry = true;
-    if (o.outcome === "waiting" && o.why === "hold" && o.hold) holds.set(o.scope, o.hold);
-    if (o.outcome === "waiting" && o.why === "week") {
-      const adopted = pointers.scopes[o.scope]?.adoptedAt;
-      const at = adopted ? new Date(Date.parse(adopted) + LOOP_RULES.learnEveryDays * DAY_MS).toISOString() : null;
-      if (at && (!weekWait || at < weekWait)) weekWait = at;
-    }
+        proposedThisWeek: cardsProposed(shards),
+        noticeOnly: () => cardsAsNotice(ctx, pointers, { now, db }),
+      });
+      out.rows += v.rows;
+      out.verdicts += v.verdicts.length;
+      dueAt = v.dueAt;
+      // A read that ended a look's hold, or one that waited for the budget, needs the next visit to be full.
+      const freed = v.verdicts.some((x) => {
+        const hold = holds.get(x.scope);
+        return hold !== undefined && !isHolding({ ...hold, counted: x.check.counted, settled: x.check.settled });
+      });
+      if (freed || v.deferred) retry = true;
+    } else retry = true;
+
+    // When nothing is due by time alone, until the next full visit.
+    const times = [weekWait, dueAt, soonestExpiry(open), new Date(now.getTime() + LANE.QUIET_MAX_DAYS * DAY_MS).toISOString()].filter((t): t is string => !!t);
+    quietUntil = retry ? now.toISOString() : times.sort()[0]!;
   }
-  if (out.learned > 0) pointers = await readBrandPointers(ctx, db);
 
-  // 7. The verdicts.
-  let dueAt: string | null = null;
-  if (run.deadlineMs - clock() >= LANE.MIN_LEFT_MS) {
-    const counts = await readLoopCounts(ctx, pointers, { now, db });
-    const v = await runImageVerdicts(ctx, pointers, counts.versions, run.verdicts, {
-      db,
-      now,
-      proposedThisWeek: cardsProposed(shards),
-      noticeOnly: () => cardsAsNotice(ctx, pointers, { now, db }),
-    });
-    out.rows += v.rows;
-    out.verdicts += v.verdicts.length;
-    dueAt = v.dueAt;
-    // A read that ended a look's hold, or one that waited for the budget, needs the next visit to be full.
-    const freed = v.verdicts.some((x) => {
-      const hold = holds.get(x.scope);
-      return hold !== undefined && !isHolding({ ...hold, counted: x.check.counted, settled: x.check.settled });
-    });
-    if (freed || v.deferred) retry = true;
-  } else retry = true;
+  // 8. The heartbeat, for each closed and folded week not yet reported.
+  if (beatDue && run.deadlineMs - clock() >= LANE.MIN_LEFT_MS) {
+    const beat = await heartbeat(ctx, row, { lane, pointers, foldedThrough }, run.fleet, { db, controlDb: deps.controlDb, now, usage: deps.usage });
+    out.reported += beat.weeks - beat.late;
+    out.late += beat.late;
+  }
 
-  // When nothing is due by time alone, until the next full visit.
-  const times = [weekWait, dueAt, soonestExpiry(open), new Date(now.getTime() + LANE.QUIET_MAX_DAYS * DAY_MS).toISOString()].filter((t): t is string => !!t);
-  const quietUntil = retry ? now.toISOString() : times.sort()[0]!;
   // The pointers as the visit left them: a seed or a look it learned is not a change to look at again.
-  await mergeLaneState(ctx, { seen: { week, hash: visitHash(shards, pointers) }, quietUntil, runs: (lane.runs ?? 0) + 1, lastRunAt: now.toISOString() }, db).catch((err) => {
-    console.warn("[loops] keeping the lane's state failed", err instanceof Error ? err.message.slice(0, 200) : "error");
-  });
+  const kept = await mergeLaneState(
+    ctx,
+    {
+      ...(versions && quietUntil ? { seen: { week, hash: visitHash(shards, pointers) }, quietUntil } : {}),
+      ...(behindWeeks !== null ? { behindWeek: lastClosed } : {}),
+      runs: (lane.runs ?? 0) + 1,
+      lastRunAt: now.toISOString(),
+    },
+    db,
+  ).then(
+    () => true,
+    (err: unknown) => {
+      console.warn("[loops] keeping the lane's state failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+      return false;
+    },
+  );
+  // Counted once the brand keeps the week it was counted for, so a rerun never counts it again.
+  if (kept && behindWeeks !== null) run.fleet.add(lastClosed, `_orgs/foldBehind/w${behindWeeks}`, 1);
   return out;
 }
 
@@ -336,10 +400,11 @@ async function pool<T>(items: readonly T[], n: number, fn: (item: T) => Promise<
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
 }
 
-/** The lane's run: its brands, their visits, and the lane document moved on. */
+/** The lane's run: its brands, their visits, the lane document moved on, and the run's counts across brands written. */
 export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLaneDeps = {}): Promise<LoopsLaneResult> {
-  const result: LoopsLaneResult = { brands: 0, idle: 0, rows: 0, learned: 0, verdicts: 0, visited: [], heapDeltaMiB: 0 };
-  if (!isImageStyleVersionsOn()) return { ...result, skipped: "switch" };
+  const result: LoopsLaneResult = { brands: 0, idle: 0, rows: 0, learned: 0, verdicts: 0, visited: [], reported: 0, late: 0, cells: 0, heapDeltaMiB: 0 };
+  const loopsOn = isLoopsEnabled();
+  if (!isImageStyleVersionsOn() && !loopsOn) return { ...result, skipped: "switch" };
   const now = (deps.now ?? (() => new Date()))();
   const clock = deps.clock ?? Date.now;
   if (!deps.anyTick && !isLoopsTick(now.getTime())) return { ...result, skipped: "tick" };
@@ -366,7 +431,8 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
   const cursor = brands.length ? brands[brands.length - 1]!.id : null;
 
   const callsToday = doc.day === today ? (doc.calls ?? 0) : 0;
-  const run = { learn: newLearnRun({ deadlineMs: opts.deadlineMs, callsToday }), verdicts: newVerdictRun(), deadlineMs: opts.deadlineMs };
+  const fleet = new FleetBuffer();
+  const run = { learn: newLearnRun({ deadlineMs: opts.deadlineMs, callsToday }), verdicts: newVerdictRun(), deadlineMs: opts.deadlineMs, fleet };
   await pool(brands, LANE.AT_ONCE, async (row) => {
     if (row.status === "suspended" || opts.deadlineMs - clock() < LANE.MIN_LEFT_MS) return;
     result.brands += 1;
@@ -377,14 +443,26 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
       result.rows += v.rows;
       result.learned += v.learned;
       result.verdicts += v.verdicts;
+      result.reported += v.reported;
+      result.late += v.late;
     } catch (err) {
       console.warn(`[loops] ${row.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
   });
 
-  await writeLoopLane({ cursor, n, nAt, day: today, calls: callsToday + run.learn.calls, at: now.toISOString() }, deps.controlDb).catch((err) => {
+  // Each closed week's brands listed, counted once: the lane document keeps the week first, so a
+  // run that can't keep it adds none.
+  const lastClosed = lastClosedWeek(now);
+  const listNow = loopsOn && (!doc.listedWeek || doc.listedWeek < lastClosed);
+  const listedWeek = listNow ? lastClosed : doc.listedWeek;
+  try {
+    await writeLoopLane({ cursor, n, nAt, day: today, calls: callsToday + run.learn.calls, at: now.toISOString(), ...(listedWeek ? { listedWeek } : {}) }, deps.controlDb);
+    if (listNow) fleet.add(lastClosed, "_orgs/listed", n);
+  } catch (err) {
     console.warn("[loops] keeping the lane's cursor failed", err instanceof Error ? err.message.slice(0, 200) : "error");
-  });
+  }
+  // The run's counts across brands, in one batched write.
+  if (fleet.size) result.cells = await fleet.flush(deps.controlDb);
   result.heapDeltaMiB = Math.round(((memory().heapUsed - before.heapUsed) / MIB) * 10) / 10;
   return result;
 }

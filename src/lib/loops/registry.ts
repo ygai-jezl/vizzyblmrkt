@@ -349,7 +349,7 @@ export const LOOP_RULES = {
   stallOutputs: 10,
   /** Or once it stays there 28 days, whichever comes first: the stages' own window, so a quiet brand's stall still shows. */
   stallDays: 28,
-  /** Counts across brands are shown only for groups of 10 or more organisations, so no one brand can be picked out. */
+  /** Numbers of things across brands, shares and industry splits show only from 10 organisations, so no one brand can be picked out; counts of organisations (per step, stuck, by refusal reason and with a Go back card) show below 10 to the people who run the copy only, and never set defaults. */
   cellOrgs: 10,
   /** A gap's revisit date is at most 6 months ahead, so every gap is looked at again within two quarters. */
   revisitMaxMonths: 6,

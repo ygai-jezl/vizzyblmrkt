@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readLoopLane } from "@/lib/tenant/loopLane";
+import { FLEET_CELLS, fleetCellId } from "@/lib/tenant/fleetCells";
+import { LOOP_LANE, readLoopLane } from "@/lib/tenant/loopLane";
 import { LOOP_DAYS, readBrandPointers, readLaneState, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { getPatternVersion } from "@/lib/tenant/patternVersions";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { setImageLearningPaused } from "./actions";
-import { countCard } from "./count";
+import { countCard, countKindSignals, loopWeekOf } from "./count";
+import { weekBefore } from "./fold";
 import { cardsAsNotice, containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash, visitHash } from "./tick";
 
 /** The loops lane (learning loops step 4, 4.5): its page through the brands, the idle check, the guard and the seed. */
@@ -173,5 +175,106 @@ describe("the guards", () => {
     const p = { scopes: { "image_style.natural_photo": { v: 1, setBy: "learned" as const, adoptedAt: "2026-12-01T09:00:00.000Z" } }, seededAt: "2026-12-01T09:00:00.000Z" };
     expect(visitHash([people], p)).toBe(visitHash([people], { seededAt: p.seededAt, scopes: p.scopes }));
     expect(visitHash([people], { ...p, pause: { image_style: { at: "2026-12-02T09:00:00.000Z" } } })).not.toBe(visitHash([people], p));
+  });
+});
+
+describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
+  const W = weekBefore(loopWeekOf(NOW));
+  const IN_W = new Date("2026-12-09T10:00:00.000Z");
+  const ctxOf = (tenantId: string) => ({ tenantId, region: "us" as const, source: "system" as const });
+  const made = (tenantId: string, n: number) => countKindSignals(ctxOf(tenantId), "next_up", { made: n }, { db, now: IN_W });
+  const row = (id: string) => (db.raw(FLEET_CELLS, id) as { n: Record<string, unknown> } | undefined)?.n;
+
+  beforeEach(() => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+  });
+
+  it("runs with only LOOPS_ENABLED on: it folds and reports each brand's closed week, and never seeds or reads image rows", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    expect(loopWeekOf(IN_W)).toBe(W);
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    await made("ten_hearth", 3);
+    const first = await lane();
+    expect(first).toMatchObject({ brands: 1, idle: 0, reported: 1, late: 0 });
+    expect(first.cells).toBeGreaterThan(0);
+    expect(row(fleetCellId.kind("next_up", W))).toMatchObject({ orgs: 1, out: { none: { made: 3 } }, st: { stamped: { p: { open: 1 }, i: { unknown: 1 } } } });
+    expect(row(fleetCellId.orgs(W))).toMatchObject({ orgs: 1, reported: 1, listed: 1 });
+    expect((await readBrandPointers(ctxOf("ten_hearth"), db)).seededAt).toBeUndefined();
+    expect(db.collectionCalls("image_assets")).toBe(0);
+    // Reported and folded: the next visit is one batched read of lb: and ls:.
+    const opened = db.collectionCalls(LOOP_DAYS);
+    expect(await lane()).toMatchObject({ brands: 1, idle: 1, reported: 0 });
+    expect(db.collectionCalls(LOOP_DAYS) - opened).toBe(2);
+  });
+
+  it("counts an organisation with two brands once, caps its outputs at 20, and never counts twice on a rerun", async () => {
+    brand("ten_lumen_eu", { organisationId: "org_lumen" });
+    brand("ten_lumen_us", { organisationId: "org_lumen" });
+    await made("ten_lumen_eu", 15);
+    await made("ten_lumen_us", 15);
+    expect(await lane()).toMatchObject({ brands: 2, reported: 2 });
+    const before = row(fleetCellId.kind("next_up", W));
+    expect(before).toMatchObject({ orgs: 1, out: { none: { made: 20 } }, st: { stamped: { p: { open: 1 } } } });
+    expect(row(fleetCellId.orgs(W))).toMatchObject({ orgs: 1, reported: 2 });
+    expect(await lane()).toMatchObject({ brands: 2, reported: 0 });
+    expect(row(fleetCellId.kind("next_up", W))).toEqual(before);
+    // One mark for the organisation, beside the lane's own document.
+    expect(db.dump(LOOP_LANE)).toHaveLength(2);
+  });
+
+  it("drops a report older than its organisation's mark and counts it as late, and adds only what the mark hasn't credited", async () => {
+    const w1 = weekBefore(W);
+    brand("ten_lumen_eu", { organisationId: "org_lumen" });
+    db.seed(LOOP_LANE, "o:org_lumen", { d: { week: W, cells: ["_orgs/orgs"], outputs: {} } });
+    db.seed(LOOP_DAYS, "ls:ten_lumen_eu", { tenantId: "ten_lumen_eu", d: { foldedThrough: weekBefore(w1), heartbeatWeek: weekBefore(w1) } });
+    expect(await lane()).toMatchObject({ brands: 1, reported: 1, late: 1 });
+    expect(row(fleetCellId.orgs(w1))).toEqual({ late: 1 });
+    const now = row(fleetCellId.orgs(W))!;
+    expect(now.orgs).toBeUndefined();
+    expect(now).toMatchObject({ p: { open: 1 }, reported: 1 });
+  });
+
+  it("leaves a brand that opted out out of every count across brands, and keeps its own learning", async () => {
+    brand("ten_hearth");
+    await made("ten_hearth", 4);
+    await runLoopsTransaction(ctxOf("ten_hearth"), async (txn) => writeBrandPointersTx(txn, ctxOf("ten_hearth"), { scopes: {}, fleetOptOut: { at: "2026-12-01T09:00:00.000Z" } }, db), db);
+    expect(await lane()).toMatchObject({ brands: 1, reported: 0 });
+    expect(row(fleetCellId.kind("next_up", W))).toBeUndefined();
+    expect(db.dump(LOOP_LANE)).toHaveLength(1);
+    expect((await readLaneState(ctxOf("ten_hearth"), db)).heartbeatWeek).toBe(W);
+    // Its own week is still folded.
+    expect(db.raw(LOOP_DAYS, `lt:ten_hearth:${W}`)).toBeDefined();
+  });
+
+  it("counts each closed week's brands listed once, however many runs it takes", async () => {
+    brand("ten_a");
+    brand("ten_b");
+    await lane();
+    await lane();
+    expect(row(fleetCellId.orgs(W))).toMatchObject({ listed: 2, reported: 2 });
+    expect((await readLoopLane(db)).listedWeek).toBe(W);
+  });
+
+  it("counts a brand whose fold fell more than 42 days behind once a week, and logs it", async () => {
+    let behind = W;
+    for (let i = 0; i < 8; i++) behind = weekBefore(behind);
+    brand("ten_hearth");
+    db.seed(LOOP_DAYS, "ls:ten_hearth", { tenantId: "ten_hearth", d: { foldedThrough: behind, heartbeatWeek: W } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await lane();
+    expect(warn).toHaveBeenCalledWith("[loops] fold behind 51");
+    expect(row(fleetCellId.orgs(W))).toMatchObject({ foldBehind: { w8: 1 } });
+    expect((await readLaneState(ctxOf("ten_hearth"), db)).behindWeek).toBe(W);
+  });
+
+  it("changes nothing with LOOPS_ENABLED off: no heartbeat, no marks and no counts across brands", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "");
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    const r = await lane();
+    expect(r).toMatchObject({ brands: 1, reported: 0, cells: 0 });
+    expect(db.dump(FLEET_CELLS)).toEqual([]);
+    expect(db.dump(LOOP_LANE)).toHaveLength(1);
+    expect((await readLoopLane(db)).listedWeek).toBeUndefined();
+    expect((await readLaneState(ctxOf("ten_hearth"), db)).heartbeatWeek).toBeUndefined();
   });
 });

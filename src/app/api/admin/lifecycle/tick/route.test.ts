@@ -28,7 +28,7 @@ const refresh = vi.hoisted(() => ({ runRefreshReviews: vi.fn(async () => ({ bran
 vi.mock("@/lib/content/blog/refreshReview", () => (loaded.add("refresh"), refresh));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
-const loopsLane = vi.hoisted(() => ({ runLoopsLane: vi.fn(async () => ({ brands: 3, idle: 1, rows: 120, learned: 1, verdicts: 1, visited: [], heapDeltaMiB: 2.5 })) }));
+const loopsLane = vi.hoisted(() => ({ runLoopsLane: vi.fn(async () => ({ brands: 3, idle: 1, rows: 120, learned: 1, verdicts: 1, visited: [], reported: 0, late: 0, cells: 0, heapDeltaMiB: 2.5 })) }));
 vi.mock("@/lib/loops/tick", () => (loaded.add("loops"), loopsLane));
 const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
 vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
@@ -570,6 +570,16 @@ describe("the lifecycle tick with the learning loops lane", () => {
     const [{ deadlineMs }] = loopsLane.runLoopsLane.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 50);
     expect(tickLines().some((line) => /^\[tick\] loops \d+ms brands=3 rows=120 heapDeltaMiB=2\.5$/.test(line))).toBe(true);
+  });
+
+  it("runs the lane for the scheduler with only LOOPS_ENABLED on, and says how many brand weeks it reported", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    loopsLane.runLoopsLane.mockResolvedValueOnce({ brands: 5, idle: 0, rows: 0, learned: 0, verdicts: 0, visited: [], reported: 5, late: 0, cells: 12, heapDeltaMiB: 1 });
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", loops: { brands: 5, idle: 0, learned: 0, verdicts: 0, reported: 5 } });
+    expect(runner.runLifecycleTick).not.toHaveBeenCalled();
+    expect(loopsLane.runLoopsLane).toHaveBeenCalledTimes(1);
   });
 
   it("stays dark, never loading the lane, with IMAGE_STYLE_VERSIONS_ENABLED on but a switch it needs off", async () => {

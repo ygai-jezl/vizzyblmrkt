@@ -202,6 +202,9 @@ export const LearnReadSchema = z.object({
 });
 export type LearnRead = z.infer<typeof LearnReadSchema>;
 
+/** Kinds a heartbeat summary names at most: every line in the learning registry, with room. */
+export const BEAT_KINDS_MAX = 160;
+
 /** `ls:`, the lane's own state. */
 export const LaneStateSchema = z.object({
   /** The votes learner's last read of image rows; null clears it. */
@@ -214,10 +217,34 @@ export const LaneStateSchema = z.object({
   /** Days in a row a learner failed (LOOP_RULES.errorDays), and the last of them. */
   failedDays: z.number().int().min(0).optional(),
   lastFailedDay: Iso.optional(),
-  /** The last week the heartbeat counted. */
+  /**
+   * The last closed week the heartbeat reported (learning loops step 5), kept before the
+   * organisation's mark moves, so a rerun never reports the week again: a run cut off between the
+   * two undercounts.
+   */
   heartbeatWeek: z.string().regex(ISO_WEEK_RE).optional(),
-  /** The usage meter's totals the lane last saw, by purpose. */
+  /**
+   * The usage meter's calls by purpose (`callsByPurpose`, every resource added up) the heartbeat
+   * last saw, for `meterMonth`: a purpose it no longer sees is kept at 0, so the next week counts
+   * only calls since.
+   */
   meterSeen: z.record(z.string().max(60), z.number()).optional(),
+  /** The calendar month (YYYY-MM, UTC) meterSeen is for. */
+  meterMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  /**
+   * What the heartbeat found for its last week: each kind's furthest step (`kind:step`) and where
+   * the brand is stuck (`kind:step`). Kinds and steps only, no counts and no words.
+   */
+  beat: z
+    .object({
+      week: z.string().regex(ISO_WEEK_RE),
+      at: Iso,
+      reached: z.array(z.string().max(80)).max(BEAT_KINDS_MAX),
+      stuck: z.array(z.string().max(80)).max(BEAT_KINDS_MAX),
+    })
+    .optional(),
+  /** The last closed week the fold alarm counted this brand in, so it counts once a week. */
+  behindWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /** A hash of the open week's counters and the brand's pointers at the lane's last full visit: unchanged, and the visit can be idle. */
   seen: z.object({ week: z.string().regex(ISO_WEEK_RE), hash: z.string().max(16) }).optional(),
   /** Until when nothing is due by time alone (a look's week, a read waiting on images to age), as the last full visit worked out. */

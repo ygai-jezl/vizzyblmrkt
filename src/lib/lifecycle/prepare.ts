@@ -25,6 +25,10 @@ import { isPersonPlansEnabled } from "@/lib/audience/flags";
 import { personScrubber } from "@/lib/audience/identityScrubber";
 import { approvedPlanFor, planGuidance } from "@/lib/audience/personPlans";
 import { isNotEnglish, withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
+import { emailVersionFor, versionLanguage } from "@/lib/i18n/emailVersion";
+import { brandLanguages } from "@/lib/i18n/languageReaders";
+import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
+import { translationIdOf } from "@/lib/types/translation";
 
 /**
  * Prepare AI-line drafts that are due (≈12 h before their send): re-predict the
@@ -235,7 +239,20 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     plan: plan ? `\n${fencedContext("What your team wants for this person, and how to put it (follow it where the rules below allow)", "plan", planGuidance(plan, personScrubber(stored)))}` : "",
   });
 
-  const language = writingLanguageOf(tenant);
+  // The email this person gets (ASSET_TRANSLATIONS_ENABLED): its approved translation in their own
+  // language, else the brand's. The line is written in the same language, and the send reads that
+  // language back to pick the version it goes in.
+  const item = version.pools.find((p) => p.id === leased.poolId)?.items.find((i) => i.id === leased.itemId);
+  const baseLanguage = normalizeLocale(tenant?.defaultLocale) ?? DEFAULT_LOCALE;
+  const emailVersion = item
+    ? await emailVersionFor({
+        item,
+        base: baseLanguage,
+        lang: versionLanguage(stored.locale, baseLanguage, brandLanguages(tenant)),
+        load: (l) => repo.translations.getById(translationIdOf(journey.id, leased.poolId, leased.itemId, l)),
+      })
+    : null;
+  const language = emailVersion?.language ? emailVersion.language.lang : writingLanguageOf(tenant);
   const raw = await (deps.generate ?? generateTextWithDeadline)(withWritingLanguage(prompt, language), {
     timeoutMs: GENERATION_TIMEOUT_MS,
     json: true,
@@ -267,11 +284,10 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
 
   // A preview of exactly this person's email, with the line as a placeholder so
   // a staff edit re-renders without another model call. Links are inert here.
-  const item = version.pools.find((p) => p.id === leased.poolId)?.items.find((i) => i.id === leased.itemId);
   let previewHtml: string | null = null;
-  if (item) {
+  if (emailVersion) {
     const rendered = renderLifecycleEmail({
-      item: { ...item, subject: subjectVariant ?? item.subject },
+      item: { ...emailVersion.item, subject: subjectVariant ?? emailVersion.item.subject },
       values: buildRenderValues({
         user,
         connection,
@@ -288,6 +304,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
         },
       }),
       style: resolveJourneyEmailStyle(tenant, journey.emailStyle), // as the send will
+      language: emailVersion.language,
     });
     previewHtml = rendered.html;
   }

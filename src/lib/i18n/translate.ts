@@ -86,12 +86,12 @@ export function shapeOf(text: string): { headings: number; items: number } {
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** What is wrong with a translation of `source`, in plain words for the repair try and the tab. */
-export function problemsWith(source: EmailWords, answer: Partial<Record<Key, string>>): string[] {
+export function problemsWith(source: EmailWords, answer: Partial<Record<Key, string | null>>): string[] {
   const problems: string[] = [];
   for (const { key, text } of stringsOf(source)) {
     const name = key === "previewText" ? "preview text" : key;
     const got = answer[key];
-    if (got === undefined || !got.trim()) {
+    if (got == null || !got.trim()) {
       problems.push(`The ${name} is missing or empty.`);
       continue;
     }

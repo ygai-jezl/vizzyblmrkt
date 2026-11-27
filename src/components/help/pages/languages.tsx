@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
-import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { isAssetTranslationsEnabled, isLanguageReadersEnabled } from "@/lib/i18n/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
@@ -9,15 +9,18 @@ import { ideaWord } from "@/lib/nav/terms";
 /**
  * /help/languages (CONTENT_LANGUAGE_ENABLED): the language YouGrow writes a brand's copy in. With
  * `languageReaders` (LANGUAGE_READERS_ENABLED) it also covers readers per language, the threshold
- * and the one list launches use. With ideas in the words (`ideaWords`) a launch is called an idea.
- * With the Raise kit on (`raiseKit`) it says decks stay in English for now.
+ * and the one list launches use. With `assetTranslations` (ASSET_TRANSLATIONS_ENABLED) it covers
+ * journey emails in each reader's language. With ideas in the words (`ideaWords`) a launch is called
+ * an idea. With the Raise kit on (`raiseKit`) it says decks stay in English for now.
  */
 export default function LanguagesHelp({
   languageReaders = isLanguageReadersEnabled(),
+  assetTranslations = isAssetTranslationsEnabled(),
   ideaWords = isIdeaWordsEnabled(),
   raiseKit = isRaiseKitEnabled(),
 }: HelpBodyProps = {}) {
   const w = ideaWord(ideaWords);
+  const translations = languageReaders && assetTranslations;
   return (
     <article>
       <H1>Languages</H1>
@@ -37,6 +40,7 @@ export default function LanguagesHelp({
             </li>
             <li>Checks on articles and emails that suit your language, with no false warnings</li>
             {languageReaders ? <li>How many of your people read each language, so you know which ones need their own version</li> : null}
+            {translations ? <li>Journey emails in each reader&apos;s language, once you approve each translation</li> : null}
           </>
         }
       />
@@ -126,11 +130,60 @@ export default function LanguagesHelp({
         </>
       ) : null}
 
+      {translations ? (
+        <>
+          <H2 id="translations">Journey emails in other languages</H2>
+          <P>
+            When you publish a journey, each of its emails is translated into every language that has enough readers. YouGrow
+            makes up to 200 translations a day for your brand, a few at a time, so they arrive within a few minutes.
+          </P>
+          <Steps>
+            <li>
+              Open the journey and its <strong>Content</strong> tab. <strong>Who gets which version</strong> shows your
+              languages, their readers and who gets your default language.
+            </li>
+            <li>Pick a language&apos;s tab on an email, for example Français, to check.</li>
+            <li>
+              Read it, change any words you want and press <strong>Save</strong>, then press <strong>Approve</strong>. Or press{" "}
+              <strong>Approve all languages</strong> to approve every translation of the journey waiting to be checked.
+            </li>
+          </Steps>
+          <P>
+            Until you approve a translation, its readers get your default language. You can also approve a journey&apos;s
+            translations from <Open href="/admin/approvals">Review</Open>, under <strong>Emails in other languages</strong>.
+          </P>
+
+          <H2 id="who-gets">Who gets which version</H2>
+          <P>
+            Each person gets the version in the language they signed up in, or the one your product sends for them, once it is
+            approved. Everyone else gets your default language. Merge tokens and links stay exactly as they are. The footer and
+            the steps line are written in French, Spanish, German, Japanese and Arabic, and stay in English for other languages.
+          </P>
+          <P>
+            A language under your number gets no version, unless you press <strong>Make anyway</strong> on its tab.
+          </P>
+
+          <H2 id="after-edit">After you change an email</H2>
+          <P>
+            Saving a change translates nothing. When you publish it, each changed email is translated again and comes back for
+            you to check. Its readers keep the last approved translation until you approve the new one. <strong>Update now</strong>{" "}
+            on the tab asks for the update straight away.
+          </P>
+
+          <H2 id="default-for-now">Sent in your default language for now</H2>
+          <UL>
+            <li>Emails designed in the layout editor</li>
+            <li>Invites, offboarding emails and newsletters</li>
+          </UL>
+        </>
+      ) : null}
+
       <H2 id="check">Check it worked</H2>
       <Checks>
         <li>A post you write now comes back in your language.</li>
         <li>A new article&apos;s Key facts box and Last updated line are in your language, or in English for a language without its own names.</li>
         {languageReaders ? <li>Each language under Languages shows its readers and whether it gets its own version.</li> : null}
+        {translations ? <li>A reader of another language gets their journey email in that language once you approve it.</li> : null}
       </Checks>
 
       <H2 id="messages">If you see this</H2>
@@ -142,6 +195,15 @@ export default function LanguagesHelp({
                 ["Couldn't save your language settings.", "Check the number is between 1 and 1,000, then press Save again."],
                 ["Only an admin can change this number.", "Ask an admin of your brand to change it."],
                 ["Couldn't add them to your brand list. Try again.", "Press Move to your brand list again. If it keeps happening, add them in Settings."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(translations
+            ? ([
+                ["Keep every merge token in double braces as it is.", "Put back each merge token you changed or removed, then press Save."],
+                ["This changed since you opened it, so it has been loaded again.", "Someone else changed it. Check the version now shown, then approve it."],
+                ["The published email changed, so this translation is being updated.", "Wait a few minutes for the update, then check it."],
+                ["Translations aren't included for your brand.", "Ask whoever runs your YouGrow to include translations for your brand."],
+                ["Too many requests. Try again in a minute.", "Wait a minute, then press it again."],
               ] as Array<[string, string]>)
             : []),
         ]}

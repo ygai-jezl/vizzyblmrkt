@@ -48,7 +48,7 @@ import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
-import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { isAssetTranslationsEnabled, isLanguageReadersEnabled } from "@/lib/i18n/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { isRaiseKitEnabled, isVizzyRaiseEnabled } from "@/lib/raise/docs/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
@@ -255,6 +255,7 @@ export default async function AdminLayout({
             languageReaders={isLanguageReadersEnabled()}
             raiseFollowUps={isRaiseFollowupsEnabled()}
             raiseKit={isRaiseKitEnabled()}
+            assetTranslations={isAssetTranslationsEnabled()}
           >
             {shell}
           </ShellProvider>

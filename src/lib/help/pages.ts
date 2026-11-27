@@ -110,6 +110,8 @@ export interface HelpBodyProps {
   raiseFollowUps?: boolean;
   /** The Raise kit's decks are in brand search (isRaiseKitEnabled(), a server switch: the drawer gets it from the admin shell). */
   raiseKit?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  assetTranslations?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

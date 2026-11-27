@@ -25,6 +25,11 @@ import { enrolmentSendMetadata } from "@/lib/email/mandrillWebhook";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
 import type { AiDraft } from "@/lib/types/lifecycle";
+import type { Translation } from "@/lib/types/translation";
+import { emailVersionFor, versionLanguage, type EmailVersion } from "@/lib/i18n/emailVersion";
+import { brandLanguages } from "@/lib/i18n/languageReaders";
+import { normalizeLocale, DEFAULT_LOCALE } from "@/lib/i18n/locale";
+import { translationIdOf } from "@/lib/types/translation";
 import { decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
 import { nextNodeId } from "./graph";
 import { nextWindowAt } from "./sendWindow";
@@ -126,6 +131,7 @@ export class RunCache {
   private readonly versions = new Map<string, Promise<LifecycleVersion | null>>();
   private readonly connections = new Map<string, Promise<ProductConnection | null>>();
   private readonly followers = new Map<string, Promise<Follower[]>>();
+  private readonly translations = new Map<string, Promise<Translation | null>>();
   readonly healthNoted = new Set<string>();
 
   constructor(
@@ -158,6 +164,10 @@ export class RunCache {
   /** The active journeys that continue from this one (LIFECYCLE_JOURNEY_LINKS_ENABLED). */
   followersOf(journey: Pick<LifecycleJourney, "id" | "connectionId">) {
     return this.memo(this.followers, journey.id, () => followersOf(this.ctx, journey, this.db));
+  }
+  /** One journey email in one language (ASSET_TRANSLATIONS_ENABLED), read once per tick. */
+  translation(id: string) {
+    return this.memo(this.translations, id, () => forTenant(this.ctx, this.db).translations.getById(id));
   }
 }
 
@@ -537,20 +547,36 @@ async function deliver(
   // Every version (standard, AI, test, shadow) wears the same Email style: the journey's own look
   // as last published (whatever version this enrolment is on), else the brand's; null = today's look.
   const style = resolveJourneyEmailStyle(tenant, journey.emailStyle);
+  // The reader's language (ASSET_TRANSLATIONS_ENABLED): the approved translation of this email in
+  // their own language, else the brand's. Test and shadow mail show what the person would get.
+  const base = normalizeLocale(tenant?.defaultLocale) ?? DEFAULT_LOCALE;
+  const languages = brandLanguages(tenant);
+  const versionIn = (lang: string | null) =>
+    emailVersionFor({ item, base, lang, load: (l) => s.cache.translation(translationIdOf(journey.id, d.pool.id, item.id, l)) });
+  const baseVersion: EmailVersion<typeof item> = { item, language: null };
+  let readerVersion = await versionIn(versionLanguage(user.locale, base, languages));
   const renderWith = (
     insight: ProductContext["insights"][number] | null,
     aiLine: string | null,
     subject?: string | null,
+    v: EmailVersion<typeof item> = readerVersion,
   ): RenderedEmail =>
     renderLifecycleEmail({
-      item: subject ? { ...item, subject } : item,
+      item: subject ? { ...v.item, subject } : v.item,
       values: buildRenderValues({ user, connection, rc, context, insight, aiLine, footer }),
       shadowFor: mode === "shadow" ? user.email : null,
       style,
+      language: v.language,
     });
 
   const standardInsight = pickInsight(context, usedInsightIds, nextStepOf(context, steps, connection.linkDomains)?.id ?? null);
-  const standard = renderWith(standardInsight, null);
+  let standard = renderWith(standardInsight, null);
+  // A translation that leaves a token without a value, or the subject empty, where the base doesn't:
+  // the base goes out instead, so nobody misses the email for it.
+  if (readerVersion.language && (standard.missing.length > 0 || !standard.subject)) {
+    readerVersion = baseVersion;
+    standard = renderWith(standardInsight, null);
+  }
   if (standard.missing.length > 0) return { kind: "exclude", reason: `missing ${standard.missing.join(", ")}` };
   if (!standard.subject) return { kind: "exclude", reason: "empty subject" };
 
@@ -565,7 +591,12 @@ async function deliver(
     const pre = await forTenant(ctx, deps.db).lifecycleDrafts.getById(draftId);
     const preVersion = decideSendVersion({ draft: pre, requireApproval, context, aiEnabled: aiOn });
     if (pre && preVersion.version === "ai") {
-      const email = renderWith(context?.insights.find((i) => i.id === preVersion.insightId) ?? null, preVersion.aiLine, preVersion.subject);
+      // The line's language picks its version: the line was written for the email it goes in.
+      const lineVersion = readerVersion.language || pre.language ? await versionIn(versionLanguage(pre.language ?? DEFAULT_LOCALE, base, languages)) : readerVersion;
+      const lineInsight = context?.insights.find((i) => i.id === preVersion.insightId) ?? null;
+      let email = renderWith(lineInsight, preVersion.aiLine, preVersion.subject, lineVersion);
+      // As for the standard email: a translation that can't fill its tokens never costs the email.
+      if (lineVersion.language && (email.missing.length > 0 || !email.subject)) email = renderWith(lineInsight, preVersion.aiLine, preVersion.subject, baseVersion);
       if (email.missing.length === 0 && email.subject) aiEmail = { email, draftVersion: pre.draftVersion };
     }
   }

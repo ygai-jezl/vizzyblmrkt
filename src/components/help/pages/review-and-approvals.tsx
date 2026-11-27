@@ -7,6 +7,7 @@ import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
@@ -42,6 +43,7 @@ export default function ReviewAndApprovalsHelp({
   agentRecord = isAgentRecordEnabled(),
   raiseFollowUps = isRaiseFollowupsEnabled(),
   raiseKit = isRaiseKitEnabled(),
+  assetTranslations = isAssetTranslationsEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -125,6 +127,13 @@ export default function ReviewAndApprovalsHelp({
             ? " Admins also see an email or image style Vizzy suggested, which opens Brand › Email style or Brand › Image style, and one row for the notes Vizzy suggested in your chats, which opens What we've seen."
             : ""}
         </li>
+        {assetTranslations ? (
+          <li>
+            <strong>Emails in other languages</strong>: translations of your journey emails, one row per journey. Open shows each
+            email&apos;s language tabs, and admins can press <strong>Approve all languages</strong> here (
+            <Open href="/help/languages#translations">Journey emails in other languages</Open>).
+          </li>
+        ) : null}
         {vizzyFields ? (
           <li>
             <strong>Suggestions about people</strong>: changes to someone&apos;s fields that Vizzy suggested. Each opens their page,

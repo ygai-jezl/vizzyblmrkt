@@ -46,7 +46,7 @@ describe("plan change previews", () => {
 
   it("lists what Pro to Ultra gains as wider, the autopilot with the Next up it needs", () => {
     const c = accessChanges(brand({ orgPlan: "pro" }), "ultra");
-    expect(c.features.filter((f) => f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "article_refresh", "competitor_articles", "competitor_finder", "competitors", "edit_vizzy_learning", "next_up", "raise_kit"]);
+    expect(c.features.filter((f) => f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "article_refresh", "competitor_articles", "competitor_finder", "competitors", "edit_vizzy_learning", "next_up", "raise_kit", "translations"]);
     expect(c.features.every((f) => !f.before && f.hidden === undefined)).toBe(true);
     // Pro caps web searches for research; Ultra sets no caps, so this copy's applies.
     expect(c.caps).toEqual([{ feature: "web_searches", before: 1500, after: DEFAULT_MONTHLY_LIMITS.web_searches, beforeFrom: "plan", afterFrom: "default" }]);
@@ -61,7 +61,7 @@ describe("plan change previews", () => {
 
   it("lists what Ultra to Pro loses, the autopilot with what it keeps, never as a lower cap", () => {
     const c = accessChanges(brand({ orgPlan: "ultra" }), "pro");
-    expect(c.features.filter((f) => f.before && !f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "article_refresh", "competitor_articles", "competitor_finder", "competitors", "edit_vizzy_learning", "next_up", "raise_kit"]);
+    expect(c.features.filter((f) => f.before && !f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "article_refresh", "competitor_articles", "competitor_finder", "competitors", "edit_vizzy_learning", "next_up", "raise_kit", "translations"]);
     expect(c.features.find((f) => f.feature === "article_autopilot")?.hidden).toBe(EXCLUDED_EFFECT.article_autopilot);
     // Web searches drop to Pro's cap; no feature's cap is listed.
     expect(c.caps.map((x) => x.feature)).toEqual(["web_searches"]);

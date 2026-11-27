@@ -16,6 +16,7 @@ import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { isSettingsEraseEnabled } from "@/lib/settings/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 
 export const runtime = "nodejs";
@@ -63,6 +64,9 @@ export const dynamic = "force-dynamic";
  * Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED) run about hourly, at a
  * tick of their own (every 30th, at offset 13), within their own budget: open ones put in step with
  * their people at any hour, new ones raised 6 to 9 in each brand's morning.
+ *
+ * Journey emails in other languages (ASSET_TRANSLATIONS_ENABLED) are planned and translated on every
+ * tick, a few calls a run, for the brands a publish marked; the rest cost nothing.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -97,6 +101,8 @@ const FIELD_ERASE_BUDGET_MS = 20_000;
 const AGENT_RECORD_BUDGET_MS = 15_000;
 /** Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED): every 30th tick, at offset 13. */
 const RAISE_FOLLOWUPS_BUDGET_MS = 15_000;
+/** Translations (ASSET_TRANSLATIONS_ENABLED): a few calls of up to 45s each, for marked brands only. */
+const TRANSLATIONS_BUDGET_MS = 95_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -116,9 +122,10 @@ export async function POST(req: Request) {
   const fieldErase = isSettingsEraseEnabled();
   const agentRecord = isAgentRecordEnabled();
   const raiseFollowups = isRaiseFollowupsEnabled();
+  const translations = isAssetTranslationsEnabled();
   const strategyMonth = isStrategyResultsEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || fieldErase || agentRecord || raiseFollowups || strategyMonth))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || fieldErase || agentRecord || raiseFollowups || translations || strategyMonth))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -236,6 +243,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const translationsRun = translations
+        ? timedTickJob("translations", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + TRANSLATIONS_BUDGET_MS);
+            const { runTranslations } = await import("@/lib/i18n/translationsTick");
+            return runTranslations({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[translations] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const raiseFollowupsRun = raiseFollowups
         ? timedTickJob("raise-followups", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + RAISE_FOLLOWUPS_BUDGET_MS);
@@ -303,6 +320,7 @@ export async function POST(req: Request) {
       const fieldEraseResult = await fieldEraseRun;
       const agentRecordResult = await agentRecordRun;
       const raiseFollowupsResult = await raiseFollowupsRun;
+      const translationsResult = await translationsRun;
       const strategyMonthResult = await strategyMonthRun;
       return NextResponse.json({
         ok: true,
@@ -322,6 +340,7 @@ export async function POST(req: Request) {
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
         ...(agentRecordResult?.brands ? { agentRecord: agentRecordResult } : {}),
         ...(raiseFollowupsResult?.brands ? { raiseFollowups: raiseFollowupsResult } : {}),
+        ...(translationsResult?.brands ? { translations: translationsResult } : {}),
         ...(strategyMonthResult?.brands ? { strategyMonth: strategyMonthResult } : {}),
       });
     } finally {

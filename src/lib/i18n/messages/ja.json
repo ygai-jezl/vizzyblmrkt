@@ -122,5 +122,11 @@
   "article.keyTakeaways": "主なポイント",
   "article.bottomLine": "まとめ",
   "article.sources": "出典",
-  "article.aboutAuthor": "著者について"
+  "article.aboutAuthor": "著者について",
+  "email.footer.sentBy": "このメールは{{sender_brand}}から送信されました。",
+  "email.footer.preferences": "配信設定の管理",
+  "email.footer.unsubscribe": "配信停止",
+  "email.footer.privacy": "プライバシーポリシー",
+  "email.steps.done": "{total}ステップ中{done}ステップ完了",
+  "email.steps.more": "他{n}件"
 }

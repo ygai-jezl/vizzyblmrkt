@@ -15,6 +15,7 @@ import {
   escapeHtml,
   renderFooter,
   hasFooter,
+  type EmailLanguage,
 } from "@/lib/email/emailRender";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 
@@ -70,6 +71,8 @@ export function compileJourneyEmail(
   mergeCtx: MergeContext,
   style?: ResolvedEmailStyle | null,
   preheader?: string | null,
+  /** Sent in another language (ASSET_TRANSLATIONS_ENABLED): `content` holds its words. Absent: as today. */
+  language?: EmailLanguage | null,
 ): CompiledEmail {
   // Subject is plain text (Mandrill's subject field) — render raw.
   const subject = renderMergeVars(content.subject, mergeCtx);
@@ -84,19 +87,20 @@ export function compileJourneyEmail(
   // a subscriber value that literally contains "{{...}}" can't be re-processed).
   let inner: string;
   if (looksHtml(content.body)) {
-    const raw = hasFooter(content.body) ? content.body : content.body + renderFooter(null, { style });
+    const raw = hasFooter(content.body) ? content.body : content.body + renderFooter(null, { style, words: language?.footer });
     inner = renderMergeVars(raw, mergeCtx, escapeHtml);
   } else {
     const bodyHtml = paragraphize(escapeHtml(renderMergeVars(content.body, mergeCtx)));
-    const footerHtml = renderMergeVars(renderFooter(null, { style }), mergeCtx, escapeHtml);
+    const footerHtml = renderMergeVars(renderFooter(null, { style, words: language?.footer }), mergeCtx, escapeHtml);
     inner = bodyHtml + footerHtml;
   }
   const hero = content.heroImageUrl ?? null;
   // text/plain comes from the plain document: the band and the preheader aren't copy.
   const unstyled = wrap(inner, hero);
+  const lang = language ? { lang: language.lang, dir: language.dir } : {};
   return {
     subject,
-    html: style || preheader ? wrap(inner, hero, { style, preheader }) : unstyled,
+    html: style || preheader || language ? wrap(inner, hero, { style, preheader, ...lang }) : unstyled,
     text: htmlToText(unstyled),
     warnings: qaWarnings(content, mergeCtx.campaign),
   };

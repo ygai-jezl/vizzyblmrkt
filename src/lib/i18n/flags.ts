@@ -18,3 +18,14 @@ export function isContentLanguageEnabled(): boolean {
 export function isLanguageReadersEnabled(): boolean {
   return process.env.LANGUAGE_READERS_ENABLED === "true" && isContentLanguageEnabled() && isPersonLinksEnabled();
 }
+
+/**
+ * Journey emails in each language with enough readers (ASSET_TRANSLATIONS_ENABLED): publishing a
+ * journey has its changed emails translated, a person checks each translation, and each reader
+ * gets the approved version in their language. Needs the readers per language. Each brand also
+ * needs the `translations` feature (src/lib/plans/brandAccess.ts) for new translations; sending
+ * what was approved never needs it. Off: journeys, sends and Review are as before.
+ */
+export function isAssetTranslationsEnabled(): boolean {
+  return process.env.ASSET_TRANSLATIONS_ENABLED === "true" && isLanguageReadersEnabled();
+}

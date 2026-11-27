@@ -105,6 +105,7 @@ const LEFT_AS_THEY_ARE: Record<string, string> = {
   // split by spaces, and a change must keep the deck's own language. Decks follow the brand's language in a later piece.
   "raise.deck_draft": "a deck stays in English until its checks, talk time and number words read other languages",
   "raise.deck_revise": "keeps the language of the deck it changes, which is English for now",
+  "i18n.translate_email": "translates into the language it is given, which is not the brand's default",
 };
 
 describe("which prompts are written in the brand's language", () => {

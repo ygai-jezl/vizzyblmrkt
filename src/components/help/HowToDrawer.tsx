@@ -62,6 +62,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     languageReaders: shell?.languageReaders ?? false,
     raiseFollowUps: shell?.raiseFollowUps ?? false,
     raiseKit: shell?.raiseKit ?? false,
+    assetTranslations: shell?.assetTranslations ?? false,
   };
 }
 

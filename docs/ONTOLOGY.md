@@ -1025,21 +1025,24 @@ A social post waiting to go out on one of the brand's accounts, and what happene
 
 ### What posts taught (`post_learning`)
 
-What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.
+What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
-  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`
+  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`. The best posts, and the approved emails and hub pieces kept as examples.
   - `post_perf_vectors`, the brand's regional Firestore, in `src/lib/tenant/postVectors.ts`
   - `learned_pattern_versions`, the brand's regional Firestore, in `src/lib/tenant/patternVersions.ts`. Append only, the source of a revert.
-- Links: `post_result` through the posts it learned from (many)
-- Erase: none. The brand's own content statistics.
+- Links: `post_result` through the posts it learned from (many); `content_plan` through the approved pieces it keeps as examples (many)
+- Erase:
+  - `forgetPlanExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (an approved example goes with its content plan; the post statistics are the brand's own and stay)
+  - `forgetRemovedExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a piece taken off the canvas takes its approved example with it)
+  - `forgetWorkspaceExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a deleted programme takes the approved examples of its plans with it)
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Vectors and versions for the writer, not text to find.
 - Numbers: none. Its numbers are post results.
-- Made by: `post_feedback` (see Learning)
+- Made by: `post_feedback`, `content_email`, `content_hub` (see Learning)
 
 ### Generated image (`image_asset`)
 
@@ -1315,7 +1318,7 @@ A blog article's last 10 versions: its copy and meta just before Apply, Regenera
 
 ### AI original (`ai_original`)
 
-The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
+The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it and any approved pieces it followed as examples, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
 
 - Status: built
 - Home: the brand's region
@@ -2067,16 +2070,16 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-98 kinds: 0 learn, 0 fleet only, 23 own, 34 gap and 41 none.
+98 kinds: 0 learn, 0 fleet only, 25 own, 32 gap and 41 none.
 
-119 call sites: 0 learn, 0 fleet only, 33 own, 40 gap and 46 none.
+119 call sites: 0 learn, 0 fleet only, 35 own, 38 gap and 46 none.
 
-Not learning: 86 of 119 call sites, under gap and none lines.
+Not learning: 84 of 119 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
 - `learned`: The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.
-- `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.
+- `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.
 - `vizzy_memory`: Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.
 - `brand_kit`: Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.
 - `brand_map`: The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.
@@ -2118,6 +2121,10 @@ No line says this yet.
 - `seen_notes` (AI purpose, What we've seen), kept in `content_plan`. A note your team took out of an article is kept with the last 50 on its brief and not matched back into it.
   - `src/lib/content/blog/seen.ts`
 - `content_write` (AI purpose, Writing posts), kept in `post_learning`. Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet.
+  - `src/lib/content/create/generateNode.ts`
+- `content_email` (AI purpose, Writing workflow emails), kept in `post_learning`. Where turned on, a workflow email follows the emails your team approved, kept as examples of the brand's own writing, though how your team edited each draft teaches it nothing yet.
+  - `src/lib/content/create/generateNode.ts`
+- `content_hub` (AI purpose, Writing hub content), kept in `post_learning`. Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet.
   - `src/lib/content/create/generateNode.ts`
 - `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
@@ -2181,10 +2188,6 @@ No line says this yet.
   - `src/lib/content/create/generateNode.ts`
 - `architect` (AI purpose, Laying out workflows), look again by 2027-05-01. Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.
   - `src/lib/content/create/architectRun.ts`
-- `content_email` (AI purpose, Writing workflow emails), look again by 2027-05-01. Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.
-  - `src/lib/content/create/generateNode.ts`
-- `content_hub` (AI purpose, Writing hub content), look again by 2027-05-01. Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.
-  - `src/lib/content/create/generateNode.ts`
 - `content_angle` (AI purpose, Suggesting angles), look again by 2027-05-01. An angle you turn down with Suggest another is passed only to the next try and never kept as a no.
   - `src/lib/content/create/suggestAngle.ts`
 - `ebook` (AI purpose, eBooks), look again by 2027-05-01. eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.

@@ -96,6 +96,17 @@ export function dashesIn(text: string): string[] {
 }
 
 /**
+ * A prompt's own labels written into copy, such as "across S1, S4 and S6": the whole uppercase
+ * tokens (a capital and 1 to 3 digits) that are in `labels`, each once. Pass only the labels the
+ * prompt handed the model, so a brand's own "S3" is caught only when the prompt had an S3 too.
+ */
+export function labelsIn(text: string, labels: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/\b[A-Z]\d{1,3}\b/g)) if (labels.has(m[0]) && !out.includes(m[0])) out.push(m[0]);
+  return out;
+}
+
+/**
  * Operational writing rules for MODULAR content — so generated blocks recombine
  * across channels without manual editing. Injected into the templatize/transform
  * prompts' "Communication" section (dynamic prompt composition). Pure constant.

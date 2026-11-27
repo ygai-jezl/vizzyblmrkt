@@ -15,6 +15,8 @@
  * locales it covers, so the voice chat can be gated to them (Phase 4).
  */
 
+import { isLanguageReadersEnabled } from "./flags";
+
 export interface LocaleInfo {
   /** Base language subtag we steer the model on (e.g. "fr"). */
   code: string;
@@ -181,6 +183,9 @@ type TenantLocaleConfig =
  * The languages a launch is offered in: the admin-defined `supportedLocales`
  * (campaign over tenant), always including the resolved default, normalised and
  * deduped. Falls back to just the default. Used to clamp per-visitor resolution.
+ *
+ * With LANGUAGE_READERS_ENABLED the brand's list is the one list: a launch offers it, plus any
+ * languages the launch had of its own from before, so none a visitor saw disappears.
  */
 export function supportedLocalesFor(campaign?: LocaleConfig, tenant?: TenantLocaleConfig): string[] {
   const def = resolveCampaignLocale(campaign, tenant);
@@ -190,7 +195,7 @@ export function supportedLocalesFor(campaign?: LocaleConfig, tenant?: TenantLoca
   const fromTenant = (tenant?.supportedLocales ?? [])
     .map(normalizeLocale)
     .filter((c): c is string => !!c);
-  const declared = fromCampaign.length ? fromCampaign : fromTenant;
+  const declared = isLanguageReadersEnabled() ? [...fromTenant, ...fromCampaign] : fromCampaign.length ? fromCampaign : fromTenant;
   return Array.from(new Set([def, ...declared]));
 }
 

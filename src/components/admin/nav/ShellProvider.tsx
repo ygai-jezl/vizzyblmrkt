@@ -86,6 +86,8 @@ interface Shell {
   nextActionCard: boolean;
   /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server), for the How to drawer. */
   agentRecord: boolean;
+  /** Readers per language and one language list (isLanguageReadersEnabled(), from the server), for the How to drawer. */
+  languageReaders: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server), for the How to drawer. */
   raiseFollowUps: boolean;
   /**
@@ -154,6 +156,7 @@ export function ShellProvider({
   settingsHistory = false,
   nextActionCard = false,
   agentRecord = false,
+  languageReaders = false,
   raiseFollowUps = false,
   children,
 }: {
@@ -224,6 +227,8 @@ export function ShellProvider({
   nextActionCard?: boolean;
   /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server): the How to drawer says so. */
   agentRecord?: boolean;
+  /** Readers per language and one language list (isLanguageReadersEnabled(), from the server): the How to drawer says so. */
+  languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server): the How to drawer says so. */
   raiseFollowUps?: boolean;
   children: ReactNode;
@@ -326,10 +331,11 @@ export function ShellProvider({
       settingsHistory,
       nextActionCard,
       agentRecord,
+      languageReaders,
       raiseFollowUps,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, raiseFollowUps, saved, work, workVizzy],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

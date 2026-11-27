@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
+import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { brandLanguages } from "@/lib/i18n/languageReaders";
 import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +53,7 @@ export default async function CampaignSettingsPage({
         campaignId={campaign.id}
         initial={toCampaignSettings(campaign)}
         senderConfig={senderConfig}
+        brandLanguages={isLanguageReadersEnabled() ? brandLanguages(await getTenantById(ctx.tenantId)) : undefined}
       />
     </div>
   );

@@ -38,6 +38,8 @@ export const ContactCampaignLinkSchema = z.object({
   joinedAt: z.string(), // signup.createdAt
   /** How they joined this launch: its page or widget ("form"), or the brand's own site ("site"). */
   joinedVia: z.enum(["form", "site"]).nullable().optional(),
+  /** The sign-up's language, a supported base code (LANGUAGE_READERS_ENABLED). */
+  locale: z.string().max(16).optional(),
 });
 export type ContactCampaignLink = z.infer<typeof ContactCampaignLinkSchema>;
 
@@ -92,6 +94,8 @@ export const PersonProductLinkSchema = z.object({
   reach: z.enum(["yes", "limited", "no"]),
   /** The product's groups they belong to (workspaces, teams, households: the product's own word). */
   groups: z.array(z.string()).default([]),
+  /** The product user's language, a supported base code (LANGUAGE_READERS_ENABLED). */
+  locale: z.string().max(16).optional(),
 });
 export type PersonProductLink = z.infer<typeof PersonProductLinkSchema>;
 
@@ -222,6 +226,12 @@ export const ContactSchema = z.object({
   optOuts: PersonOptOutsSchema.optional(),
   /** When they were last active anywhere we can see. */
   activeAt: z.string().optional(),
+  /**
+   * Their language (LANGUAGE_READERS_ENABLED): the locale of their newest live sign-up or product
+   * user that has one, a supported base code. Null or absent when we don't know it. Readers per
+   * language are counted on it (src/lib/i18n/languageReaders.ts).
+   */
+  language: z.string().max(16).nullable().optional(),
   /** The list's order: `activeAt|id`, unique, so a page never splits people who share a time. */
   sortKey: z.string().optional(),
   /** When the tags, reach or a product's stage last changed: what segments will listen to. */

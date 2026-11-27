@@ -72,10 +72,16 @@ export function CampaignSettingsForm({
   campaignId,
   initial,
   senderConfig,
+  brandLanguages,
 }: {
   campaignId: string;
   initial: CampaignSettings;
   senderConfig: EmailSenderConfig;
+  /**
+   * The brand's one language list, default first (LANGUAGE_READERS_ENABLED). Given, the launch
+   * offers it instead of a list of its own; languages it had of its own are shown so they can move.
+   */
+  brandLanguages?: string[];
 }) {
   const router = useRouter();
   // A launch is called an idea while the words are on.
@@ -89,6 +95,7 @@ export function CampaignSettingsForm({
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errors, setErrors] = useState<string[]>([]);
+  const [moveStatus, setMoveStatus] = useState<"idle" | "moving" | "moved" | "error">("idle");
 
   function set<K extends keyof CampaignSettings>(key: K, value: CampaignSettings[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -131,6 +138,30 @@ export function CampaignSettingsForm({
     });
     setDirty(true);
     setStatus("idle");
+  }
+  // One list (LANGUAGE_READERS_ENABLED): the languages this launch offers beyond the brand's list,
+  // from before. They are added to the brand's list, then taken off the launch's own on its next Save.
+  const ownLanguages = brandLanguages
+    ? form.strategy.supportedLocales.filter((c) => c !== form.strategy.defaultLocale && !brandLanguages.includes(c))
+    : [];
+  async function moveToBrandList() {
+    if (!brandLanguages?.length) return;
+    setMoveStatus("moving");
+    try {
+      const res = await fetch("/api/admin/account/locale", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultLocale: brandLanguages[0], supportedLocales: [...brandLanguages, ...ownLanguages] }),
+      });
+      if (!res.ok) throw new Error("move_failed");
+      setForm((f) => ({ ...f, strategy: { ...f.strategy, supportedLocales: [f.strategy.defaultLocale] } }));
+      setDirty(true);
+      setStatus("idle");
+      setMoveStatus("moved");
+      router.refresh();
+    } catch {
+      setMoveStatus("error");
+    }
   }
   function setAiConversation<K extends keyof AiConversation>(key: K, value: AiConversation[K]) {
     setForm((f) => ({
@@ -324,6 +355,36 @@ export function CampaignSettingsForm({
           onChange={setContentLanguage}
           options={LOCALE_OPTIONS}
         />
+        {brandLanguages ? (
+          <div className="space-y-1">
+            <p className="block text-sm font-medium">Also offer in</p>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              Your brand&apos;s languages: {brandLanguages.map((c) => languageName(c)).join(", ")}.{" "}
+              <a href="/admin/account/settings" className="text-sky-700 hover:underline dark:text-sky-400">
+                Change them in Settings.
+              </a>
+            </p>
+            {ownLanguages.length ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">
+                  Only on this {w.one}: {ownLanguages.map((c) => languageName(c)).join(", ")}.
+                </span>
+                <button
+                  type="button"
+                  onClick={moveToBrandList}
+                  disabled={moveStatus === "moving"}
+                  className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+                >
+                  {moveStatus === "moving" ? "Moving…" : "Move to your brand list"}
+                </button>
+              </div>
+            ) : null}
+            {moveStatus === "moved" ? (
+              <p className="text-xs text-green-600">Added to your brand list. Save to take them off this {w.one}&apos;s own list.</p>
+            ) : null}
+            {moveStatus === "error" ? <p className="text-xs text-red-600">Couldn&apos;t add them to your brand list. Try again.</p> : null}
+          </div>
+        ) : (
         <div className="space-y-1">
           <label className="block text-sm font-medium">
             Also offer in{" "}
@@ -344,6 +405,7 @@ export function CampaignSettingsForm({
             ))}
           </div>
         </div>
+        )}
         <TextAreaField
           label="Custom instructions"
           value={form.strategy.customToneInstructions ?? ""}

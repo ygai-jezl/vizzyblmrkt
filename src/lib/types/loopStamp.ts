@@ -49,7 +49,8 @@ export const STAMP_SOURCE_RE = /^(?:refs:\d{1,2}|best_of:\d{1,2}|legacy|person_o
 /**
  * Why a writer kept no stamp, from a closed list, so each reason is counted. Step 4 uses the
  * first three; the rest are the reasons the plan names for the writers step 5 stamps, plus
- * `nothing_made` for a node save that wrote no new words, and the stamp scan may add more.
+ * `nothing_made` for a node save that wrote no new words, and the two the stamp scan found
+ * (`chat_reply` and `learner`, in src/lib/agents/groundedMeter.test.ts).
  */
 export const UNSTAMPED_REASONS = [
   /** LOOPS_ENABLED is off, for a kind that isn't an image kind. */
@@ -80,6 +81,10 @@ export const UNSTAMPED_REASONS = [
   "starts_worker",
   /** A save that made nothing new on its record: a step with no words, or a write that failed. */
   "nothing_made",
+  /** A chat reply, which is never saved: what Vizzy saves is stamped as its own kind of draft. */
+  "chat_reply",
+  /** A learner's own call: it writes a learned look or rule, judged by the loop it feeds. */
+  "learner",
 ] as const;
 export type UnstampedReason = (typeof UNSTAMPED_REASONS)[number];
 

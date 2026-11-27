@@ -5,6 +5,9 @@ import type { Journey } from "@/lib/types/journey";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import { journeyIdFor } from "@/lib/journey/service";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
+import { isWaitlistAbWinnerEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { liveWinners } from "@/lib/lifecycle/waitlist/winners";
+import { versionDocId } from "@/lib/lifecycle/enrol";
 import { CONTROL } from "@/lib/journey/allocation";
 import { computeBqEmailBreakdown, type RawEngagement } from "./bigquery";
 
@@ -269,6 +272,13 @@ export interface NodeBreakdown extends EngagementCounts {
   winnerVariantId?: string | null;
   /** Per-arm rows when an A/B test exists (control + each variant); else empty. */
   arms: ArmBreakdown[];
+  /**
+   * WAITLIST_AB_WINNER_ENABLED, a launch on the lifecycle engine: when the winner shown was picked
+   * (null where the journey keeps no time for it), and when earlier winners of this email were
+   * picked, for tests run again since. From the journey's abWinnerHistory.
+   */
+  pickedAt?: string | null;
+  earlierPicksAt?: string[];
 }
 
 /** One email step of a launch's sequence, and its A/B arms if it has a test. */
@@ -276,12 +286,25 @@ interface SequenceStep {
   nodeId: string;
   label: string;
   ab: { armIds: string[]; status?: "running" | "promoted"; winnerVariantId: string | null } | null;
+  picks?: Pick<NodeBreakdown, "pickedAt" | "earlierPicksAt">;
+}
+
+/** When this email's shown winner and its earlier winners were picked (abWinnerHistory, matched by node). */
+function picksOf(history: NonNullable<LifecycleJourney["abWinnerHistory"]>, step: Omit<SequenceStep, "picks">): SequenceStep["picks"] {
+  const own = history.filter((h) => h.nodeId === step.nodeId);
+  const winner = step.ab?.status === "promoted" ? step.ab.winnerVariantId : null;
+  const live = winner ? own.findLast((h) => h.itemId === winner) : undefined;
+  return { pickedAt: live?.at ?? null, earlierPicksAt: own.filter((h) => h !== live).map((h) => h.at) };
 }
 
 /**
  * The email steps of a launch's sequence (`journey_{launch}`): from its original
- * journey, or — for a launch that started on the lifecycle engine (engine move)
- * — from its journey there (each email's pool; A/B pools list their arms).
+ * journey, or from its journey on the lifecycle engine (engine move) when it
+ * started there (each email's pool; A/B pools list their arms). With
+ * WAITLIST_AB_WINNER_ENABLED a launch moved there lists its journey there too, read
+ * from the published version (the one new signups get and a pick checks), so the
+ * tests and picks shown are the ones a pick acts on, and each step says when its
+ * winners were picked; off, the draft, as before.
  */
 async function sequenceSteps(
   ctx: TenantContext,
@@ -290,41 +313,61 @@ async function sequenceSteps(
 ): Promise<{ steps: SequenceStep[]; journeyIds: string[] } | null> {
   const repo = forTenant(ctx, db);
   const journey = await repo.journeys.getById(journeyId);
-  if (journey) {
-    return {
-      journeyIds: [journeyId, waitlistJourneyId(journey.campaignId)],
-      steps: journey.graph.nodes
-        .filter((n) => n.type === "email")
-        .map((node) => {
-          const ab = node.data.abTest;
-          return {
-            nodeId: node.id,
-            label: node.data.label || node.data.subject || "Untitled email",
-            ab: ab
-              ? { armIds: [CONTROL, ...ab.variants.map((v) => v.variantId)], status: ab.status, winnerVariantId: ab.winnerVariantId ?? null }
-              : null,
-          };
-        }),
-    };
-  }
-  if (!journeyId.startsWith("journey_")) return null;
-  const moved = await repo.lifecycleJourneys.getById(waitlistJourneyId(journeyId.slice("journey_".length))).catch(() => null);
-  if (!moved) return null;
-  return {
-    journeyIds: [journeyId, moved.id],
-    steps: moved.draft.graph.nodes
+  const original = (j: Journey) => ({
+    journeyIds: [journeyId, waitlistJourneyId(j.campaignId)],
+    steps: j.graph.nodes
       .filter((n) => n.type === "email")
       .map((node) => {
-        const pool = moved.draft.pools.find((p) => p.id === node.data.poolId);
-        const winner = pool ? (moved.abWinners?.[pool.id] ?? null) : null;
+        const ab = node.data.abTest;
         return {
+          nodeId: node.id,
+          label: node.data.label || node.data.subject || "Untitled email",
+          ab: ab
+            ? { armIds: [CONTROL, ...ab.variants.map((v) => v.variantId)], status: ab.status, winnerVariantId: ab.winnerVariantId ?? null }
+            : null,
+        };
+      }),
+  });
+  const picking = isWaitlistAbWinnerEnabled();
+  if (journey && !picking) return original(journey);
+  if (!journey && !journeyId.startsWith("journey_")) return null;
+  const launchId = journey ? journey.campaignId : journeyId.slice("journey_".length);
+  const [campaign, moved] = await Promise.all([
+    journey ? repo.campaigns.getById(launchId).catch(() => null) : null,
+    repo.lifecycleJourneys.getById(waitlistJourneyId(launchId)).catch(() => null),
+  ]);
+  const history = (picking && moved?.abWinnerHistory) || [];
+  if (journey && !(campaign?.waitlistEngine === "lifecycle" && moved)) {
+    const seq = original(journey);
+    return { ...seq, steps: seq.steps.map((step) => ({ ...step, picks: picksOf(history, step) })) };
+  }
+  if (!moved) return null;
+  const published =
+    picking && moved.publishedVersion
+      ? await repo.lifecycleVersions.getById(versionDocId(moved.id, moved.publishedVersion)).catch(() => null)
+      : null;
+  const { graph, pools } = published ?? moved.draft;
+  const winners = liveWinners(moved, pools);
+  // A test decided on the original journey before the move is a single email here: show its pick.
+  const decided = new Map(
+    (journey ? original(journey).steps : []).filter((s) => s.ab?.status === "promoted").map((s) => [s.nodeId, s.ab]),
+  );
+  return {
+    journeyIds: [journeyId, moved.id],
+    steps: graph.nodes
+      .filter((n) => n.type === "email")
+      .map((node) => {
+        const pool = pools.find((p) => p.id === node.data.poolId);
+        const winner = pool ? (winners[pool.id] ?? null) : null;
+        const step = {
           nodeId: node.id,
           label: node.data.label || pool?.items[0]?.subject || "Untitled email",
           ab:
             pool?.abTest && pool.items.length > 1
               ? { armIds: pool.items.map((i) => i.id), status: winner ? ("promoted" as const) : ("running" as const), winnerVariantId: winner }
-              : null,
+              : (decided.get(node.id) ?? null),
         };
+        return picking ? { ...step, picks: picksOf(history, step) } : step;
       }),
   };
 }
@@ -365,6 +408,7 @@ export async function computeSequenceEmailBreakdown(
       status: step.ab?.status,
       winnerVariantId: step.ab?.winnerVariantId ?? null,
       arms,
+      ...step.picks,
       ...aggregateEvents(nodeEvents),
     };
   });
@@ -437,6 +481,7 @@ export async function computeHybridSequenceBreakdown(
       status: step.ab?.status,
       winnerVariantId: step.ab?.winnerVariantId ?? null,
       arms,
+      ...step.picks,
       ...engagementFromRaw(bqNode?.counts ?? RAW_ZERO),
     };
   });

@@ -55,6 +55,7 @@ export const RULE_DECISIONS = {
   auto_plug: { label: "Auto plug comment", file: "src/lib/distribute/autoPlug.ts" },
   next_action_order: { label: "Your next action order", file: "src/lib/onboarding/homeOrder.ts" },
   sidebar_fit: { label: "Sidebar sections that wait", file: "src/lib/onboarding/sidebarFit.ts" },
+  investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
 export type RuleDecision = keyof typeof RULE_DECISIONS;
@@ -101,6 +102,7 @@ export const LEARNED_STORES = {
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
   brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
+  lifecycle_journey: "A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;
@@ -248,7 +250,7 @@ export const LOOPS = {
   // ----- Rule decisions (RULE_DECISIONS above) -----
   send_time: gap("Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.", LATER),
   ab_split: none("The split between versions has to stay a fair, stable coin toss per person, or the test can no longer say which email did better."),
-  ab_winner: gap("A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.", LATER),
+  ab_winner: own("lifecycle_journey", "Where turned on, the winner a person picks for an email test after 50 sends reaches the journey the launch sends from on either engine, so everyone who gets that email from then on gets the winner."),
   journey_next_step: none("The next step is the path a person drew on the journey, and the walk follows it rather than picking a branch of its own."),
   journey_shape: gap("The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.", LATER),
   insight_pick: gap("Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.", LATER),
@@ -275,6 +277,7 @@ export const LOOPS = {
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
   next_action_order: gap("When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.", "2027-02-26"),
   sidebar_fit: none("A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept."),
+  investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----
   waitlist_voice_chat: none("The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people."),

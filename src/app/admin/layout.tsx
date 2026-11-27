@@ -48,6 +48,7 @@ import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
@@ -240,6 +241,7 @@ export default async function AdminLayout({
             settingsHistory={isSettingsHistoryEnabled()}
             nextActionCard={isNextActionCardEnabled()}
             agentRecord={isAgentRecordEnabled()}
+            raiseFollowUps={isRaiseFollowupsEnabled()}
           >
             {shell}
           </ShellProvider>

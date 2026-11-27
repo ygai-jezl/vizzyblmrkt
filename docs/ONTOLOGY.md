@@ -626,7 +626,7 @@ An email journey on the lifecycle engine, for a product's users or a launch's wa
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `journey_email`
 - Numbers: `sends`, `delivered`, `people`, `deliveryRate`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `totalOpens`, `totalClicks`, `hardBounces`, `softBounces`, `deferrals`, `complaints`, `unsubscribes`, through `get_email_results`
-- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape` (see Learning)
+- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape`, `ab_winner` (see Learning)
 
 ### Journey enrolment (`enrolment`)
 
@@ -766,7 +766,7 @@ A field the brand adds to people or companies, of one of twelve types, managed i
   - Gap: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
 - Export: gap. Team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label.
 - Search: none. A field's values are found with its person.
-- Numbers: none. A value belongs to one record and is not a brand metric.
+- Numbers: `pipelinePeople`, `stagePeople`, `passedPeople`, `reasonPasses`, `noReasonPasses`, `quietPeople`, `nextStepPastPeople`, `overduePeople`, `openFollowUps`, `quietAfterDays`, through `get_raise_pipeline`
 
 ### Consent purpose (`consent_purpose`)
 
@@ -1025,24 +1025,21 @@ A social post waiting to go out on one of the brand's accounts, and what happene
 
 ### What posts taught (`post_learning`)
 
-What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.
+What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
-  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`. The best posts, and the approved emails and hub pieces kept as examples.
+  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`
   - `post_perf_vectors`, the brand's regional Firestore, in `src/lib/tenant/postVectors.ts`
   - `learned_pattern_versions`, the brand's regional Firestore, in `src/lib/tenant/patternVersions.ts`. Append only, the source of a revert.
-- Links: `post_result` through the posts it learned from (many); `content_plan` through the approved pieces it keeps as examples (many)
-- Erase:
-  - `forgetPlanExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (an approved example goes with its content plan; the post statistics are the brand's own and stay)
-  - `forgetRemovedExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a piece taken off the canvas takes its approved example with it)
-  - `forgetWorkspaceExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a deleted programme takes the approved examples of its plans with it)
+- Links: `post_result` through the posts it learned from (many)
+- Erase: none. The brand's own content statistics.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Vectors and versions for the writer, not text to find.
 - Numbers: none. Its numbers are post results.
-- Made by: `post_feedback`, `content_email`, `content_hub` (see Learning)
+- Made by: `post_feedback` (see Learning)
 
 ### Generated image (`image_asset`)
 
@@ -1318,7 +1315,7 @@ A blog article's last 10 versions: its copy and meta just before Apply, Regenera
 
 ### AI original (`ai_original`)
 
-The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it and any approved pieces it followed as examples, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
+The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
 
 - Status: built
 - Home: the brand's region
@@ -1578,7 +1575,7 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
 
 - Status: built
 - Home: the brand's region
@@ -1605,7 +1602,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - Gap: team member ids stay as ids, with no export by team member
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot` (see Learning)
+- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot`, `investor_quiet` (see Learning)
 
 ## Platform
 
@@ -2070,16 +2067,16 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-98 kinds: 0 learn, 0 fleet only, 25 own, 32 gap and 41 none.
+99 kinds: 0 learn, 0 fleet only, 24 own, 34 gap and 41 none.
 
-119 call sites: 0 learn, 0 fleet only, 35 own, 38 gap and 46 none.
+120 call sites: 0 learn, 0 fleet only, 34 own, 40 gap and 46 none.
 
-Not learning: 84 of 119 call sites, under gap and none lines.
+Not learning: 86 of 120 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
 - `learned`: The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.
-- `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.
+- `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.
 - `vizzy_memory`: Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.
 - `brand_kit`: Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.
 - `brand_map`: The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.
@@ -2090,6 +2087,7 @@ Not learning: 84 of 119 call sites, under gap and none lines.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
 - `next_action_card`: The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.
 - `brand_strategy`: The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.
+- `lifecycle_journey`: A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.
 
 ### Learns
 
@@ -2122,10 +2120,6 @@ No line says this yet.
   - `src/lib/content/blog/seen.ts`
 - `content_write` (AI purpose, Writing posts), kept in `post_learning`. Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet.
   - `src/lib/content/create/generateNode.ts`
-- `content_email` (AI purpose, Writing workflow emails), kept in `post_learning`. Where turned on, a workflow email follows the emails your team approved, kept as examples of the brand's own writing, though how your team edited each draft teaches it nothing yet.
-  - `src/lib/content/create/generateNode.ts`
-- `content_hub` (AI purpose, Writing hub content), kept in `post_learning`. Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet.
-  - `src/lib/content/create/generateNode.ts`
 - `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
 - `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none.
@@ -2151,6 +2145,8 @@ No line says this yet.
   - `src/lib/signals/collect.ts`
 - `canvas.brand_map` (canvas), kept in `brand_map`. A change a person dismissed is kept on the brand map and Vizzy does not file it again, though a buying situation a person asks Vizzy for in chat comes back as a suggestion.
   - `src/lib/canvas/kinds/brandMap.ts`
+- `ab_winner` (rule, Email test winner), kept in `lifecycle_journey`. Where turned on, the winner a person picks for an email test after 50 sends reaches the journey the launch sends from on either engine, so everyone who gets that email from then on gets the winner.
+  - `src/lib/journey/abTest.ts`
 - `next_up_order` (rule, Next up shortlist), kept in `learned`. Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list, and where turned on a subject counts by its size as well as its share answered.
   - `src/lib/nextUp/candidates.ts`
 - `repeat_match` (rule, Repeat match), kept in `learned`. A question your team wrote anyway, added to an article or unlinked is kept on the Learned list and not matched that way again, though the closeness cut offs never move.
@@ -2188,6 +2184,10 @@ No line says this yet.
   - `src/lib/content/create/generateNode.ts`
 - `architect` (AI purpose, Laying out workflows), look again by 2027-05-01. Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.
   - `src/lib/content/create/architectRun.ts`
+- `content_email` (AI purpose, Writing workflow emails), look again by 2027-05-01. Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.
+  - `src/lib/content/create/generateNode.ts`
+- `content_hub` (AI purpose, Writing hub content), look again by 2027-05-01. Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.
+  - `src/lib/content/create/generateNode.ts`
 - `content_angle` (AI purpose, Suggesting angles), look again by 2027-05-01. An angle you turn down with Suggest another is passed only to the next try and never kept as a no.
   - `src/lib/content/create/suggestAngle.ts`
 - `ebook` (AI purpose, eBooks), look again by 2027-05-01. eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.
@@ -2214,8 +2214,6 @@ No line says this yet.
   - `src/lib/connectors/signals/detect.ts`
 - `send_time` (rule, Send time), look again by 2027-05-01. Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.
   - `src/lib/lifecycle/sendWindow.ts`
-- `ab_winner` (rule, Email test winner), look again by 2027-05-01. A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.
-  - `src/lib/journey/abTest.ts`
 - `journey_shape` (rule, Journey template shape), look again by 2027-05-01. The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.
   - `src/lib/lifecycle/architect.ts`
 - `insight_pick` (rule, Insight an email features), look again by 2027-05-01. Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.
@@ -2234,6 +2232,8 @@ No line says this yet.
   - `src/lib/competitors/profile.ts`
 - `strategy_check` (rule, Weekly strategy check), look again by 2027-05-01. The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.
   - `src/lib/brandStrategy/checkRules.ts`
+- `investor_quiet` (rule, Investor follow-ups), look again by 2027-05-01. A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.
+  - `src/lib/raise/pipeline/due.ts`
 
 ### None
 

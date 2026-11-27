@@ -11,8 +11,9 @@ draft, and save drafts through the canvas endpoint, including a journey's own lo
 (its draft's Email style, with the root's tools for it). Where it is switched on, it
 can also read ONE person's situation — the person whose page the operator is on —
 with no name, address or product id in it, and that person's own fields of the
-safe types, suggesting changes that someone on the team confirms. Publishing, delivery mode and AI-line
-approvals stay human-only, so no tool confirmation is needed here.
+safe types, suggesting changes that someone on the team confirms. Where the investor and funding
+board is switched on, it reads that board as counts only (by stage and reason, never a name).
+Publishing, delivery mode and AI-line approvals stay human-only, so no tool confirmation is needed here.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from .tools.lifecycle_tools import (
     save_lifecycle_graph,
     save_person_plan,
 )
+from .tools.raise_pipeline import get_raise_pipeline
 from ...model_config import DEFAULT_MODEL
 from ...tools.journey_style import get_journey_email_style, set_journey_email_style
 
@@ -46,7 +48,8 @@ lifecycle_ops_agent = LlmAgent(
         "as drafts for human review. Delegate here for anything about product users, "
         "onboarding progress, lifecycle email or a journey page under Lifecycle, and for "
         "anything about one person's fields (their plan, seats, status and the like), "
-        "including suggesting changes for the team to confirm."
+        "including suggesting changes for the team to confirm, and for counts on the "
+        "brand's investor or funding board (by stage, why people passed, how many are overdue)."
     ),
     instruction=build_lifecycle_ops_instruction,
     tools=[
@@ -65,6 +68,9 @@ lifecycle_ops_agent = LlmAgent(
         people_fields_list,
         person_fields_read,
         person_fields_propose,
+        # The brand's investor or funding board on People, as counts by stage and reason: never a
+        # name, read only.
+        get_raise_pipeline,
         # One journey's own look (header and button colours), in its draft.
         get_journey_email_style,
         set_journey_email_style,

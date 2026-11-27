@@ -377,6 +377,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # A picked email test winner reaches the journey a launch sends from, on either engine.
+  - variable: WAITLIST_AB_WINNER_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Sign-ups from a brand's own site: a launch's site key and POST /api/v2/signups
   # (needs CONNECT_SECRET_ENC_KEY, which seals the key's secret).
   - variable: LAUNCH_SITE_SIGNUPS_ENABLED
@@ -571,6 +576,16 @@ env:
   # read in memory up to 5,000 people a view, and Vizzy reading saved views' counts (needs
   # AUDIENCE_FIELDS_ENABLED; the screen also needs nav phase 3).
   - variable: CRM_VIEWS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The investor and funding board on People: Set up for raising or funding in Settings › Data model, the board, why each one passed and Vizzy's counts (needs AUDIENCE_FIELDS_ENABLED; the tab also needs nav phase 3).
+  - variable: RAISE_PIPELINE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Follow-ups from that board in Review, from the tick each morning (needs RAISE_PIPELINE_ENABLED).
+  - variable: RAISE_FOLLOWUPS_ENABLED
     value: "false"
     availability:
       - RUNTIME

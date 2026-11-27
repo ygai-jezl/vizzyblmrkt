@@ -832,7 +832,9 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
         action: "Check",
       },
     ]);
-    expect(REVIEW_ORDER.indexOf("business_fact")).toBe(REVIEW_ORDER.indexOf("person_suggestion") + 1);
+    // Beside the people suggestions, after the board's follow-ups (S2a).
+    const at = REVIEW_ORDER.indexOf("person_suggestion");
+    expect(REVIEW_ORDER.slice(at, at + 3)).toEqual(["person_suggestion", "raise_followup", "business_fact"]);
     expect(REVIEW_SECTIONS.business_fact.title).toBe("About your business");
   });
 
@@ -841,6 +843,51 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
     vi.stubEnv("ONBOARDING_ENABLED", "true");
     expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
     vi.stubEnv("ONBOARDING_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});
+
+describe("follow-ups from the investor board (RAISE_FOLLOWUPS_ENABLED)", () => {
+  const FIELDS = ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "RAISE_PIPELINE_ENABLED", "RAISE_FOLLOWUPS_ENABLED"];
+  beforeEach(() => resetReviewCountCache());
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function world() {
+    const { boardWorld } = await import("@/lib/raise/pipeline/testing/world");
+    const { followUpProposal } = await import("@/lib/raise/pipeline/followups");
+    const { proposeAgentAction } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };
+    const w = await boardWorld(db, { ctx: admin });
+    const sam = await w.add({ email: "sam@example.test", first: "Sam", stage: "contacted", lastTouch: "2026-11-01" });
+    const at = new Date().toISOString();
+    await proposeAgentAction(admin, followUpProposal({ personId: sam, due: "quiet", day: "2026-11-01", stageOptionId: w.stage("contacted"), stageField: w.ids.stage, dateField: w.ids.lastTouch, at }), { db });
+    return { db, admin, sam };
+  }
+
+  it("have their own section, right after the suggestions about people, from YouGrow's rule", () => {
+    expect(REVIEW_SECTIONS.raise_followup).toEqual({
+      title: "Follow-ups from your board",
+      description:
+        "People on your board who have been quiet for 14 days, or whose next step date has passed. YouGrow checks each morning. Following up, or moving them on the board, clears one.",
+      from: ["investor_quiet"],
+    });
+    expect(REVIEW_ORDER[REVIEW_ORDER.indexOf("person_suggestion") + 1]).toBe("raise_followup");
+  });
+
+  it("are listed for everyone on the team only while follow-ups are on, and count", async () => {
+    for (const k of FIELDS) vi.stubEnv(k, "true");
+    const { db, admin, sam } = await world();
+    const r = await loadReview(admin, { lifecycle: false, includeContent: false }, db);
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({ kind: "raise_followup", href: `/admin/crm/people/${sam}`, action: "Open", detail: "In Contacted. Open their page to follow up.", followUp: { quiet: true, rev: 1 } });
+    expect(r.items[0]!.title).toMatch(/^Quiet for \d+ days$/);
+    expect(JSON.stringify(r.items)).not.toMatch(/Sam|example\.test/);
+    const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toHaveLength(1);
+    expect(await countReview(admin, { lifecycle: false, now: 1_000 }, db)).toBe(1);
+
+    vi.stubEnv("RAISE_FOLLOWUPS_ENABLED", "false");
     expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
   });
 });

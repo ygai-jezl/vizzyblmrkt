@@ -39,6 +39,10 @@ import {
   WELCOME_WORDS,
 } from "@/lib/onboarding/words";
 import { NEXT_ACTION_WORDS } from "@/lib/nextAction/words";
+import { BOARD_WORDS, PASS_WORDS, REVIEW_WORDS as FOLLOW_UP_WORDS, SETUP_WORDS } from "@/lib/raise/pipeline/words";
+import { RAISE_REASONS } from "@/lib/raise/reasons";
+import { BOARD_HREF } from "@/lib/raise/pipeline/setup";
+import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
 
 
 /**
@@ -70,6 +74,9 @@ vi.hoisted(() => {
   process.env.AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED = "true";
   process.env.CRM_VIEWS_ENABLED = "true";
+  // The investor and funding board, with its follow-ups in Review.
+  process.env.RAISE_PIPELINE_ENABLED = "true";
+  process.env.RAISE_FOLLOWUPS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -1340,5 +1347,94 @@ describe("Drafts from Vizzy and the agent record (AGENT_RECORD_ENABLED)", () => 
       expect(dashesIn(line), line).toEqual([]);
       expect(aiTellsIn(line), line).toEqual([]);
     }
+  });
+});
+
+describe("Investors and funding (RAISE_PIPELINE_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const SLUG = "investors-and-funding";
+  const md = (raiseFollowUps: boolean) => docToMarkdown(HELP_BODIES[SLUG]!({ raiseFollowUps }), "https://app.example.com");
+  const ids = (raiseFollowUps: boolean) =>
+    elements(HELP_BODIES[SLUG]!({ raiseFollowUps }))
+      .filter((e) => e.type === H2)
+      .map((e) => String(e.props.id));
+
+  it("is listed after Your audience in Grow audience, with every section while follow-ups are on", () => {
+    const i = HELP_PAGES.findIndex((p) => p.slug === SLUG);
+    expect(HELP_PAGES[i - 1]?.slug).toBe("your-audience");
+    expect(HELP_PAGES[i]).toMatchObject({ label: "Investors and funding", group: "grow", onlyWhen: "raise_pipeline" });
+    expect(ids(true)).toEqual(["set-up", "board", "passed", "follow-ups", "vizzy", "check", "messages"]);
+    expect(anchorsOf(SLUG).has("follow-ups")).toBe(true);
+  });
+
+  it("leaves out follow-ups while they are off", () => {
+    expect(ids(false)).not.toContain("follow-ups");
+    const off = md(false);
+    expect(off).not.toContain(FOLLOW_UP_WORDS.title);
+    expect(off).not.toContain(FOLLOW_UP_WORDS.errors.stale);
+    expect(off).not.toContain("Review reminds you");
+    expect(off).not.toContain(`**${BOARD_WORDS.followUpChip}**`);
+  });
+
+  it("is hidden and not served while the board is off", () => {
+    vi.stubEnv("RAISE_PIPELINE_ENABLED", "");
+    expect(shownHelpPages().some((p) => p.slug === SLUG)).toBe(false);
+    expect(helpLlmsTxt("https://app.example.com")).not.toContain(`/help/${SLUG}.md`);
+    vi.stubEnv("RAISE_PIPELINE_ENABLED", "true");
+    expect(shownHelpPages().some((p) => p.slug === SLUG)).toBe(true);
+  });
+
+  it("names the buttons and lines in the screens' own words, with the plant shop as the second example", () => {
+    const text = md(true);
+    for (const w of [SETUP_WORDS.title, SETUP_WORDS.kits.raising.button, SETUP_WORDS.kits.funding.button, SETUP_WORDS.amountsIn, SETUP_WORDS.openBoard, BOARD_WORDS.moveTo, PASS_WORDS.title, PASS_WORDS.save, PASS_WORDS.blank, PASS_WORDS.cancel, FOLLOW_UP_WORDS.title, FOLLOW_UP_WORDS.followedUp, FOLLOW_UP_WORDS.dismiss]) {
+      expect(text).toContain(`**${w}**`);
+    }
+    expect(text).toContain(`"${BOARD_WORDS.guidance}"`);
+    expect(text).toContain(`"${PASS_WORDS.line}"`);
+    expect(text).toContain("Fernhill Plants");
+    expect(text).toContain("Research, Contacted, Replied, First meeting, Next meeting, Meeting, Diligence, Term sheet, Committed, Money in and Passed");
+    expect(text).toContain(`after ${FOLLOWUP_EXPIRY_DAYS} days`);
+    expect(text).toContain(`(https://app.example.com${BOARD_HREF})`);
+  });
+
+  it("lists every reason under its area, lender reasons under Deal and the grant reason under Fit", () => {
+    const text = md(true);
+    for (const r of RAISE_REASONS) expect(text).toContain(r.label);
+    expect(text).toMatch(/\| Deal \| [^|]*Not enough trading history[^|]*Repayments look too high/);
+    expect(text).toMatch(/\| Fit \| [^|]*Not eligible for this scheme/);
+  });
+
+  it("quotes every message a person can see on it, and keeps to house style", () => {
+    const text = md(true);
+    for (const m of [
+      SETUP_WORDS.nothing,
+      SETUP_WORDS.doneUses,
+      SETUP_WORDS.uses(["Stage"]),
+      SETUP_WORDS.usesStage("Stage"),
+      SETUP_WORDS.errors.field_list_full,
+      SETUP_WORDS.errors.fields_changed,
+      BOARD_WORDS.errors.not_set_up,
+      BOARD_WORDS.errors.stale,
+      BOARD_WORDS.membersOnly,
+      FOLLOW_UP_WORDS.errors.stale,
+    ]) {
+      expect(text).toContain(`"${m}"`);
+    }
+    for (const line of [...text.split("\n"), ...md(false).split("\n")]) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
+  it("puts Follow-ups from your board on Review and approvals only while they are on", () => {
+    const review = (raiseFollowUps: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ raiseFollowUps }), "https://app.example.com");
+    expect(review(true)).toContain(`**${FOLLOW_UP_WORDS.title}**`);
+    expect(review(true)).toContain(`[Follow-ups in Review](https://app.example.com/help/${SLUG}.md)`);
+    expect(review(false)).not.toContain(FOLLOW_UP_WORDS.title);
+  });
+
+  it("follow what the How to drawer is told", () => {
+    expect(drawerBodyProps({ raiseFollowUps: true } as never).raiseFollowUps).toBe(true);
+    expect(drawerBodyProps(null as never).raiseFollowUps).toBe(false);
   });
 });

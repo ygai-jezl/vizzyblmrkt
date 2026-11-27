@@ -16,6 +16,8 @@ import { cleanTitle } from "@/lib/competitors/titles";
 import { formatLabel, stageLabel } from "@/lib/competitors/view";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { siteOf, sitesOf, tenantDomains } from "@/lib/knowledge/site";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { answeredLabels } from "@/lib/onboarding/choices";
 import { listBusinessFacts } from "@/lib/onboarding/store";
 import { aiUsage } from "@/lib/plans/meter";
@@ -573,5 +575,7 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
     { db: deps.db, now: deps.now },
   );
   if (!saved.ok) return saved;
+  // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+  await countMade(ctx, "brand_strategy", (await learnedFor(ctx, "brand_strategy", { promptId: PROPOSE_PROMPT })).stamp, { type: "brand_strategy", db: deps.db });
   return { ok: true, doc: saved.value, dropped };
 }

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isGeminiConfigured, type AiUsage } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage, usageMeter } from "@/lib/plans/meter";
 import { articleMapAtScale } from "@/lib/brandMap/articleScale";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
@@ -197,6 +199,11 @@ export async function readOneArticle(
   const saved = (patch: Partial<CompetitorArticle> & { readBy: "direct" | "google" }) =>
     finishArticle(ctx, a.id, leaseId, { status: "read", problem: null, readAt: now.toISOString(), readMonth: monthOf(now), version: READER_VERSION[patch.readBy], ...patch }, deps);
   const stop = (patch: Partial<CompetitorArticle>, outcome: Outcome) => unread(ctx, a, leaseId, patch, outcome, refresh, deps);
+  // A read saved: its meaning joins the brand map, and it is counted made (LOOPS_ENABLED, learning loops step 5).
+  const keptRead = async (done: CompetitorArticle) => {
+    await embedArticle(ctx, done, deps, c);
+    await countMade(ctx, "competitor_articles", (await learnedFor(ctx, "competitor_articles")).stamp, { type: "competitor", db: deps.db });
+  };
   // A page that only lists other posts (a category or tag page) is no article: skipped, also on a
   // read again, and its meaning leaves the brand map's vectors.
   const listing = async (readBy: "direct" | "google") => {
@@ -221,7 +228,7 @@ export async function readOneArticle(
     if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
     if (found.format === "listing") return listing("google");
     const done = await saved({ readBy: "google", title: title(a.title), ...found });
-    if (done) await embedArticle(ctx, done, deps, c);
+    if (done) await keptRead(done);
     return done ? "read" : "failed";
   }
 
@@ -254,7 +261,7 @@ export async function readOneArticle(
     trust: page.trust,
     ...found,
   });
-  if (done) await embedArticle(ctx, done, deps, c);
+  if (done) await keptRead(done);
   return done ? "read" : "failed";
 }
 

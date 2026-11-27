@@ -4,6 +4,8 @@ import { guardEbookRoute } from "@/lib/content/create/ebookRoute";
 import { mutateContentPlanEbookDraft } from "@/lib/tenant/workspaceContent";
 import { applyEbookOps, extractEbookOps } from "@/lib/content/create/ebookOps";
 import { generateTextStream } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import type { EbookDoc } from "@/lib/types/contentPlan";
@@ -114,6 +116,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             applyEbookOps(draft, ops),
           ).catch(() => null);
           if (saved) emit({ type: "ebook", ebook: saved });
+          // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+          if (saved) await countMade(ctx, "ebook", (await learnedFor(ctx, "ebook")).stamp, { type: "content_plan" });
           else emit({ type: "error", message: "I couldn't save that change — try again." });
         }
         emit({ type: "done" });

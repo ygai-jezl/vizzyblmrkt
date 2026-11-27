@@ -147,22 +147,28 @@ export function countSignal(ctx: TenantContext, stamp: LoopStamp, signal: Counte
   return countSignals(ctx, stamp, { [signal]: 1 } as Partial<Record<CountedSignal, number>>, deps);
 }
 
+/** The most things one count of made may add: a save that keeps several records from one model call. */
+export const MADE_AT_ONCE_MAX = 100;
+
 /**
  * Count a thing made and saved (or handed back to be saved): made against its stamp, or why it has
- * none, and made for its ontology type, in one write.
+ * none, and made for its ontology type, in one write. `n` counts several records one save keeps
+ * from the same call (such as the templates one deconstruct makes); 1 when left out.
  */
-export async function countMade(ctx: TenantContext, kind: LoopKind, made: Made, opts: CountDeps & { type?: string } = {}): Promise<void> {
-  const m = madeTree(kind, made, opts.type);
+export async function countMade(ctx: TenantContext, kind: LoopKind, made: Made, opts: CountDeps & { type?: string; n?: number } = {}): Promise<void> {
+  const m = madeTree(kind, made, opts.type, opts.n);
   if (m) await addToWeek(ctx, m.kind, m.tree, "made", opts);
 }
 
-/** The counters a made thing adds, under the kind they count for, or null for a stamp that can't name any. */
-function madeTree(kind: LoopKind, made: Made, type?: string): { kind: LoopKind; tree: CounterTree } | null {
-  const t: CounterTree = type && KIND_KEY.test(type) ? { t: { [type]: { made: 1 } } } : {};
-  if ("unstamped" in made) return { kind, tree: { u: { [kind]: { [made.unstamped]: 1 } }, ...t } };
+/** The counters made things add, under the kind they count for, or null for a stamp that can't name any or a count of none. */
+function madeTree(kind: LoopKind, made: Made, type?: string, n = 1): { kind: LoopKind; tree: CounterTree } | null {
+  if (!Number.isInteger(n) || n < 1) return null;
+  const k = Math.min(n, MADE_AT_ONCE_MAX);
+  const t: CounterTree = type && KIND_KEY.test(type) ? { t: { [type]: { made: k } } } : {};
+  if ("unstamped" in made) return { kind, tree: { u: { [kind]: { [made.unstamped]: k } }, ...t } };
   const s = countableStamp(made);
   if (!s) return null;
-  return { kind: s.kind, tree: { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: { made: 1 } } } } }, ...t } };
+  return { kind: s.kind, tree: { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: { made: k } } } } }, ...t } };
 }
 
 /** The signals a person's own image can count: it was never made, kept or edited by YouGrow. */

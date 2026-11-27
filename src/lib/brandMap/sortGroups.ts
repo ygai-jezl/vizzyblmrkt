@@ -1,5 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithDeadline, isGeminiConfigured } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords, type BrandMapRecordStore } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -140,5 +142,7 @@ export async function sortIntoGroups(ctx: TenantContext, input: { cursor: string
     touched.push(gid);
   }
   await refreshSuggested(store, touched);
+  // Each group proposed and each group suggested for a subject is counted made, in one write (LOOPS_ENABLED, learning loops step 5).
+  if (made + suggested) await countMade(ctx, "brand_map_research", (await learnedFor(ctx, "brand_map_research", { promptId: "brand.map_groups" })).stamp, { type: "brand_map", n: made + suggested, db: deps.db });
   return { ok: true, done, next, read: batch.length, suggested, proposedGroups };
 }

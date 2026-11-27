@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { guardEbookRoute } from "@/lib/content/create/ebookRoute";
 import { updateContentPlanEbook } from "@/lib/tenant/workspaceContent";
 import { generateEbookToc } from "@/lib/content/create/ebookToc";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
@@ -52,5 +54,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const saved = await updateContentPlanEbook(ctx, workspaceId, planId, ebook);
   if (!saved) return NextResponse.json({ error: "save_failed" }, { status: 500 });
+  // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+  await countMade(ctx, "ebook", (await learnedFor(ctx, "ebook")).stamp, { type: "content_plan" });
   return NextResponse.json({ ebook: saved });
 }

@@ -8,6 +8,8 @@ import { architectEbookPlan, architectPlan, architectSequence } from "./architec
 import { isEbookEnabled } from "./ebook";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 
 /**
@@ -62,10 +64,14 @@ export async function runArchitect(
       }),
     };
   }
+  // A graph the model laid out is counted made as it is handed back for its caller to save (LOOPS_ENABLED, learning loops step 5).
+  const made = async (graph: ContentGraph): Promise<ArchitectResult> => {
+    await countMade(ctx, "architect", (await learnedFor(ctx, "architect")).stamp, { type: "content_plan" });
+    return { ok: true, graph };
+  };
   if (plan.strategy.objective === "email_sequence" && plan.strategy.sequenceType) {
-    return {
-      ok: true,
-      graph: await architectSequence({
+    return made(
+      await architectSequence({
         sequenceType: plan.strategy.sequenceType,
         spark: plan.scope.spark,
         topicLabels: plan.scope.topics.map(contentMatrixLabel),
@@ -74,11 +80,10 @@ export async function runArchitect(
         audience: ws.audience ?? null,
         usage: aiUsage(ctx, "architect"),
       }),
-    };
+    );
   }
-  return {
-    ok: true,
-    graph: await architectPlan({
+  return made(
+    await architectPlan({
       objective: plan.strategy.objective,
       spark: plan.scope.spark,
       topicLabels: plan.scope.topics.map(contentMatrixLabel),
@@ -91,5 +96,5 @@ export async function runArchitect(
       ...(args.deadlineMs ? { deadlineMs: args.deadlineMs } : {}),
       usage: aiUsage(ctx, "architect"),
     }),
-  };
+  );
 }

@@ -14,6 +14,7 @@ import {
   countUnstamped,
   isCountedSignal,
   loopWeekOf,
+  MADE_AT_ONCE_MAX,
   shardOf,
 } from "./count";
 import { sumWeek } from "./testing/sumWeek";
@@ -78,6 +79,28 @@ describe("with versions off, or for a kind step 5 turns on", () => {
     for (const kind of ["blog_write", "edit_mode", "send_time", "canvas.journey"] as const) expect(countsFor(kind), kind).toBe(false);
     await countUnstamped(hearth, "blog_write", "loops_off", { db: untouchable, now: NOW });
     await countCard(hearth, "edit_mode", "proposed", { db: untouchable, now: NOW });
+  });
+});
+
+describe("several records from one save (the stamp scan, step 5)", () => {
+  const templates: LoopStamp = { made: "m1.templates.0.n", kind: "templates", scope: "templates", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, at: "2027-01-15T09:00:00.000Z" };
+
+  it("counts each record one save keeps from a call, in one write, up to the cap, and nothing for none", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await countMade(hearth, "templates", templates, { db, now: NOW, type: "template", n: 3, random: () => 0 });
+    await countMade(hearth, "templates", templates, { db, now: NOW, type: "template", n: MADE_AT_ONCE_MAX + 50, random: () => 0 });
+    for (const n of [0, -2, 1.5]) await countMade(hearth, "templates", templates, { db, now: NOW, type: "template", n, random: () => 0 });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({
+      c: { templates: { templates: { v0: { none: { made: 3 + MADE_AT_ONCE_MAX } } } } },
+      t: { template: { made: 3 + MADE_AT_ONCE_MAX } },
+    });
+  });
+
+  it("counts nothing with LOOPS_ENABLED off (decision 22)", async () => {
+    const db = new FakeFirestore();
+    await countMade(hearth, "templates", templates, { db, now: NOW, type: "template", n: 3 });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({});
   });
 });
 

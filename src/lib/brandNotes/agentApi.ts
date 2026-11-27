@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { isRateLimited } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BRAND_NOTE_KIND_LABEL, BRAND_NOTE_KINDS, BRAND_NOTE_LIMITS, BrandNoteKind } from "@/lib/types/brandNote";
@@ -110,6 +112,8 @@ export async function agentSuggestNotes(
     }
     filed += 1;
   }
+  // The notes Vizzy wrote are counted made where they are filed, in one write (LOOPS_ENABLED, learning loops step 5).
+  if (filed) await countMade(ctx, "brand_notes", (await learnedFor(ctx, "brand_notes", { by: "vizzy" })).stamp, { type: "brand_note", n: filed, db: deps.db });
   return {
     status: 200,
     body: {

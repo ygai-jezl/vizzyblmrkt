@@ -1,5 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateGroundedText, isGeminiConfigured, isSearchLimited, type AiUsage } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -193,5 +195,8 @@ export async function askSituationQuestions(ctx: TenantContext, situationId: str
   if (fresh.size) await embedSubjects(ctx, [...fresh], { db: deps.db, nowMs: deps.nowMs, ...deps.embed }).catch(() => 0);
   // Questions the map had are linked now: the situation's counts follow.
   if (placed.some((q) => q.linked)) await recountSituations(ctx, [situationId], { db: deps.db });
+  // Each question proposed is counted made, in one write (LOOPS_ENABLED, learning loops step 5).
+  const proposedCount = placed.filter((q) => !q.linked).length;
+  if (proposedCount) await countMade(ctx, "situation_questions", (await learnedFor(ctx, "situation_questions", { promptId: "brand.map_situation_questions" })).stamp, { type: "brand_question", n: proposedCount, db: deps.db });
   return { ok: true, questions: placed };
 }

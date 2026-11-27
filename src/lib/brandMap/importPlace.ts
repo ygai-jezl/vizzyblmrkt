@@ -1,5 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithDeadline, isGeminiConfigured } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -193,5 +195,7 @@ export async function placeImport(ctx: TenantContext, importId: string, deps: Pl
   }
   const done = !items.some(placeable);
   await store.claim("imp", imp.id, () => ({ items, themes, placed: done }));
+  // A pass that placed findings is counted made on the import (LOOPS_ENABLED, learning loops step 5).
+  if (placed) await countMade(ctx, "brand_map_research", (await learnedFor(ctx, "brand_map_research", { promptId: "brand.map_import_place" })).stamp, { type: "research_import", db: deps.db });
   return { ok: true, value: { done, placed, noFit } };
 }

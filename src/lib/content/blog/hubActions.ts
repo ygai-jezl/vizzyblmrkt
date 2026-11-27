@@ -90,6 +90,12 @@ export async function researchPlanBlog(
   result.brief = await withRememberedAuthor(ctx, result.brief, deps.db);
   await rememberAuthor(ctx, result.brief, deps.db);
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
+  // A brief research filled is counted made where it is saved, under the purpose it searched for (LOOPS_ENABLED, learning loops step 5).
+  if (result.searched) {
+    const autopilot = args.searchPurpose === "autopilot_research";
+    const { stamp } = autopilot ? await learnedFor(ctx, "autopilot_research", { by: "autopilot" }) : await learnedFor(ctx, "blog_research");
+    await countMade(ctx, autopilot ? "autopilot_research" : "blog_research", stamp, { type: "content_plan", db: deps.db });
+  }
   // Its questions, subject and names are the page's facts on the brand map.
   await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
   const limited = result.searchLimited ? { searchLimited: true as const } : {};

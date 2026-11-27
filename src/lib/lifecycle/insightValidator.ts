@@ -1,3 +1,4 @@
+import { normalizeLocale } from "@/lib/i18n/locale";
 /**
  * The guard on every AI line (and AI subject). The product's own insight
  * sentence carries the numbers; the AI line may only explain or encourage, so it
@@ -89,7 +90,15 @@ function nameAllowed(name: string, allowed: string[]): boolean {
   });
 }
 
-function common(text: string, allowed: string[]): string[] {
+/** How a line is checked: `language` is the one it was written in (English when not given). */
+export interface LineCheckOptions {
+  language?: string | null;
+}
+
+/** German writes every noun with a capital, so its capitals say nothing about names. */
+const CAPITALISES_NOUNS = new Set(["de"]);
+
+function common(text: string, allowed: string[], opts: LineCheckOptions = {}): string[] {
   const issues: string[] = [];
   if (/\d/.test(text)) issues.push("Contains a number — numbers may only come from the product's own insight.");
   const qty = text.match(QUANTITY_WORDS);
@@ -97,25 +106,27 @@ function common(text: string, allowed: string[]): string[] {
   if (URLISH.test(text)) issues.push("Contains a link, domain or email address.");
   if (/[<>]|\{\{|\}\}/.test(text)) issues.push("Contains markup or a merge token.");
   for (const [re, label] of BANNED) if (re.test(text)) issues.push(`Makes a promise ("${label}").`);
-  for (const name of capitalisedNames(text)) {
-    if (!nameAllowed(name, allowed)) issues.push(`Names "${name}", which isn't in the product's facts or glossary.`);
+  if (!CAPITALISES_NOUNS.has(normalizeLocale(opts.language) ?? "en")) {
+    for (const name of capitalisedNames(text)) {
+      if (!nameAllowed(name, allowed)) issues.push(`Names "${name}", which isn't in the product's facts or glossary.`);
+    }
   }
   return issues;
 }
 
-export function validateAiLine(line: string, allowed: string[]): LineCheck {
+export function validateAiLine(line: string, allowed: string[], opts: LineCheckOptions = {}): LineCheck {
   const text = line.trim();
   if (!text) return { ok: false, issues: ["The line is empty."] };
-  const issues = common(text, allowed);
+  const issues = common(text, allowed, opts);
   const words = text.split(/\s+/).length;
   if (words > MAX_LINE_WORDS) issues.push(`Too long (${words} words; the limit is ${MAX_LINE_WORDS}).`);
   return { ok: issues.length === 0, issues };
 }
 
-export function validateAiSubject(subject: string, allowed: string[]): LineCheck {
+export function validateAiSubject(subject: string, allowed: string[], opts: LineCheckOptions = {}): LineCheck {
   const text = subject.trim();
   if (!text) return { ok: false, issues: ["The subject is empty."] };
-  const issues = common(text, allowed);
+  const issues = common(text, allowed, opts);
   if (text.length > MAX_SUBJECT_CHARS) issues.push(`Subject too long (${text.length} characters; the limit is ${MAX_SUBJECT_CHARS}).`);
   return { ok: issues.length === 0, issues };
 }

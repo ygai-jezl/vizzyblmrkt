@@ -21,6 +21,7 @@ import { journeyTimeline, timelineText } from "@/lib/lifecycle/timeline";
 import { createLifecycleJourney, getLifecycleJourney, saveLifecycleDraft, withJourneyEmailStyle } from "@/lib/lifecycle/service";
 import type { GraphIssue } from "@/lib/lifecycle/graph";
 import type { ProductConnection } from "@/lib/types/productConnection";
+import { recordJourneyDraft } from "@/lib/agentRecord/drafts";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -226,6 +227,8 @@ export async function authorLifecycleDraft(
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error, issues: saved.detail ? [saved.detail] : undefined };
 
   const { journey, issues } = saved.value;
+  // The agent record: the draft as Vizzy left it (soft, never fails the save).
+  await recordJourneyDraft(ctx, "lifecycle_journey.draft", journey, { db: deps.db });
   const { url, card: c } = card(journey, connection.name, draft, issues);
   const emails = c.stats[0]!.value;
   const splits = c.stats[1]!.value;

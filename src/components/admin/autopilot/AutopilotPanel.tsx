@@ -91,8 +91,14 @@ function Pick({
     <li className={`space-y-2 rounded-md border p-3 ${top ? "border-blue-400 dark:border-blue-500" : "border-neutral-200 dark:border-neutral-800"}`}>
       <div>
         {pick.kind === "refresh" ? <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">Refresh a live article</p> : null}
+        {pick.kind === "combine" ? <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">Combine two live articles</p> : null}
         <p className="text-sm font-medium">&ldquo;{pick.question}&rdquo;</p>
-        {pick.kind === "refresh" ? null : <p className={HINT}>Subject: {pick.subjectName}</p>}
+        {pick.kind === "refresh" || pick.kind === "combine" ? null : <p className={HINT}>Subject: {pick.subjectName}</p>}
+        {pick.slot ? (
+          <p className={HINT}>
+            From your content plan: {pick.slot.pillar ?? "no pillar"} · {pick.slot.kind} · {pick.slot.stage}
+          </p>
+        ) : null}
       </div>
       <p className="rounded bg-neutral-50 px-2 py-1.5 text-xs text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
         <b className="font-medium">Why now:</b> {pick.because}
@@ -101,6 +107,24 @@ function Pick({
       {close ? (
         <p className="rounded border border-blue-300 px-2 py-1.5 text-xs text-neutral-800 dark:border-blue-700 dark:text-neutral-200">
           <b className="font-medium">Close to your live article:</b> &ldquo;{close.title}&rdquo;{liveSince(close.liveAt)}. Adding to it may serve buyers better than a new article.
+        </p>
+      ) : null}
+      {pick.kind === "combine" && pick.combine ? (
+        <p className="rounded border border-blue-300 px-2 py-1.5 text-xs text-neutral-800 dark:border-blue-700 dark:text-neutral-200">
+          <b className="font-medium">These answer the same question:</b>{" "}
+          {pick.combine.pages.map((p, i) => (
+            <span key={`${p.title}-${i}`}>
+              {i ? " and " : ""}
+              {p.planId && p.workspaceId ? (
+                <a href={refreshHref({ planId: p.planId, workspaceId: p.workspaceId })} className="underline">
+                  &ldquo;{p.title}&rdquo;
+                </a>
+              ) : (
+                <>&ldquo;{p.title}&rdquo;</>
+              )}
+            </span>
+          ))}
+          . Keep one and fold the other in; the autopilot never drafts this.
         </p>
       ) : null}
       {closeSaid ? (
@@ -127,7 +151,7 @@ function Pick({
               </button>
             ) : null}
           </>
-        ) : pick.kind === "refresh" && pick.planId && pick.workspaceId ? (
+        ) : pick.kind === "combine" ? null : pick.kind === "refresh" && pick.planId && pick.workspaceId ? (
           <a href={refreshHref({ planId: pick.planId, workspaceId: pick.workspaceId })} className={BUTTON}>
             Open article
           </a>

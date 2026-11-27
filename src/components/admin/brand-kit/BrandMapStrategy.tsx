@@ -2,11 +2,17 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Star } from "lucide-react";
+import Link from "next/link";
 import type { StrategyView, ViewCompetitor } from "@/lib/brandStrategy/adminApi";
+import type { StrategyCompetitorsView } from "@/lib/brandStrategy/competitorsView";
+import { theirsKey } from "@/lib/brandStrategy/competitors";
+import { focusAgainst } from "@/lib/competitors/against";
+import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import {
   BRAND_STRATEGY_LIMITS as L,
   COMPETITOR_GROUP_KINDS,
   COMPETITOR_GROUP_LABEL,
+  NOT_GROUPED_LABEL,
   STRATEGY_SOURCE_LABEL,
   claimShown,
   type ClaimShown,
@@ -16,7 +22,10 @@ import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
-import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
+import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, TRUNCATED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
+import { BrandMapContentPlan } from "./BrandMapContentPlan";
+import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
+import { FLAG_TEXT } from "./CompetitorCoverage";
 
 /**
  * The Strategy tab (BRAND_STRATEGY_ENABLED): the brand strategy, one per brand, approved by a
@@ -33,6 +42,13 @@ const CARD = "space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neu
 
 type Note = { tone: "ok" | "err" | "info"; text: string };
 type Reply = { strategy?: StrategyView; error?: string; dropped?: { claims: number }; found?: number; gapSkipped?: boolean; starsNotUpdated?: string[] };
+
+/** Whose focus situations the Against your competitors card sets against them. */
+const AGAINST_FROM: Record<ReturnType<typeof focusAgainst>["from"], string> = {
+  approved: "Your approved focus situations, against their articles and the questions you've answered.",
+  draft: "The focus situations in your draft, against their articles and the questions you've answered.",
+  busiest: "No focus situations yet: the ones they write on most. Star your focus under Who it's for.",
+};
 
 const KIND_LABEL: Record<ClaimShown, string> = { site: "site", docs: "docs", them: "them", gap: "gap" };
 const KIND_TONE: Record<ClaimShown, string> = {
@@ -67,7 +83,7 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
   );
 }
 
-export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
+export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: boolean; contentPlan?: boolean }) {
   const { round } = useMapMove();
   const [view, setView] = useState<StrategyView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,6 +99,24 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
   useEffect(() => {
     void load();
   }, [load, round]);
+
+  // Joined to Competitors: what they write and how it sets against the strategy, read live.
+  const [theirs, setTheirs] = useState<StrategyCompetitorsView | null>(null);
+  const live = Boolean(view?.joined && view.canMonitor);
+  // Read again only when the competitors watched, an approval or a finder run changes, never on a
+  // star, claim or goal: the focus rows are picked here from every situation, read once.
+  const [finds, setFinds] = useState(0);
+  const key = view ? theirsKey(view, finds) : "";
+  useEffect(() => {
+    if (!key) return;
+    let cancelled = false;
+    void api<{ competitors?: StrategyCompetitorsView }>(`${STRATEGY}/competitors`).then((r) => {
+      if (!cancelled) setTheirs(r.ok && r.data.competitors ? r.data.competitors : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, round]);
 
   /** Run a request; on success show the strategy it sends back, else say why and read it again. */
   async function run(path: string, init: RequestInit, done?: (data: Reply) => string): Promise<boolean> {
@@ -124,15 +158,27 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
     if (!c.site) return;
     setBusy(true);
     setNote(null);
-    const r = await api<{ error?: string }>(COMPETITORS, { method: "POST", body: JSON.stringify({ name: c.name, website: c.site }) });
+    // Joined, Monitor carries the finder's group, and the list is live: nothing else to save.
+    const r = await api<{ error?: string }>(COMPETITORS, {
+      method: "POST",
+      body: JSON.stringify({ name: c.name, website: c.site, ...(view?.joined && c.group ? { group: c.group } : {}) }),
+    });
     setBusy(false);
     // Already watched counts as done: the tick is what this records.
     if (!r.ok && r.data.error !== "already_watching") {
       setNote({ tone: "err", text: strategyErrorText(r.data) });
       return;
     }
-    await edit({ ticked: [{ name: c.name, ticked: true }] }, `${c.name} is on Brand › Competitors now.`);
+    if (view?.joined) {
+      await load();
+      setNote({ tone: "ok", text: monitoredNote(c.name) });
+      return;
+    }
+    await edit({ ticked: [{ name: c.name, ticked: true }] }, monitoredNote(c.name));
   }
+
+  const notCompetitor = (c: ViewCompetitor) =>
+    run(`${STRATEGY}/competitors/not`, { method: "POST", body: JSON.stringify({ name: c.name, site: c.site }) }, () => notCompetitorNote(c.name));
 
   const stateLine =
     view.state === "approved" && view.approved
@@ -144,6 +190,18 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
           : "No strategy yet";
 
   const groups = COMPETITOR_GROUP_KINDS.map((kind) => ({ kind, list: view.competitors.filter((c) => c.group === kind) })).filter((g) => g.list.length);
+  // Joined to Competitors: the watched ones by the group a person chose, then the finder's suggestions.
+  const profiles = new Map((theirs?.profiles ?? []).map((p) => [p.id, p] as const));
+  const against = live ? theirs?.against : null;
+  const focusRows = against ? focusAgainst(against.rows, { approved: against.approvedFocus, draft: view.draft?.focusSituationIds ?? [] }) : null;
+  const watchedList = view.competitors.filter((c) => c.monitored);
+  const watchedGroups = [
+    ...COMPETITOR_GROUP_KINDS.map((kind) => ({ key: kind as string, label: COMPETITOR_GROUP_LABEL[kind], list: watchedList.filter((c) => c.group === kind) })),
+    { key: "none", label: NOT_GROUPED_LABEL, list: watchedList.filter((c) => !c.group) },
+  ].filter((g) => g.list.length);
+  const suggestions = view.competitors.filter((c) => !c.monitored && c.from === "finder");
+  const find = (mode: "quick" | "full") =>
+    run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped, live)).then((ok) => ok && setFinds((n) => n + 1));
   const proposedNot = (draft?.isNotProposals ?? []).filter((x) => x.state === "proposed");
 
   return (
@@ -210,11 +268,11 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
         aside={
           canEdit && view.finder.on ? (
             <span className="flex flex-wrap items-center gap-2">
-              <Button disabled={busy || (!view.finder.granted && view.finder.quickUsed)} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "quick" }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped))}>
+              <Button disabled={busy || (!view.finder.granted && view.finder.quickUsed)} onClick={() => void find("quick")}>
                 Find competitors
               </Button>
               {view.finder.granted ? (
-                <Button disabled={busy} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "full" }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped))}>
+                <Button disabled={busy} onClick={() => void find("full")}>
                   Full search
                 </Button>
               ) : null}
@@ -223,13 +281,62 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
         }
       >
         {view.finder.on ? (
-          <p className="text-[11px] text-neutral-500">
-            Quick: one answer from Google{view.finder.granted ? "" : view.finder.quickUsed ? ", used" : ", once"}.
-            {view.finder.granted ? ` Full: three answers merged and checked, then a search that fits your business${view.finder.limit !== null ? ` (${Math.max(0, view.finder.limit - view.finder.used)} left this month)` : ""}.` : ""}
-          </p>
+          <p className="text-[11px] text-neutral-500">{finderNote(view.finder)}</p>
         ) : null}
-        {!groups.length ? <p className="text-xs text-neutral-500">No competitors yet.</p> : null}
-        {groups.map((g) => (
+        {live ? (
+          <>
+            {!watchedGroups.length && !suggestions.length ? <p className="text-xs text-neutral-500">No competitors yet. Watch one on Brand › Competitors, or press Find competitors.</p> : null}
+            {watchedGroups.map((g) => (
+              <div key={g.key} className="space-y-1">
+                <span className={smallLabel}>{g.label}</span>
+                <ul className="space-y-1 text-sm">
+                  {g.list.map((c) => (
+                    <li key={c.id ?? c.name} className="space-y-0.5">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span>{c.name}</span>
+                        <span className="text-xs text-green-700 dark:text-green-400">
+                          ✓ watched
+                          {c.id && profiles.get(c.id)?.read ? ` · ${profiles.get(c.id)!.read} ${profiles.get(c.id)!.read === 1 ? "article" : "articles"} read` : ""}
+                        </span>
+                        {c.id ? (
+                          <CompetitorGroupPicker id={c.id} name={c.name} group={c.group} was={c.was ?? null} canEdit={canEdit} onSaved={() => void load()} onError={(text) => setNote({ tone: "err", text })} />
+                        ) : null}
+                      </span>
+                      {c.id && profiles.get(c.id)?.line ? <p className="text-xs text-neutral-500">{profiles.get(c.id)!.line}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {suggestions.length ? (
+              <div className="space-y-1">
+                <span className={smallLabel}>Suggested by the finder</span>
+                <ul className="space-y-1 text-sm">
+                  {suggestions.map((c) => (
+                    <li key={c.name} className="flex flex-wrap items-center gap-1.5" title={c.evidence.map((e) => e.title || e.domain).join(" · ") || undefined}>
+                      <span>{c.name}</span>
+                      {c.site ? <span className="text-xs text-neutral-500">{c.site}</span> : null}
+                      {c.group ? <span className="text-[11px] text-neutral-500">· {COMPETITOR_GROUP_LABEL[c.group]}</span> : null}
+                      {c.foundTimes > 1 ? <span className="text-[11px] text-neutral-500">named {c.foundTimes} times</span> : null}
+                      {canEdit && c.site ? (
+                        <button type="button" disabled={busy} className={SMALL} onClick={() => void monitor(c)}>
+                          Monitor
+                        </button>
+                      ) : null}
+                      {canEdit ? (
+                        <button type="button" disabled={busy} className={SMALL} onClick={() => void notCompetitor(c)}>
+                          Not a competitor
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        {!live && !groups.length ? <p className="text-xs text-neutral-500">No competitors yet.</p> : null}
+        {(live ? [] : groups).map((g) => (
           <div key={g.kind} className="space-y-1">
             <span className={smallLabel}>{COMPETITOR_GROUP_LABEL[g.kind]}</span>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -249,12 +356,71 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
                       Tick
                     </label>
                   ) : null}
+                  {view.joined && canEdit && c.from === "finder" && !c.monitored ? (
+                    <button type="button" disabled={busy} className={SMALL} onClick={() => void notCompetitor(c)}>
+                      Not a competitor
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>
           </div>
         ))}
       </Section>
+
+      {against && focusRows && (focusRows.rows.length || against.onlyThem || against.namedNotWatched.length) ? (
+        <Section title="Against your competitors" aside={<span className="text-[11px] text-neutral-500">Last {theirs?.days ?? 90} days</span>}>
+          <p className="text-[11px] text-neutral-500">{AGAINST_FROM[focusRows.from]}</p>
+          {theirs?.truncated ? <p className="text-[11px] text-amber-700 dark:text-amber-400">{TRUNCATED_NOTE}</p> : null}
+          {focusRows.rows.length ? (
+            <ul className="space-y-1.5 text-sm">
+              {focusRows.rows.map((r) => (
+                <li key={r.id} className="grid gap-x-3 gap-y-0.5 sm:grid-cols-[minmax(0,1fr)_9rem_9rem_auto] sm:items-baseline">
+                  <span className="min-w-0">{r.text}</span>
+                  <span className="text-xs text-neutral-600 dark:text-neutral-300">
+                    Them: {r.they}
+                    {r.byCompetitor[0] ? ` (${r.byCompetitor[0].name} ${r.byCompetitor[0].count})` : ""}
+                  </span>
+                  <span className="text-xs text-neutral-600 dark:text-neutral-300">
+                    You: {r.answered} of {r.questions} answered
+                  </span>
+                  <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className={`rounded px-1.5 py-0.5 font-medium ${FLAG_TEXT[r.flag].tone}`}>{FLAG_TEXT[r.flag].label}</span>
+                    {r.newSince ? <span className="text-neutral-500">+{r.newSince} since approved</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {against.onlyThem ? (
+            <p className="text-xs text-neutral-600 dark:text-neutral-300">
+              Subjects only they write on: {against.onlyThem} ·{" "}
+              <Link href={`${BRAND_KIT_COMPETITORS_ROUTE}/coverage`} className="underline">
+                see what they write about
+              </Link>
+            </p>
+          ) : null}
+          {against.namedNotWatched.length ? (
+            <p className="text-xs text-neutral-600 dark:text-neutral-300">
+              On your map, not watched, named by them:{" "}
+              {against.namedNotWatched.map((n, i) => (
+                <span key={n.name}>
+                  {i ? ", " : ""}
+                  {n.name} ({n.count} {n.count === 1 ? "article" : "articles"})
+                  {canEdit ? (
+                    <>
+                      {" "}
+                      <Link href={`${BRAND_KIT_COMPETITORS_ROUTE}?name=${encodeURIComponent(n.name)}`} className="underline">
+                        Monitor
+                      </Link>
+                    </>
+                  ) : null}
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </Section>
+      ) : null}
 
       <Section title="Where you win, and where they do">
         {!claims.length ? <p className="text-xs text-neutral-500">No claims yet.</p> : null}
@@ -413,6 +579,8 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
           ) : null}
         </div>
       ) : null}
+
+      {contentPlan ? <BrandMapContentPlan canEdit={canEdit} /> : null}
     </div>
   );
 }

@@ -1,5 +1,9 @@
 import type { Tenant } from "@/lib/types/tenant";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
+import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import type { CompetitorArticle, CompetitorPost } from "@/lib/types/competitor";
@@ -11,8 +15,10 @@ import {
   embedArticle,
   finishArticle,
   listArticles,
+  listRecentReadArticles,
   monthlyCapReached,
   nearestCompetitorArticles,
+  questionsNobodyCovers,
   queueArticles,
   readsThisMonth,
   removeArticles,
@@ -39,6 +45,18 @@ function deps(at = "2026-11-17T12:00:00.000Z"): ArticleStoreDeps & { db: FakeFir
   const clock = { t: Date.parse(at) };
   return { db: new FakeFirestore(), now: () => new Date(clock.t), clock };
 }
+
+/** A record read this month, as the tenant layer stores it. */
+const readRecord = (i: number) => ({
+  tenantId: "ten_A",
+  competitorId: "cmp_rival0001",
+  url: `https://rival.test/blog/r-${i}`,
+  title: `Read ${i}`,
+  publishedAt: "2026-11-01",
+  status: "read",
+  queuedAt: "2026-11-01T00:00:00.000Z",
+  readMonth: "2026-11",
+});
 
 describe("the article queue", () => {
   it("queues each post once, and only the competitor's own", async () => {
@@ -87,6 +105,43 @@ describe("the article queue", () => {
     expect(await monthlyCapReached(A, { ...d, loadTenant: async () => own })).toBe(true);
   });
 
+  it("lists the reads of this month and the 3 before, read ones only, newest first, and only the brand's own", async () => {
+    const d = deps("2026-11-26T12:00:00.000Z");
+    const months = ["2026-11", "2026-10", "2026-09", "2026-08", "2026-07"];
+    await queueArticles(A, "cmp_rival0001", months.map((_, i) => post(i + 1)), d);
+    await queueArticles(B, "cmp_theirs001", [post(9, "cmp_theirs001")], d);
+    for (const [i, month] of months.entries()) {
+      const id = `cmp_rival0001_p${i + 1}`;
+      await claimArticle(A, id, "l", d);
+      await finishArticle(A, id, "l", { status: i === 1 ? "failed" : "read", readMonth: month }, d);
+    }
+    await claimArticle(B, "cmp_theirs001_p9", "l", d);
+    await finishArticle(B, "cmp_theirs001_p9", "l", { status: "read", readMonth: "2026-11" }, d);
+    // November, September and August: October failed, July is more than 3 months back.
+    const recent = await listRecentReadArticles(A, { ...d, loadTenant: async () => null });
+    expect(recent.articles.map((a) => a.id)).toEqual(["cmp_rival0001_p4", "cmp_rival0001_p3", "cmp_rival0001_p1"]);
+    expect(recent.truncated).toBe(false);
+    // Across a new year: January reads back to October.
+    expect((await listRecentReadArticles(A, { ...d, loadTenant: async () => null, now: () => new Date("2027-01-05T00:00:00.000Z") })).articles.map((a) => a.id)).toEqual(["cmp_rival0001_p1"]);
+  });
+
+  it("reads each month up to the brand's cap and a margin, keeps read ones only, and says when a month had more", async () => {
+    const d = deps("2026-11-26T12:00:00.000Z");
+    const own = { featureLimits: { competitor_articles: 2 } } as unknown as Tenant;
+    // 60 records read this month: skipped and failed ones carry the month too.
+    for (let i = 1; i <= 60; i += 1) {
+      d.db.seed("competitor_articles", `cmp_rival0001_r${i}`, { ...readRecord(i), status: i % 3 ? "read" : "skipped" } as never);
+    }
+    const capped = await listRecentReadArticles(A, { ...d, loadTenant: async () => own });
+    // The cap of 2 and a margin of 50: 52 records looked at, the skipped ones among them left out.
+    expect(capped.truncated).toBe(true);
+    expect(capped.articles.every((a) => a.status === "read")).toBe(true);
+    expect(capped.articles.length).toBeLessThanOrEqual(52);
+    const roomy = await listRecentReadArticles(A, { ...d, loadTenant: async () => null });
+    expect(roomy).toMatchObject({ truncated: false });
+    expect(roomy.articles).toHaveLength(40);
+  });
+
   it("removes a competitor's articles and their vectors, and a read in progress then saves nothing", async () => {
     const d = deps();
     await queueArticles(A, "cmp_rival0001", [post(1), post(2)], d);
@@ -117,7 +172,7 @@ describe("meaning", () => {
     await claimArticle(A, "cmp_rival0001_p1", "l", d);
     await finishArticle(A, "cmp_rival0001_p1", "l", { status: "read", summary: "Forms", subjectIds: ["sub_forms"] }, d);
     const embed = vi.fn(async (items: Array<{ content: string }>) => items.map(() => [0.1, 0.2]));
-    expect(await embedArticle(A, { id: "cmp_rival0001_p1", title: "Post 1", question: "Q", angle: "", summary: "Forms" }, { ...d, embed })).toBe(true);
+    expect(await embedArticle(A, { id: "cmp_rival0001_p1", competitorId: "cmp_rival0001", title: "Post 1", question: "Q", angle: "", summary: "Forms" }, { ...d, embed })).toBe(true);
     expect(embed.mock.calls[0]![0]![0]!.content).toBe("Post 1\nQ\nForms");
 
     const rows = [
@@ -172,3 +227,80 @@ describe("articleTotals", () => {
     });
   });
 });
+
+describe("meaning on brand search (ADR-0025)", () => {
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const unit = (v: number[]) => {
+    const n = Math.hypot(...v);
+    return v.map((x) => x / n);
+  };
+  /** brand search's model: forms point one way, pricing another, everything else a third. */
+  const fresh = () =>
+    vi.fn(async (items: Array<{ content: string; title?: string }>, _r: string, _t: string) =>
+      items.map((i) => (/form/i.test(i.content) ? unit([1, 0.1, 0]) : /pricing/i.test(i.content) ? unit([0, 1, 0]) : unit([0, 0, 1]))),
+    );
+
+  async function withRead() {
+    const d = deps();
+    const search = new MemorySearchIndex().storeFor(A);
+    const embedSearch = fresh();
+    await forTenant(A, d.db).competitors.create("cmp_rival0001", { name: "Rival", site: "rival.test" } as never);
+    await queueArticles(A, "cmp_rival0001", [post(1), post(2)], d);
+    for (const [n, summary] of [[1, "Shorter forms convert better"], [2, "Pricing pages that sell"]] as const) {
+      await claimArticle(A, `cmp_rival0001_p${n}`, "l", d);
+      const done = await finishArticle(A, `cmp_rival0001_p${n}`, "l", { status: "read", summary, question: "", angle: "" }, d);
+      await embedArticle(A, done!, { ...d, embed: async (items) => items.map(() => [0.1, 0.2]), search, embedSearch });
+    }
+    // The competitor's own summary sits beside its articles, with no status.
+    await search.putSource(
+      { sourceKey: "competitor:cmp_rival0001", kind: "competitor", ref: "cmp_rival0001", hash: "h", chunks: 1, embedded: true, indexedAt: "" },
+      [{ tenantId: "ten_A", kind: "competitor", ref: "cmp_rival0001", sourceKey: "competitor:cmp_rival0001", chunk: 0, title: "Rival", text: "All about hiring", url: "", lang: "en", updatedAt: "", embedding: unit([0, 0, 1]) }],
+      0,
+    );
+    return { d, search, embedSearch };
+  }
+
+  it("keeps each read article there as kept, titled with its competitor's name", async () => {
+    const { search, embedSearch } = await withRead();
+    expect((await search.listManifests()).map((m) => `${m.sourceKey} ${m.status ?? "none"}`).sort()).toEqual([
+      "competitor:cmp_rival0001 none",
+      "competitor:cmp_rival0001/cmp_rival0001_p1 kept",
+      "competitor:cmp_rival0001/cmp_rival0001_p2 kept",
+    ]);
+    expect(embedSearch.mock.calls[0]![0]).toEqual([{ content: "Shorter forms convert better", title: "Rival: Post 1" }]);
+  });
+
+  it("reads brand search only with reads on, and a competitor's summary never answers", async () => {
+    const { d, search, embedSearch } = await withRead();
+    const old = vi.fn();
+    const vectors = { where: () => vectors, findNearest: old } as unknown as KnowledgeCollectionLike;
+    vi.stubEnv("SEARCH_COMPETITOR_READS_ENABLED", "true");
+    const all = { ...d, search, embedSearch, vectors, query: vi.fn(async () => [1, 0]) };
+    const near = await nearestCompetitorArticles(A, "Do short forms work?", { limit: 5, minSim: 0.5 }, all);
+    expect(near.map((n) => n.article.id)).toEqual(["cmp_rival0001_p1"]);
+    expect(embedSearch.mock.calls.at(-1)?.[2]).toBe("RETRIEVAL_QUERY");
+    const questions = [
+      { id: "q1", text: "Do short forms work?" },
+      // Only the competitor's summary is near this one: it is still uncovered.
+      { id: "q2", text: "How do I hire a designer?" },
+    ];
+    expect(await questionsNobodyCovers(A, questions, 0.9, all)).toEqual(["q2"]);
+    // Meaning can't be checked: nothing is called uncovered by mistake.
+    expect(await questionsNobodyCovers(A, questions, 0.9, { ...all, embedSearch: vi.fn(async (items: unknown[]) => items.map(() => null)) })).toBeNull();
+    expect(old).not.toHaveBeenCalled();
+    expect(all.query).not.toHaveBeenCalled();
+  });
+
+  it("takes a competitor's entries out at once when it is no longer watched, even with indexing off", async () => {
+    const { d, search } = await withRead();
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "false");
+    expect(await removeArticles(A, "cmp_rival0001", { ...d, search })).toBe(2);
+    expect(await search.listManifests()).toEqual([]);
+  });
+});
+

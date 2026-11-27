@@ -5,6 +5,7 @@ import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
 import { loadOrganisationPageOwner } from "@/lib/connectors/organisationPage";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
  * Auth is enforced here so the tab pages can assume an admin context. The Organisation tab shows
  * only to an owner of the brand's organisation who is an admin of the brand they are in, read live
  * on the server while sharing or the join is on (Connectors 3), so flipping either needs no new build.
+ * History shows to the whole team while SETTINGS_HISTORY_ENABLED is on, after the other tabs.
  */
 export default async function AccountLayout({
   children,
@@ -32,7 +34,7 @@ export default async function AccountLayout({
           Global settings for your account, reused across all of your {ideaWord(isIdeaWordsEnabled()).many}.
         </p>
       </div>
-      <AccountTabs dataModel={isFieldsEnabled()} organisation={organisation} />
+      <AccountTabs dataModel={isFieldsEnabled()} organisation={organisation} history={isSettingsHistoryEnabled()} />
       <div>{children}</div>
     </div>
   );

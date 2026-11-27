@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 // Force the deterministic fallback path regardless of env keys: with the model
 // returning nothing, draftCopy degrades to fallbackVariants (source: "fallback").
@@ -9,7 +9,7 @@ vi.mock("./gemini", () => ({
 }));
 
 import { draftCopy } from "./creative";
-import { NO_USAGE } from "./gemini";
+import { generateText, NO_USAGE } from "./gemini";
 import type { Campaign } from "@/lib/types/campaign";
 
 function campaign(overrides: Partial<Campaign> = {}): Campaign {
@@ -38,5 +38,32 @@ describe("draftCopy fallback (model unavailable)", () => {
     const result = await draftCopy({ campaign: campaign(), brief: "", usage: NO_USAGE });
     expect(result.source).toBe("fallback");
     expect(allText(result.variants)).toContain("Be the first to get access");
+  });
+});
+
+describe("draftCopy's language (CONTENT_LANGUAGE_ENABLED)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.mocked(generateText).mockClear();
+  });
+  const french = { ...NO_USAGE, brandLanguage: async () => "fr" };
+  const lastPrompt = () => String(vi.mocked(generateText).mock.calls.at(-1)?.[0] ?? "");
+
+  it("writes a launch with no language of its own in the brand's", async () => {
+    vi.stubEnv("CONTENT_LANGUAGE_ENABLED", "true");
+    await draftCopy({ campaign: campaign(), brief: "", usage: french });
+    expect(lastPrompt()).toContain("RESPOND ONLY IN French");
+  });
+
+  it("keeps a launch's own language", async () => {
+    vi.stubEnv("CONTENT_LANGUAGE_ENABLED", "true");
+    await draftCopy({ campaign: campaign({ strategy: { defaultLocale: "de" } } as never), brief: "", usage: french });
+    expect(lastPrompt()).toContain("RESPOND ONLY IN German");
+  });
+
+  it("writes in English as before with the switch off", async () => {
+    vi.stubEnv("CONTENT_LANGUAGE_ENABLED", "false");
+    await draftCopy({ campaign: campaign(), brief: "", usage: french });
+    expect(lastPrompt()).not.toContain("RESPOND ONLY IN");
   });
 });

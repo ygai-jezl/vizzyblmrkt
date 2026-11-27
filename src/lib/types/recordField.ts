@@ -11,6 +11,9 @@ import { isCanonicalInstant, jsonBytes } from "@/lib/ontology/events";
  * - A field is archived, never deleted, and its type is fixed once it is made: a type change makes
  *   a new field and archives the old one with `replacedBy`. Values under an archived field stay.
  * - Who made or archived a field is a user id only; names are looked up when shown.
+ * - An owner can erase an archived field's values 30 days after it was last archived
+ *   (SETTINGS_ERASE_ENABLED): the field keeps its options and gains `erasedAt` and `erasedBy`, and
+ *   while the erase runs it is marked `erasingSince` and can't be brought back.
  * - Currency is whole minor units with the code on the field: 1250 means 12.50 USD, and 1250 JPY
  *   means 1250 yen, since the yen has no minor unit (currencyDigits). A date is a calendar day
  *   (YYYY-MM-DD) with no time.
@@ -185,6 +188,11 @@ export const RecordFieldSchema = z
     archivedBy: UserId.nullable().optional(),
     replacedBy: z.string().regex(FIELD_ID).nullable().optional(),
     vizzyReads: z.literal(true).optional(),
+    /** An erase of its values is running (Settings › History, ADR-0023): it stays archived until it ends. */
+    erasingSince: Instant.nullable().optional(),
+    /** When its values were last erased, and who erased them (a user id). A restore keeps both. */
+    erasedAt: Instant.nullable().optional(),
+    erasedBy: UserId.nullable().optional(),
     createdAt: Instant,
     createdBy: UserId.nullable(),
   })

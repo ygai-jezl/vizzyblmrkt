@@ -88,6 +88,15 @@ describe("loadPersonTimeline", () => {
     expect(page.entries.filter((e) => e.text.includes("Spring launch") && e.kind === "launch")).toEqual([]);
   });
 
+  it("leaves out a saved voice chat in which the person said nothing (a call that dropped)", async () => {
+    const { db, id } = await world();
+    const signup = db.raw("signups", "sig_priya")!;
+    db.seed("signups", "sig_priya", { ...signup, aiConversation: { completed: true, transcript: [{ role: "model", text: "Hello?" }], capturedAt: iso(T0 + MIN), bonusApplied: true } });
+    const page = (await loadPersonTimeline(ctx, id, { db, lookup }))!;
+    expect(page.entries.some((e) => e.kind === "voice_chat")).toBe(false);
+    expect(page.entries.some((e) => e.kind === "signup")).toBe(true);
+  });
+
   it("calls a launch's email a waitlist email while launches are called ideas", async () => {
     const { db, id } = await world();
     const detail = async () => (await loadPersonTimeline(ctx, id, { db, lookup }))!.entries.find((e) => e.kind === "email")?.detail;

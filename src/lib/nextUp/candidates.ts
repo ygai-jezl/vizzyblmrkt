@@ -8,7 +8,8 @@ import { computeCoverage, type QuestionCoverage } from "@/lib/content/blog/cover
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { FreshnessReason } from "@/lib/types/contentPlan";
-import type { CloseTo } from "@/lib/types/autopilot";
+import type { CloseTo, RepeatPair } from "@/lib/types/autopilot";
+import type { PickSlot } from "@/lib/types/contentStrategy";
 import { isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
 import { questionKey } from "@/lib/brandMap/keys";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
@@ -38,6 +39,10 @@ export interface Candidate {
   refresh?: { planId: string; workspaceId: string; reasons: FreshnessReason[] };
   /** Stop repeats (NEXT_UP_REPEATS_ENABLED): a live article it is close to in meaning. */
   closeTo?: CloseTo;
+  /** From the approved content plan's roadmap (CONTENT_STRATEGY_NEXT_UP_ENABLED): the slot it fills. */
+  slot?: PickSlot;
+  /** A combine from the roadmap: the live articles that answer one question. */
+  combine?: { pages: RepeatPair["pages"] };
 }
 
 export interface CandidateDeps {

@@ -8,6 +8,9 @@ import { isRateLimited } from "@/lib/tenant/rateLimit";
 import type { TenantContext } from "@/lib/tenant/types";
 import { CompetitorPatchSchema, MonitorInputSchema } from "@/lib/types/competitor";
 import { forgetReviewCount } from "@/lib/review/summary";
+import { isStrategyCompetitorsEnabled } from "@/lib/brandStrategy/flags";
+import { competitorsDoor } from "@/lib/brandStrategy/adminApi";
+import { logStrategyDecisions, noteMonitored } from "@/lib/brandStrategy/store";
 import { isCompetitorsEnabled } from "./flags";
 import { advanceCompetitor, type StepDeps } from "./steps";
 import {
@@ -71,12 +74,6 @@ function invalid(issues: { path: PropertyKey[]; message: string }[]): Response {
   );
 }
 
-async function listView(ctx: TenantContext, deps: ApiDeps) {
-  const competitors = await listCompetitors(ctx, deps);
-  const [changes, mapped] = await Promise.all([unseenChanges(ctx, deps), onBrandMap(ctx, competitors, deps)]);
-  return competitors.map((c) => summaryOf(c, changes, mapped.has(c.id)));
-}
-
 async function detailView(ctx: TenantContext, id: string, deps: ApiDeps) {
   const c = await getCompetitor(ctx, id, deps);
   if (!c) return null;
@@ -89,8 +86,22 @@ async function detailView(ctx: TenantContext, id: string, deps: ApiDeps) {
   return detailOf(c, changes, posts, mapped.has(c.id), articles);
 }
 
-export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}): Promise<Response> {
-  return NextResponse.json({ competitors: await listView(ctx, deps) }, { headers: noStore });
+/**
+ * The list. Asked for (`suggestions`) and joined to the strategy (STRATEGY_COMPETITORS_ENABLED),
+ * the finder's suggestions and group hints too: the page asks after its own changes, never on the
+ * poll it runs while a competitor is set up, which needs the list alone.
+ */
+export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}, opts: { suggestions?: boolean } = {}): Promise<Response> {
+  const competitors = await listCompetitors(ctx, deps);
+  const [changes, mapped, door] = await Promise.all([
+    unseenChanges(ctx, deps),
+    onBrandMap(ctx, competitors, deps),
+    opts.suggestions ? competitorsDoor(ctx, competitors, deps).catch(() => null) : Promise.resolve(null),
+  ]);
+  return NextResponse.json(
+    { competitors: competitors.map((c) => summaryOf(c, changes, mapped.has(c.id))), ...(door ? { suggestions: door.suggestions, was: door.was } : {}) },
+    { headers: noStore },
+  );
 }
 
 export async function detailFromRequest(ctx: TenantContext, id: string, deps: ApiDeps = {}): Promise<Response> {
@@ -100,23 +111,45 @@ export async function detailFromRequest(ctx: TenantContext, id: string, deps: Ap
 
 /** Monitor: start watching, then do the first steps while the person waits. */
 export async function monitorFromRequest(ctx: TenantContext, body: unknown, deps: ApiDeps = {}): Promise<Response> {
-  const parsed = MonitorInputSchema.safeParse(body);
+  const parsed = MonitorInputSchema.safeParse(groupOff(body));
   if (!parsed.success) return invalid(parsed.error.issues);
   if (await (deps.limit ?? isRateLimited)(`tenant:${ctx.tenantId}`, MONITOR_LIMIT, { db: deps.db })) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
   const r = await monitorCompetitor(ctx, parsed.data, deps);
   if (!r.ok) return fail(r);
+  // Joined: Monitor on one the finder suggested is what a tick was, kept on the strategy.
+  if (isStrategyCompetitorsEnabled()) await noteMonitored(ctx, { name: r.value.competitor.name, site: r.value.competitor.site }, deps).catch(() => false);
   await advanceCompetitor(ctx, r.value.competitor.id, (deps.clock ?? Date.now)() + ADVANCE_MS, deps);
   const detail = await detailView(ctx, r.value.competitor.id, deps);
   return NextResponse.json({ competitor: detail, brandMap: r.value.brandMap }, { status: 201 });
 }
 
+/**
+ * A body as it reads while Strategy and Competitors aren't joined: its `group` left out, as any
+ * field the page didn't know was before, so nothing about a competitor's group changes.
+ */
+function groupOff(body: unknown): unknown {
+  if (isStrategyCompetitorsEnabled() || !body || typeof body !== "object" || Array.isArray(body)) return body;
+  const { group: _g, ...rest } = body as Record<string, unknown>;
+  void _g;
+  return rest;
+}
+
+/**
+ * Rename it, choose its news page or sitemap, pause or resume, or put it in a group. A group that
+ * changes is logged on the brand strategy as `competitor_grouped` (before and after), without
+ * moving the strategy's revision.
+ */
 export async function updateFromRequest(ctx: TenantContext, id: string, body: unknown, deps: ApiDeps = {}): Promise<Response> {
-  const parsed = CompetitorPatchSchema.safeParse(body);
+  const parsed = CompetitorPatchSchema.safeParse(groupOff(body));
   if (!parsed.success) return invalid(parsed.error.issues);
+  const before = parsed.data.group !== undefined ? await getCompetitor(ctx, id, deps) : null;
   const r = await updateCompetitor(ctx, id, parsed.data, deps);
   if (!r.ok) return fail(r);
+  if (before && (before.group ?? null) !== (r.value.group ?? null)) {
+    await logStrategyDecisions(ctx, [{ kind: "competitor_grouped", ref: r.value.name, before: before.group ?? null, after: r.value.group ?? null }], deps).catch(() => false);
+  }
   return NextResponse.json({ competitor: await detailView(ctx, id, deps) });
 }
 

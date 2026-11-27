@@ -46,6 +46,7 @@ import { draftBlogArticle } from "@/lib/content/blog/draft";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { BlogArticleMeta, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
+import { inBrandLanguage, isNotEnglish, writingLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Per-node generation — stage 2 of the Create pillar. Fills ONE node and returns a
@@ -413,7 +414,7 @@ export async function generateNode(
     const warnings = [...drafted.warnings];
     const leftover = unfilledTokens(finalBody, applied).filter((t) => !RECIPIENT_TOKENS.has(t));
     if (leftover.length) warnings.push("unfilled_tokens");
-    if (fleschKincaidGrade(finalBody) > READABILITY_MAX_GRADE) {
+    if (!isNotEnglish(await writingLanguage(usage)) && fleschKincaidGrade(finalBody) > READABILITY_MAX_GRADE) {
       warnings.push("readability_complex");
     }
 
@@ -528,9 +529,10 @@ export async function generateNode(
     });
   }
 
+  const written = await inBrandLanguage(prompt, usage);
   const raw = input.deadlineMs
-    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now() - 3_000), usage })
-    : await generateText(prompt, { usage });
+    ? await generateTextWithDeadline(written, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now() - 3_000), usage })
+    : await generateText(written, { usage });
   const drafted = coerceBody(raw);
   if (!drafted) {
     return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };

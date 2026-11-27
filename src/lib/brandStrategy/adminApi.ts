@@ -17,10 +17,11 @@ import type { BrandMapSituation } from "@/lib/types/brandMapRecords";
 import type { Competitor } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
 import { BRAND_STRATEGY_LIMITS as L, StrategyEditSchema, competitorsOf, type BrandStrategyDoc, type CompetitorGroupKind, type Strategy, type StrategyCompetitor } from "@/lib/types/brandStrategy";
+import { liveCompetitors, suggestionsOf, type LiveCompetitor } from "./competitors";
 import { findCompetitors, type FinderDeps } from "./finder";
-import { isBrandStrategyEnabled, isCompetitorFinderEnabled } from "./flags";
+import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
 import { proposeStrategy, type ProposeDeps } from "./propose";
-import { approveStrategy, decideIsNot, deleteBrandStrategy, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
+import { approveStrategy, decideIsNot, deleteBrandStrategy, dismissFound, dismissStrategyCheck, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
 
 /**
  * The Strategy tab's APIs (Brand › Brand map › Strategy): origin, switch, sign-in and admin, in that
@@ -31,6 +32,9 @@ import { approveStrategy, decideIsNot, deleteBrandStrategy, fullRunsInMonth, rea
 export const strategyReader = (req: Request) => brandMapReader(req, { on: isBrandStrategyEnabled, offError: "brand_strategy_disabled" });
 export const strategyAdmin = (req: Request) => brandMapAdmin(req, { on: isBrandStrategyEnabled, offError: "brand_strategy_disabled" });
 export const finderAdmin = (req: Request) => brandMapAdmin(req, { on: isCompetitorFinderEnabled, offError: "competitor_finder_disabled" });
+export const joinedReader = (req: Request) => brandMapReader(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
+export const joinedAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
+export const checkAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCheckEnabled, offError: "strategy_check_disabled" });
 
 /** Propose with Vizzy: one model call, a few an hour per brand. */
 export const PROPOSE_LIMIT = { prefix: "strategy_propose", burstLimit: 2, hourlyLimit: 6 };
@@ -43,6 +47,18 @@ export interface ViewDeps {
   loadTenant?: (id: string) => Promise<Tenant | null>;
 }
 
+/** Whether the competitor finder can run for the brand, and how many full runs it has left. */
+export interface FinderState {
+  on: boolean;
+  granted: boolean;
+  quickUsed: boolean;
+  used: number;
+  limit: number | null;
+}
+
+/** One of the finder's suggestions, as both doors show it. */
+export type Suggestion = Pick<LiveCompetitor, "name" | "site" | "group" | "foundTimes" | "evidence">;
+
 /** A situation as the tab shows it. */
 export interface ViewSituation {
   id: string;
@@ -52,8 +68,12 @@ export interface ViewSituation {
   answered: number;
 }
 
-/** A competitor as the tab shows it: watched on Brand › Competitors or not. */
-export type ViewCompetitor = StrategyCompetitor & { group: CompetitorGroupKind; monitored: boolean };
+/**
+ * A competitor as the tab shows it: watched on Brand › Competitors or not. Joined to Competitors
+ * (STRATEGY_COMPETITORS_ENABLED), `id` is its record when watched and `group` is null for one
+ * nobody has grouped yet; off, every one has the group the strategy gave it.
+ */
+export type ViewCompetitor = StrategyCompetitor & { id?: string | null; group: CompetitorGroupKind | null; was?: CompetitorGroupKind | null; monitored: boolean };
 
 export interface StrategyView {
   rev: number;
@@ -66,25 +86,81 @@ export interface StrategyView {
   identity: { category: string; statement: string; isNot: string[]; avoid: Array<{ term: string; useInstead: string }> };
   /** Where the goal starts: what the brand wants first, and the goals its people told Vizzy. */
   goalStart: { want: string; goals: string[] };
-  finder: { on: boolean; granted: boolean; quickUsed: boolean; used: number; limit: number | null };
+  finder: FinderState;
   canPropose: boolean;
   canMonitor: boolean;
+  /** The strategy joined to Competitors (STRATEGY_COMPETITORS_ENABLED): the live list, groups and Not a competitor. */
+  joined: boolean;
 }
 
 const MAX_SITUATIONS = 200;
 const noStore = { "cache-control": "no-store" };
 
-/** The draft and the approved strategy say the same, whoever saved them when. */
-export function sameStrategy(a: Strategy | null, b: Strategy | null): boolean {
+/**
+ * The draft and the approved strategy say the same, whoever saved them when. The competitor lists
+ * are left out while the strategy is joined to Competitors (`ignoreCompetitors`), and whenever the
+ * approved copy was made joined: the list is live then, so a competitor watched, grouped or found
+ * since approving never marks the strategy changed, even after the switch is turned off.
+ */
+export function sameStrategy(a: Strategy | null, b: Strategy | null, ignoreCompetitors = false): boolean {
   if (!a || !b) return false;
-  const strip = (s: Strategy) => JSON.stringify({ ...s, at: "", by: null });
+  const ignore = ignoreCompetitors || Boolean(a.competitorsLive) || Boolean(b.competitorsLive);
+  const strip = (s: Strategy) => JSON.stringify(sortedKeys({ ...s, at: "", by: null, competitorsLive: false, ...(ignore ? { competitorGroups: [], ungrouped: [] } : {}) }));
   return strip(a) === strip(b);
 }
 
-function stateOf(doc: BrandStrategyDoc | null): StrategyView["state"] {
+/** The same value with every object's keys in order, so two records compare by what they hold, not how they were built. */
+function sortedKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortedKeys);
+  if (!v || typeof v !== "object") return v;
+  return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortedKeys((v as Record<string, unknown>)[k])]));
+}
+
+function stateOf(doc: BrandStrategyDoc | null, joined: boolean): StrategyView["state"] {
   if (!doc || (!doc.draft && !doc.approved)) return "none";
   if (!doc.approved) return "draft";
-  return sameStrategy(doc.draft, doc.approved) || !doc.draft ? "approved" : "changed";
+  return sameStrategy(doc.draft, doc.approved, joined) || !doc.draft ? "approved" : "changed";
+}
+
+/** The finder for this brand: on, included, its one quick answer used, and full runs this month. */
+export async function finderState(
+  ctx: TenantContext,
+  doc: BrandStrategyDoc | null,
+  deps: { now?: () => Date },
+  load: (id: string) => Promise<Tenant | null>,
+): Promise<FinderState> {
+  const on = isCompetitorFinderEnabled();
+  const granted = on ? await brandCanUse(ctx, "competitor_finder", load).catch(() => false) : false;
+  const limit = on && granted ? await brandMonthlyLimit(ctx, "competitor_finder", load).catch(() => null) : null;
+  return { on, granted, quickUsed: Boolean(doc?.finder.quickAt), used: fullRunsInMonth(doc, (deps.now ?? (() => new Date()))()), limit };
+}
+
+/**
+ * Brand › Competitors as the second door (STRATEGY_COMPETITORS_ENABLED): the finder's suggestions
+ * that aren't watched or marked Not a competitor, and whether the finder can run. Null while off.
+ */
+export async function competitorsDoor(
+  ctx: TenantContext,
+  watched: Competitor[],
+  deps: ViewDeps = {},
+): Promise<{ suggestions: Suggestion[]; finder: FinderState; was: Record<string, CompetitorGroupKind> } | null> {
+  if (!isStrategyCompetitorsEnabled()) return null;
+  const [doc, tenant] = await Promise.all([readBrandStrategyDoc(ctx, deps).catch(() => null), (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null)]);
+  const draft = doc?.draft ?? doc?.approved ?? null;
+  const live = liveCompetitors(draft, watched, doc?.finder.notCompetitors ?? [], doc?.finder.monitoredFinds ?? []);
+  const suggestions = suggestionsOf(live).map(({ name, site, group, foundTimes, evidence }) => ({ name, site, group, foundTimes, evidence }));
+  // A group an older draft gave a watched competitor with none on its record: shown as a hint only.
+  const was = Object.fromEntries(live.flatMap((c) => (c.id && c.was ? [[c.id, c.was] as const] : [])));
+  return { suggestions, finder: await finderState(ctx, doc, deps, async () => tenant), was };
+}
+
+/**
+ * The brand's watched competitors for the live list, or null when it doesn't have Competitors. A
+ * read that fails throws: an empty list would read as "watches none" and be kept as such.
+ */
+export async function watchedFor(ctx: TenantContext, deps: { db?: FirestoreLike }, load: (id: string) => Promise<Tenant | null>): Promise<Competitor[] | null> {
+  if (!isCompetitorsEnabled() || !(await brandCanUse(ctx, "competitors", load))) return null;
+  return listCompetitors(ctx, { db: deps.db });
 }
 
 /** Whether a competitor in the strategy is one the brand watches, by site or name. */
@@ -108,13 +184,12 @@ export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Pro
   const identity = read?.state === "ok" ? read.map.identity : null;
   // The brand record is read once, for every plan check below.
   const load = async () => tenant;
-  const finderOn = isCompetitorFinderEnabled();
-  const granted = finderOn ? await brandCanUse(ctx, "competitor_finder", load).catch(() => false) : false;
-  const limit = finderOn && granted ? await brandMonthlyLimit(ctx, "competitor_finder", load).catch(() => null) : null;
+  const finder = await finderState(ctx, doc, deps, load);
   const canMonitor = isCompetitorsEnabled() && (await brandCanUse(ctx, "competitors", load).catch(() => false));
+  const joined = isStrategyCompetitorsEnabled();
   return {
     rev: doc?.rev ?? 0,
-    state: stateOf(doc),
+    state: stateOf(doc, joined),
     draft,
     approved: doc?.approved ? { at: doc.approved.at, by: doc.approved.by } : null,
     situations: situations
@@ -122,15 +197,21 @@ export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Pro
       .sort((a, b) => Number(focus.has(b.id)) - Number(focus.has(a.id)) || b.counts.questions - a.counts.questions || a.order - b.order)
       .slice(0, MAX_SITUATIONS)
       .map((s) => ({ id: s.id, text: s.text, focus: focus.has(s.id), questions: s.counts.questions, answered: s.counts.answered })),
-    competitors: draft ? competitorsOf(draft).map((c) => ({ ...c, monitored: isMonitored(c, watched) })) : [],
+    // Joined: every watched competitor at once, before any Propose too, then the finder's suggestions.
+    competitors: joined
+      ? liveCompetitors(draft, canMonitor ? watched : null, doc?.finder.notCompetitors ?? [], doc?.finder.monitoredFinds ?? [])
+      : draft
+        ? competitorsOf(draft).map((c) => ({ ...c, monitored: isMonitored(c, watched) }))
+        : [],
     identity: identity ? { category: identity.category, statement: identity.statement, isNot: identity.isNot, avoid: identity.avoid } : { category: "", statement: "", isNot: [], avoid: [] },
     goalStart: {
       want: answerLabel("want", tenant?.businessProfile?.answers.want),
       goals: facts.filter((f) => f.kind === "goal").map((f) => f.text).slice(0, 5),
     },
-    finder: { on: finderOn, granted, quickUsed: Boolean(doc?.finder.quickAt), used: fullRunsInMonth(doc, (deps.now ?? (() => new Date()))()), limit },
+    finder,
     canPropose: isGeminiConfigured(),
     canMonitor,
+    joined,
   };
 }
 
@@ -168,7 +249,18 @@ const ApproveBody = z.object({ baseRev: z.number().int().min(0) }).strict();
 export async function approveFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
   const parsed = ApproveBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  const r = await approveStrategy(ctx, parsed.data, deps);
+  // Joined: the approved copy keeps the live list, so the competitors are read first. If they can't
+  // be, nothing is approved: a copy without them would be kept, with every find logged as left out.
+  let watched: { watched?: Competitor[] | null } = {};
+  if (isStrategyCompetitorsEnabled()) {
+    const list = await watchedFor(ctx, deps, deps.loadTenant ?? getTenantById).then(
+      (w) => ({ ok: true as const, w }),
+      () => ({ ok: false as const }),
+    );
+    if (!list.ok) return NextResponse.json({ error: "competitors_unreadable" }, { status: 503 });
+    watched = { watched: list.w };
+  }
+  const r = await approveStrategy(ctx, { ...parsed.data, ...watched }, deps);
   if (!r.ok || !r.starsNotUpdated?.length) return answer(ctx, r, deps);
   const view = await strategyView(ctx, deps);
   const missed = new Set(r.starsNotUpdated);
@@ -209,6 +301,27 @@ export async function isNotFromRequest(ctx: TenantContext, body: unknown, deps: 
   if (added.ok) return answer(ctx, decided, deps);
   await undoIsNot(ctx, { text }, deps).catch(() => null);
   return NextResponse.json({ error: added.error, ...(added.issues ? { issues: added.issues } : {}) }, { status: added.status });
+}
+
+const NotBody = z
+  .object({ name: z.string().trim().min(1).max(L.competitorName), site: z.string().trim().min(1).max(253).nullable().default(null) })
+  .strict();
+
+/** POST competitors/not: Not a competitor. The finder never suggests it again; the decision is kept. */
+export async function notCompetitorFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
+  const parsed = NotBody.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  return answer(ctx, await dismissFound(ctx, parsed.data, deps), deps);
+}
+
+/**
+ * POST check: Dismiss the weekly check's row in Review (STRATEGY_CHECK_ENABLED). It stays away 30
+ * days, then counts their articles from today. `dismissed: false` when no row was open: someone
+ * dismissed it, or approved a strategy, a moment ago.
+ */
+export async function dismissCheckFromRequest(ctx: TenantContext, deps: ViewDeps = {}): Promise<Response> {
+  const dismissed = await dismissStrategyCheck(ctx, deps);
+  return NextResponse.json({ ok: true, dismissed }, { headers: noStore });
 }
 
 /** DELETE: start over. The strategy, its history and its decisions go; the brand map's stars stay. */

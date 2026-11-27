@@ -41,6 +41,8 @@ interface Shell {
   vizzyTextFields: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled(), from the server), for the How to drawer. */
   vizzyAddPerson: boolean;
+  /** Views on People are on (isViewsEnabled(), from the server), for the How to drawer. */
+  views: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled(), from the server), for the How to drawer. */
   catalogHistory: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled(), from the server), for the How to drawer. */
@@ -55,6 +57,10 @@ interface Shell {
   aiAnswers: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server), for the How to drawer. */
   brandMapScale: boolean;
+  /** The brand map family is in brand search (isSearchFamilyIndexEnabled(), from the server), for the How to drawer. */
+  searchFamily: boolean;
+  /** What we've seen's readers use brand search (isSearchNoteReadsEnabled(), from the server), for the How to drawer. */
+  searchNoteReads: boolean;
   /** Launches are ideas (isIdeasEnabled(), from the server), for the How to drawer. */
   ideas: boolean;
   /**
@@ -70,6 +76,12 @@ interface Shell {
   onboarding: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server), for the How to drawer. */
   onboardingVoice: boolean;
+  /** Settings › History (isSettingsHistoryEnabled(), from the server), for the How to drawer. */
+  settingsHistory: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server), for the How to drawer. */
+  nextActionCard: boolean;
+  /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server), for the How to drawer. */
+  agentRecord: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -115,6 +127,7 @@ export function ShellProvider({
   vizzyFields = false,
   vizzyTextFields = false,
   vizzyAddPerson = false,
+  views = false,
   catalogHistory = false,
   connectorsChat = false,
   connectorsCollect = false,
@@ -122,12 +135,17 @@ export function ShellProvider({
   connectorSignals = false,
   aiAnswers = false,
   brandMapScale = false,
+  searchFamily = false,
+  searchNoteReads = false,
   ideas = false,
   ideaWords = false,
   sharing = false,
   join = false,
   onboarding = false,
   onboardingVoice = false,
+  settingsHistory = false,
+  nextActionCard = false,
+  agentRecord = false,
   children,
 }: {
   names: CrumbNames;
@@ -155,6 +173,8 @@ export function ShellProvider({
   vizzyTextFields?: boolean;
   /** Vizzy's New person drafts are on (isVizzyAddPersonEnabled(), from the server): the How to drawer shows their help. */
   vizzyAddPerson?: boolean;
+  /** Views on People are on (isViewsEnabled(), from the server): the How to drawer shows their help. */
+  views?: boolean;
   /** Catalog history is on (isCatalogHistoryEnabled(), from the server): the How to drawer shows its help. */
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled(), from the server): the How to drawer says so. */
@@ -169,6 +189,10 @@ export function ShellProvider({
   aiAnswers?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server): the How to drawer says where proposals wait. */
   brandMapScale?: boolean;
+  /** The brand map family is in brand search (isSearchFamilyIndexEnabled(), from the server): the How to drawer says what search covers. */
+  searchFamily?: boolean;
+  /** What we've seen's readers use brand search (isSearchNoteReadsEnabled(), from the server): the How to drawer says how a named note is found. */
+  searchNoteReads?: boolean;
   /** Launches are ideas (isIdeasEnabled(), from the server): the How to drawer shows their help sections. */
   ideas?: boolean;
   /** Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
@@ -181,6 +205,12 @@ export function ShellProvider({
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server): the How to drawer says so. */
   onboardingVoice?: boolean;
+  /** Settings › History (isSettingsHistoryEnabled(), from the server): the How to drawer says so. */
+  settingsHistory?: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server): the How to drawer says so. */
+  nextActionCard?: boolean;
+  /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server): the How to drawer says so. */
+  agentRecord?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -260,6 +290,7 @@ export function ShellProvider({
       vizzyFields,
       vizzyTextFields,
       vizzyAddPerson,
+      views,
       catalogHistory,
       connectorsChat,
       connectorsCollect,
@@ -267,15 +298,20 @@ export function ShellProvider({
       connectorSignals,
       aiAnswers,
       brandMapScale,
+      searchFamily,
+      searchNoteReads,
       ideas,
       ideaWords,
       sharing,
       join,
       onboarding,
       onboardingVoice,
+      settingsHistory,
+      nextActionCard,
+      agentRecord,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

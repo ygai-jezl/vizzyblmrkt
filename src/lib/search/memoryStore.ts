@@ -1,11 +1,13 @@
 import { localWordsScore } from "./text";
-import type { RankedChunk, SearchChunkDoc, SearchKind, SearchManifest, SearchStore, StoredSearchManifest } from "./types";
-import { readSearchKind, storedKindsFor } from "./types";
+import type { NearestHit, RankedChunk, SearchChunkDoc, SearchKind, SearchManifest, SearchStore, StoredSearchManifest } from "./types";
+import { readSearchKind, shownToPeople, storedKindsFor } from "./types";
 
 /**
  * An in-memory search index for tests (the fake Firestore has no pipelines). One shared map of
  * brands, so a test can check that one brand's store never sees another's. Text search uses the
- * same stand-in the emulator does; search by meaning is a dot product over unit vectors.
+ * same stand-in the emulator does; search by meaning is a dot product over unit vectors. As the real
+ * store does, people's search keeps only chunks people may find, and the readers' nearest only the
+ * statuses asked for, each record once.
  */
 export class MemorySearchIndex {
   readonly chunks = new Map<string, Map<string, SearchChunkDoc>>();
@@ -45,7 +47,9 @@ export class MemorySearchIndex {
       title: c.title,
       text: c.text,
       url: c.url,
+      ...(c.status ? { status: c.status } : {}),
     });
+    const dot = (c: SearchChunkDoc, vector: number[]) => (c.embedding ?? []).reduce((sum, v, i) => sum + v * (vector[i] ?? 0), 0);
 
     return {
       async getManifest(sourceKey) {
@@ -64,6 +68,22 @@ export class MemorySearchIndex {
       async putManifest(manifest) {
         manifests().set(manifest.sourceKey, { ...manifest });
       },
+      async setStatus(sourceKey, status) {
+        const m = manifests().get(sourceKey);
+        if (!m) return;
+        const apply = <T extends { status?: unknown }>(x: T): T => {
+          const { status: _old, ...rest } = x;
+          return (status ? { ...rest, status } : rest) as T;
+        };
+        for (let n = 0; n < m.chunks; n++) {
+          const c = chunks().get(key(sourceKey, n));
+          if (c) chunks().set(key(sourceKey, n), apply(c));
+        }
+        manifests().set(sourceKey, apply(m));
+      },
+      async vectorOf(sourceKey) {
+        return chunks().get(key(sourceKey, 0))?.embedding ?? null;
+      },
       async removeSource(sourceKey) {
         const m = manifests().get(sourceKey);
         for (let n = 0; n < (m?.chunks ?? 0); n++) chunks().delete(key(sourceKey, n));
@@ -71,7 +91,7 @@ export class MemorySearchIndex {
       },
       async words(query, opts) {
         return [...chunks().entries()]
-          .filter(([, c]) => kindMatches(c, opts.kinds))
+          .filter(([, c]) => kindMatches(c, opts.kinds) && shownToPeople(c.status))
           .map(([id, c]) => ({ id, c, s: localWordsScore(query, c) }))
           .filter((x) => x.s > 0)
           .sort((a, b) => b.s - a.s || a.id.localeCompare(b.id))
@@ -80,11 +100,20 @@ export class MemorySearchIndex {
       },
       async meaning(vector, opts) {
         return [...chunks().entries()]
-          .filter(([, c]) => c.embedding && kindMatches(c, opts.kinds))
-          .map(([id, c]) => ({ id, c, d: (c.embedding ?? []).reduce((sum, v, i) => sum + v * (vector[i] ?? 0), 0) }))
+          .filter(([, c]) => c.embedding && kindMatches(c, opts.kinds) && shownToPeople(c.status))
+          .map(([id, c]) => ({ id, c, d: dot(c, vector) }))
           .sort((a, b) => b.d - a.d || a.id.localeCompare(b.id))
           .slice(0, opts.limit)
           .map((x) => ranked(x.id, x.c));
+      },
+      async nearest(kinds, vector, opts) {
+        const best = new Map<string, NearestHit>();
+        for (const c of chunks().values()) {
+          if (!c.embedding || !kinds.length || !kindMatches(c, kinds) || !c.status || !opts.statuses.includes(c.status)) continue;
+          const score = Math.max(0, Math.min(1, dot(c, vector)));
+          if ((best.get(c.sourceKey)?.score ?? -1) < score) best.set(c.sourceKey, { sourceKey: c.sourceKey, kind: readSearchKind(c.kind) as SearchKind, ref: c.ref, status: c.status, score });
+        }
+        return [...best.values()].sort((a, b) => b.score - a.score || a.sourceKey.localeCompare(b.sourceKey)).slice(0, Math.max(1, Math.min(opts.limit, 50)));
       },
       async clear() {
         const n = chunks().size;

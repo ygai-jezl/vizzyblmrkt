@@ -48,6 +48,8 @@ export const SETTINGS_HOMES = {
   "fields:person": "record_field_lists",
   "fields:company": "record_field_lists",
   "connections:shared": "connection_parts",
+  // The team's saved views on People (piece C), one document per brand.
+  "views:person": "saved_views",
 } as const satisfies Record<SettingsSubject, string>;
 
 /** The fields the log keeps on a setting's document beside the setting itself. */

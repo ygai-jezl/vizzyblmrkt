@@ -4,7 +4,11 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { TenantContext } from "@/lib/tenant/types";
 import { situationKey } from "@/lib/brandMap/keys";
-import { agentBrandStrategy } from "./agentApi";
+import { forTenant } from "@/lib/tenant";
+import { monitorCompetitor } from "@/lib/competitors/store";
+import { brandStrategyDocId } from "@/lib/types/brandStrategy";
+import { CHECK_NOT_INCLUDED, agentBrandStrategy } from "./agentApi";
+import { freshCheck } from "./checkRules";
 import { approveStrategy, saveFound, saveProposal, saveStrategyDraft } from "./store";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_a", role: "admin" };
@@ -67,5 +71,72 @@ describe("Vizzy's get_brand_strategy", () => {
     expect(((await agentBrandStrategy(A, { db })).body as { changedSinceApproved: boolean }).changedSinceApproved).toBe(true);
     // Another brand reads nothing of it.
     expect((await agentBrandStrategy({ ...A, tenantId: "ten_B" }, { db })).body).toMatchObject({ approved: null });
+  });
+});
+
+describe("Vizzy's get_brand_strategy with the weekly check (STRATEGY_CHECK_ENABLED)", () => {
+  const CHECK_SWITCHES = ["COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "STRATEGY_COMPETITORS_ENABLED", "STRATEGY_CHECK_ENABLED"];
+
+  async function withCheck(db: FakeFirestore) {
+    await approved(db);
+    // Watched after approving: the live list has it, the approved copy doesn't.
+    const peer = await monitorCompetitor(A, { website: "peerly.example", name: "Peerly" }, { db });
+    if (!peer.ok) throw new Error(peer.error);
+    const check = {
+      ...freshCheck(new Date(T0 + 2000).toISOString(), null),
+      lookedAt: "2026-11-26T12:00:00.000Z",
+      focus: [{ id: "sit_aaaaaa01", text: "A client asks why a rival is named", they: 5, newSince: 3, by: [{ name: "Peerly", count: 5 }], questions: 12, answered: 1, flag: "crowded" as const }],
+      named: [{ name: "Bigsuite", count: 4 }],
+      open: { key: "chk_abc123", raisedAt: "2026-11-26T12:00:00.000Z", reasons: [{ kind: "new_articles" as const, ref: "sit_aaaaaa01", text: "A client asks why a rival is named", count: 3, by: [{ name: "Peerly", count: 3 }] }], actedAt: null },
+    };
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId(A.tenantId), () => ({ check }));
+  }
+
+  it("lists the competitors live and gives what the check saw, with a meaning for every number", async () => {
+    const db = new FakeFirestore();
+    for (const k of CHECK_SWITCHES) vi.stubEnv(k, "true");
+    await withCheck(db);
+    const body = (await agentBrandStrategy(A, { db, ...at(Date.parse("2026-11-26T13:00:00.000Z")) })).body as Record<string, unknown> & { meanings: Record<string, unknown>; competitors: Array<{ name: string; group: string; monitored: boolean }> };
+    expect(body.competitors.map((c) => [c.name, c.group, c.monitored])).toEqual([
+      ["Peerly", "Not grouped yet", true],
+      ["Rivalco", "Does most of what you do", false],
+    ]);
+    expect(body.againstCompetitors).toMatchObject({
+      lookedAt: "2026-11-26T12:00:00.000Z",
+      countedSince: "2026-11-26",
+      focus: [{ situation: "A client asks why a rival is named", theirArticles: 5, theirNewArticles: 3, byCompetitor: [{ name: "Peerly", competitorArticles: 5 }], focusQuestions: 12, focusLiveArticles: 1, label: "crowded: a new angle stands out" }],
+      namedNotWatched: [{ name: "Bigsuite", namingArticles: 4 }],
+      waitingInReview: ['Peerly wrote 3 new articles on "A client asks why a rival is named" since 26 Nov.'],
+    });
+    const keys = [...numberKeys(body)].filter((k) => k !== "meanings");
+    for (const k of keys) expect(body.meanings[k], `"${k}" is not explained`).toBeTruthy();
+    expect(keys.sort()).toEqual(["competitorArticles", "focusLiveArticles", "focusQuestions", "foundTimes", "namingArticles", "theirArticles", "theirNewArticles"]);
+  });
+
+  it("says when the check hasn't looked yet", async () => {
+    const db = new FakeFirestore();
+    for (const k of CHECK_SWITCHES) vi.stubEnv(k, "true");
+    await approved(db);
+    expect((await agentBrandStrategy(A, { db })).body).toMatchObject({ againstCompetitors: { lookedAt: null, note: expect.stringContaining("hasn't looked yet") } });
+  });
+
+  it("is as before with the switch off, with the check and a competitor watched since approving still stored", async () => {
+    const db = new FakeFirestore();
+    for (const k of CHECK_SWITCHES) vi.stubEnv(k, "true");
+    await withCheck(db);
+    vi.stubEnv("STRATEGY_CHECK_ENABLED", "false");
+    const off = (await agentBrandStrategy(A, { db })).body as Record<string, unknown> & { competitors: Array<{ name: string }> };
+    expect(off).not.toHaveProperty("againstCompetitors");
+    expect(off.competitors.map((c) => c.name)).toEqual(["Rivalco"]);
+  });
+
+  it("never promises a check to a brand it doesn't run for, and gives it the strategy's own list", async () => {
+    const db = new FakeFirestore();
+    for (const k of CHECK_SWITCHES) vi.stubEnv(k, "true");
+    await withCheck(db);
+    vi.stubEnv("GRANTED_ONLY_FEATURES", "competitors,competitor_articles");
+    const body = (await agentBrandStrategy(A, { db, loadTenant: async () => null })).body as Record<string, unknown> & { competitors: Array<{ name: string; monitored: boolean }> };
+    expect(body.againstCompetitors).toEqual({ lookedAt: null, note: CHECK_NOT_INCLUDED });
+    expect(body.competitors.map((c) => c.name)).toEqual(["Rivalco"]);
   });
 });

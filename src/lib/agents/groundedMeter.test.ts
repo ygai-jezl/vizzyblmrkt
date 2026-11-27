@@ -9,6 +9,7 @@ import {
   generateGroundedText,
   generateImage,
   generateImageWithDeadline,
+  generateJsonWithSchema,
   generateSlideImage,
   generateText,
   generateTextStream,
@@ -115,6 +116,8 @@ describe("Gemini use is always metered", () => {
       void generateTextWithDeadline("write", { timeoutMs: 1 });
       // @ts-expect-error no usage
       void generateTextStream("write", {});
+      // @ts-expect-error no usage
+      void generateJsonWithSchema("write", { schema: {}, timeoutMs: 1 });
       // @ts-expect-error no usage
       void generateTextWithImage("read", "b64", "image/png");
       // @ts-expect-error no usage

@@ -7,6 +7,7 @@ import { transformFor } from "@/lib/content/transformationMatrix";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { reconcilePlaceholders } from "@/lib/content/placeholders";
 import type { TemplatePlaceholder } from "@/lib/types/template";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Transformation-Matrix Deconstructor: turn a hub/Pillar template into channel-
@@ -87,7 +88,7 @@ async function transformOne(
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt, { usage: input.usage });
+  const raw = await generateText(await inBrandLanguage(prompt, input.usage), { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j || typeof j !== "object") return null;
   const o = j as Record<string, unknown>;

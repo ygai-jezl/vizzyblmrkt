@@ -14,6 +14,7 @@ import { parseQuestion, parseSubject } from "./records";
 import { parseSituation, recountSituations } from "./situations";
 import { readBrandMap } from "./store";
 import { clean, fence, hasAddress, oneLine } from "./lineChecks";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Research's second step for buying situations (BRAND_MAP_SITUATIONS_ENABLED): for ONE
@@ -149,7 +150,8 @@ export async function askSituationQuestions(ctx: TenantContext, situationId: str
     alternatives: fence("alternatives", (map?.names ?? []).filter((n) => n.kind === "alternative").slice(0, 12).map((n) => n.name).join(", ") || "(none on the map)"),
     max: LIMITS.runQuestions,
   });
-  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: deps.timeoutMs ?? 55_000, thinkingBudget: blogResearchThinkingBudget(), usage: deps.usage ?? aiUsage(ctx, "situation_questions", { db: deps.db }) }).catch(() => null);
+  const usage = deps.usage ?? aiUsage(ctx, "situation_questions", { db: deps.db });
+  const answer = await (deps.grounded ?? generateGroundedText)(await inBrandLanguage(prompt, usage), { timeoutMs: deps.timeoutMs ?? 55_000, thinkingBudget: blogResearchThinkingBudget(), usage }).catch(() => null);
   if (isSearchLimited(answer)) return { ok: false, status: 429, error: "search_limit" };
   const lines = parseQuestionLines(answer?.text ?? "", subjects.length);
   if (!answer || !lines.length) return { ok: false, status: 502, error: "research_failed" };

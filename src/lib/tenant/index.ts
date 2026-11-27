@@ -130,11 +130,12 @@ export {
 } from "./trendingTopics";
 export {
   recordLaunchDeletion,
+  recordFieldErase,
   writeAuditObject,
   auditObjectPath,
   auditEntryId,
 } from "./audit";
-export type { LaunchDeletionAudit, LaunchDeletionCounts } from "./audit";
+export type { AuditEntry, FieldEraseAudit, LaunchDeletionAudit, LaunchDeletionCounts } from "./audit";
 export { gcsAuditSink } from "./auditSink";
 export type { AuditObjectSink } from "./auditSink";
 export { deleteLaunch } from "./launchDeletion";
@@ -198,12 +199,26 @@ export type { AgentProposal, AgentTransition, TransitionError } from "./agentAct
 // A fact Vizzy heard in a chat, kept with its decision and the chat's lines in one transaction.
 export { keepSuggestedBusinessFact } from "./businessFacts";
 export type { KeepBusinessFactInput, KeepBusinessFactResult } from "./businessFacts";
+// Home's Your next action: the card per brand in its region, each step's decision in the same transaction.
+export {
+  readNextActionCard,
+  claimNextActionWrite,
+  releaseNextActionWrite,
+  commitNextActionWrite,
+  recordNextActionOutcome,
+  forgetNextActionCard,
+  trimOutcomes,
+} from "./nextActionCards";
+export type { ClaimResult, CommitResult, NextActionWrite, OutcomeInput, OutcomeError, OutcomeResult } from "./nextActionCards";
 // The settings log: a setting and its version in one transaction (read the versions through forTenant).
 export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
 export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";
+// Only me views on People (piece C): the signed in member's own, saved with a rev check.
+export { readMemberViews, commitMemberViews, memberViewsDocId } from "./memberViews";
+export type { StoredMemberViews, MemberViewsCommit } from "./memberViews";
 // Field values: the one writer, with their events, tags and an agent action's decision in one transaction.
-export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
-export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError } from "./recordFieldWrites";
+export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, eraseFieldValuesPage, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
+export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError, EraseFieldValuesPage } from "./recordFieldWrites";
 export type { VersionCollection, ConnectionRecords, ActivityLog } from "./repository";
 // Connected data: a connection and its activity in one transaction (read the records through forTenant).
 export {

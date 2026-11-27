@@ -10,6 +10,7 @@ import { runArchitect } from "@/lib/content/create/architectRun";
 import { fillPlanNode } from "@/lib/content/create/fillPlan";
 import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { dropPick, pickNextUp, readNextUp } from "@/lib/nextUp/pick";
+import { slotQuestionsFor } from "@/lib/contentStrategy/nextUp";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import { monthlyLimit } from "@/lib/plans/limits";
 import { forTenant, getTenantById } from "@/lib/tenant";
@@ -21,6 +22,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import type { Workspace } from "@/lib/types/workspace";
 import type { AdvanceDeps, StepFn } from "./advance";
 import { draftsThisMonth, heldQuestionIds, notePlan, type StepPatch } from "./runs";
+import { recordPlanDraft } from "@/lib/agentRecord/drafts";
 
 /**
  * The run's own steps, past find and sort: picking the question (a scheduled run), then in Draft
@@ -122,7 +124,8 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   // A refresh pick (BLOG_FRESHNESS_ENABLED) is a Draft run's to take once reviews are on (BLOG_REFRESH_ENABLED);
   // otherwise it waits for a person, and the run writes something new.
   const refreshes = run.mode === "draft" && isBlogRefreshEnabled();
-  const writable = (p: { questionId: string; kind?: string }) => (p.kind !== "refresh" || refreshes) && !others.includes(p.questionId);
+  // A combine pick (CONTENT_STRATEGY_NEXT_UP_ENABLED) is never drafted: it waits for a person, like a close pick.
+  const writable = (p: { questionId: string; kind?: string }) => p.kind !== "combine" && (p.kind !== "refresh" || refreshes) && !others.includes(p.questionId);
   if (!doc || !doc.picks.some(writable) || now - Date.parse(doc.at) > STALE_PICKS_MS) {
     const got = await pickNextUp(ctx, { by: "schedule", deadlineMs: opts.deadlineMs - 5_000 }, {
       db: deps.db,
@@ -183,7 +186,9 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   let plan = await getContentPlan(ctx, workspace.id, planId, deps.db);
   if (!plan) {
     const q = run.question;
-    const asks = (run.trays?.use ?? []).map((i) => (i.kind === "also" ? `Also searched: ${i.text}` : i.text)).join("\n");
+    // Written for a slot of the approved content plan: the slot's other questions go in the brief too.
+    const slotAsks = await slotQuestionsFor(ctx, q.questionId, { db: deps.db }).catch(() => [] as string[]);
+    const asks = [...slotAsks, ...(run.trays?.use ?? []).map((i) => (i.kind === "also" ? `Also searched: ${i.text}` : i.text))].join("\n");
     const intake = IntakeSchema.parse({
       name: q.text.slice(0, 200),
       strategy: { objective: "brand_visibility", hubUrl: null },
@@ -272,6 +277,8 @@ export const nodesStep: StepFn = async (ctx, run, opts, deps) => {
   const fresh = await getContentPlan(ctx, g.workspace.id, g.plan.id, deps.db);
   if (fresh?.autopilot?.runId === run.id) {
     await updateContentPlan(ctx, g.workspace.id, g.plan.id, { autopilot: { runId: run.id, state: "done", at: new Date().toISOString() } }, deps.db);
+    // The agent record: the autopilot's draft, as it finished it (soft, never fails the step).
+    await recordPlanDraft(ctx, g.workspace.id, fresh, "autopilot", { db: deps.db });
   }
   return { step: "done", nodesLeft: [] };
 };

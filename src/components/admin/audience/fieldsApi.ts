@@ -28,6 +28,7 @@ export const FIELD_MESSAGES = {
   invalid_field: "Check the field: a name needs 1 to 60 characters, and a currency field needs a three letter code such as GBP.",
   field_not_found: "That field is no longer there. Reload the page to see the list as it is.",
   option_not_found: "That option is no longer there. Reload the page to see the list as it is.",
+  field_erasing: "Its values are being erased. It can be brought back once that is done.",
   unknown_field: "That field is no longer there. Reload the page to see the list as it is.",
   archived_field: "This field was archived while you were editing. Reload the page.",
   invalid_value: "That value doesn't fit this field. Check it and try again.",

@@ -161,6 +161,56 @@ export async function generateTextWithDeadline(
 }
 
 /**
+ * Structured output within a hard deadline: JSON shaped by `schema`, a JSON Schema the API takes as
+ * responseJsonSchema (enums hold the model to a list; keep item counts out of it, since Vertex has
+ * refused capped schemas, and check counts in code). Null on timeout, missing config or any error,
+ * so callers fall back. When the API refuses the schema as written (a 400: nothing ran and nothing
+ * was billed), it asks once more in plain JSON mode within the same deadline, so callers check the
+ * answer themselves either way.
+ */
+export async function generateJsonWithSchema(
+  prompt: string,
+  opts: { schema: Record<string, unknown>; timeoutMs: number; temperature?: number; usage: AiUsage } & ThinkingOptions,
+): Promise<string | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  const signal = AbortSignal.timeout(opts.timeoutMs);
+  const ask = (withSchema: boolean) =>
+    Promise.race([
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: {
+          abortSignal: signal,
+          responseMimeType: "application/json",
+          ...(withSchema ? { responseJsonSchema: opts.schema } : {}),
+          ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+          ...thinkingConfig(opts),
+        },
+      }),
+      new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+      }),
+    ]);
+  try {
+    let res: Awaited<ReturnType<typeof ask>>;
+    try {
+      res = await ask(true);
+    } catch (err) {
+      if (signal.aborted || !wasRejected(err)) throw err;
+      console.warn(`[gemini] the response schema was refused; asking in plain JSON mode: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      res = await ask(false);
+    }
+    await recordModel(opts.usage, res, TEXT_MODEL);
+    return res.text ?? null;
+  } catch (err) {
+    await recordLost(opts.usage, TEXT_MODEL);
+    console.warn(`[gemini] generateJsonWithSchema failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    return null;
+  }
+}
+
+/**
  * Stream text token-by-token from a prompt. Yields incremental text chunks (the SDK's
  * `generateContentStream`). Used by the eBook studio to render a chapter as it's written,
  * and by Vizzy in Edit mode. Yields nothing when Gemini is unconfigured or the stream errors
@@ -337,6 +387,12 @@ export interface AiUsage {
   recordModel(tokens: number, model: string, opts?: { lost?: boolean }): Promise<void>;
   recordSearches(searches: number, opts?: { lost?: boolean }): Promise<void>;
   recordImages(images: number): Promise<void>;
+  /**
+   * The brand's default content language (a base code like "fr"), for a writer to write in
+   * (CONTENT_LANGUAGE_ENABLED, src/lib/i18n/writingLanguage.ts). Optional: a usage made for a test
+   * leaves it out, and its calls are written in English.
+   */
+  brandLanguage?(): Promise<string>;
 }
 
 /** Usage that never limits and counts nothing: for tests only (a guard test checks). */

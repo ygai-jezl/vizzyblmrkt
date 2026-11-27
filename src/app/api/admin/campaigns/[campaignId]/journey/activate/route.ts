@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { setJourneyState } from "@/lib/journey/service";
+import { journeyIdFor, setJourneyState } from "@/lib/journey/service";
+import { forTenant } from "@/lib/tenant";
+import { closeDraft, memberOf } from "@/lib/agentRecord/record";
+import { launchJourneyPrint } from "@/lib/agentRecord/fingerprints";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +42,19 @@ export async function POST(
       { error: result.error, ...(result.reason ? { reason: result.reason } : {}) },
       { status },
     );
+  }
+  // Welcome emails Vizzy drafted on the original engine are kept by the admin who turned them on
+  // (agent record). A launch on the new engine publishes its draft in the journey editor instead.
+  if (parsed.data.action === "activate") {
+    const journeyId = journeyIdFor(campaignId);
+    await closeDraft(ctx, { kind: "launch_journey", ref: journeyId }, {
+      to: "acted",
+      by: memberOf(ctx),
+      fingerprint: async () => {
+        const journey = await forTenant(ctx).journeys.getById(journeyId);
+        return journey ? launchJourneyPrint(journey.graph) : null;
+      },
+    });
   }
   return NextResponse.json(result);
 }

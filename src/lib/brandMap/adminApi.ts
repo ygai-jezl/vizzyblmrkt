@@ -14,6 +14,7 @@ import { lookupName, type FetchJson } from "./lookup";
 import { isBrandMapEnabled, isBrandMapScaleEnabled } from "./flags";
 import { ensureMoved } from "./move";
 import type { EmbedDeps } from "./embed";
+import { closeResearchBefore, recordMapRun } from "@/lib/agentRecord/mapRuns";
 
 /**
  * The Brand map's admin APIs (Brand › Brand map): origin, flag, sign-in and admin, in that
@@ -140,12 +141,17 @@ export async function runBrandMapResearch(ctx: TenantContext, deps: ResearchDeps
   const proposed = await proposeBrandMap(ctx, { current, timeoutMs: deps.timeoutMs, ...(onMap ? { scale: onMap } : {}) }, { db: deps.db, ...deps.propose });
   if (!proposed.ok) return proposed;
   const at = new Date(deps.nowMs ?? Date.now()).toISOString();
+  // The agent record: research replaces its own waiting suggestions, so its last run closes first,
+  // by the map's lists (soft, never fails the run).
+  await closeResearchBefore(ctx, { db: deps.db, nowMs: deps.nowMs });
   const filed = await fileSuggestions(
     ctx,
     { from: "research", replaceOwn: true, items: proposed.items, research: { at, notes: proposed.notes } },
     { db: deps.db, nowMs: deps.nowMs },
   );
   if (!filed.ok) return { ok: false, status: filed.status, error: filed.error };
+  // This run, as one record, closed from the map's own lists.
+  await recordMapRun(ctx, { action: "brand_map.research", keys: filed.value.filed.map((s) => s.key), refs: filed.value.refs }, { db: deps.db, nowMs: deps.nowMs });
   const after = await readBrandMap(ctx, deps.db);
   const proposals = filed.value.proposed.length;
   return {

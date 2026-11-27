@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-104 types: 83 built and 21 planned.
+106 types: 86 built and 20 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -279,7 +279,7 @@ What is being talked about in the brand's area, found with Google Search groundi
 
 ### Competitor (`competitor`)
 
-A competitor the brand watches: their sitemap's pages, their news posts, monthly changes and the findings from articles read in full.
+A competitor the brand watches: their sitemap's pages, their news posts, monthly changes, the findings from articles read in full, and the strategy group a person put it in. What they write is worked out from those findings when asked, never stored.
 
 - Status: built
 - Home: the brand's region
@@ -290,13 +290,14 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
   - `competitor_posts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `competitor_changes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `competitor_articles`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Findings and short quotes, never the article's text.
+- Links: `brand_strategy` through its group, shown under Who you compete with, and its articles, which Propose and Against your competitors read
 - Erase:
   - `removeCompetitor` in `src/lib/competitors/store.ts`, on removing the record
   - `removeArticles` in `src/lib/competitors/articles.ts`, on removing the record
 - Export: none. Public pages about another business.
 - Search: `competitor`
 - Numbers: none. No numbers an agent reads.
-- Made by: `competitor_site`, `competitor_analysis`, `competitor_articles` (see Learning)
+- Made by: `competitor_site`, `competitor_analysis`, `competitor_articles`, `competitor_profile` (see Learning)
 
 ### Data connection (`data_connection`)
 
@@ -756,9 +757,13 @@ A field the brand adds to people or companies, of one of twelve types, managed i
 - Home: the brand's region
 - Personal: the brand's own team
 - Stores:
-  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB.
+  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy`, `archivedBy` and `erasedBy` hold user ids, never an address; under 200 KB.
+  - `field_erase_jobs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. An owner's count and erase of an archived field's values (SETTINGS_ERASE_ENABLED), one per brand, object and field with a fixed id, written by `src/lib/settings/eraseArchived.ts`: ids, counts, a cursor and times, and who started it as a user id; never a value; no TTL.
 - Links: `settings_version` through its subject, one version per change of the list (many); `person` through contacts.fields.<fieldId> (many); `company` through companies.fields.<fieldId> (many); `ontology_event` through fieldId, one row per change of a value (many)
-- Erase: gap. A field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2.
+- Erase:
+  - `runFieldErase` in `src/lib/settings/eraseArchived.ts`, on an owner erasing an archived field's values (an owner with an admin row erases an archived field's values 30 days after its archive, with SETTINGS_ERASE_ENABLED: values and field tags off each person or company, blanked in the event history and agent actions; the definition stays, archived, with erasedAt)
+  - Gap: a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave
+  - Gap: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
 - Export: gap. Team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label.
 - Search: none. A field's values are found with its person.
 - Numbers: none. A value belongs to one record and is not a brand metric.
@@ -790,15 +795,19 @@ One person's consent for one purpose. The current state stays on the person reco
 
 ### View (`view`)
 
-A saved filter, sort and set of columns over people or another record, shared or personal.
+A saved filter, sort and set of columns over People (CRM_VIEWS_ENABLED): up to 10 filters joined by all or any, 10 columns and one sort, read in memory up to 5,000 people a view. Team views (Everyone on the team) are the settings subject views:person, saved by admins and kept in the settings log, archived and never removed, and listed in Settings › History, where an admin restores one view at a time; Only me views belong to one team member, are not logged, never in History, and are deleted for real. A saved view never keeps typed words (text and email domain filters work while looking, decision 3), so neither store holds the values of the brand's people; both hold team members' user ids.
 
-- Status: planned, in C
+- Status: built
 - Home: the brand's region
-- Personal: no
-- Erase: none. Planned: piece C decides it with the store.
-- Export: none. Planned: piece C decides it with the store.
-- Search: none. A saved query, found by name.
-- Numbers: none. Planned: piece C decides it with the store.
+- Personal: the brand's own team
+- Stores:
+  - `saved_views`, the brand's regional Firestore, in `src/lib/tenant/settingsLog.ts`. The team's views, as the `views:person` setting: one document per brand, id from settingsDocId, one item per view (its id `viw_...`, name, filters, columns and sort, version, and who made, changed or archived it by user id), archived and never removed, written only with its settings version; caps 50 in use, 200 in all, under 200 KB, one view under 2 KB.
+  - `member_views`, the brand's regional Firestore, in `src/lib/tenant/memberViews.ts`. One team member's Only me views: one document per brand and member, id `mv_` and a hash of both, with the member's user id and a rev checked in one transaction; not logged, a view is deleted for real; 50 a member.
+- Links: `settings_version` through subject views:person, one version per team save (many); `custom_field` through the field ids its filters, columns and sort name (many); `member` through createdBy, changedBy and archivedBy on a team view, and member_views.userId (many)
+- Erase: gap. Neither store holds a person's values, so a person's erase has nothing here; a team member's user id stays an id after they leave and shows as Former team member, and their member_views document stays, seen by nobody, as the field lists' user ids do.
+- Export: gap. Neither store holds a person's values, so a person's export has nothing here; team member ids stay as ids, with no export by team member.
+- Search: none. A saved query, found by name in the Views menu and through get_view_counts.
+- Numbers: `viewPeople`, through `get_view_counts`
 
 ### List (`list`)
 
@@ -1016,24 +1025,21 @@ A social post waiting to go out on one of the brand's accounts, and what happene
 
 ### What posts taught (`post_learning`)
 
-What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.
+What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
-  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`. The best posts, and the approved emails and hub pieces kept as examples.
+  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`
   - `post_perf_vectors`, the brand's regional Firestore, in `src/lib/tenant/postVectors.ts`
   - `learned_pattern_versions`, the brand's regional Firestore, in `src/lib/tenant/patternVersions.ts`. Append only, the source of a revert.
-- Links: `post_result` through the posts it learned from (many); `content_plan` through the approved pieces it keeps as examples (many)
-- Erase:
-  - `forgetPlanExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (an approved example goes with its content plan; the post statistics are the brand's own and stay)
-  - `forgetRemovedExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a piece taken off the canvas takes its approved example with it)
-  - `forgetWorkspaceExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a deleted programme takes the approved examples of its plans with it)
+- Links: `post_result` through the posts it learned from (many)
+- Erase: none. The brand's own content statistics.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Vectors and versions for the writer, not text to find.
 - Numbers: none. Its numbers are post results.
-- Made by: `post_feedback`, `content_email`, `content_hub` (see Learning)
+- Made by: `post_feedback` (see Learning)
 
 ### Generated image (`image_asset`)
 
@@ -1109,7 +1115,7 @@ The brand's names and subjects, groups and buying situations that every article 
   - `brand_map_situations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/brandMapRecords.ts`. Paged reads of every record kind.
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025).
 - Links: `brand_question` through subject and situation ids (many); `content_plan` through brand_map_pages (many)
 - Erase:
   - `removeSubject` in `src/lib/brandMap/records.ts`, on removing the record
@@ -1158,20 +1164,37 @@ A research file the brand brought in, read into findings for the brand map.
 
 ### Brand strategy (`brand_strategy`)
 
-The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.
+The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, and the weekly check that sets the approved strategy against what the watched competitors publish.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
   - `brand_strategy`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand; `by` and decisions hold the admin's email or user id.
-- Links: `brand_map` through its audiences and identity, and the focus situations it stars on approval; `competitor` through the competitors a person ticked to monitor (many)
+- Links: `brand_map` through its audiences and identity, and the focus situations it stars on approval; `competitor` through the competitors a person ticked to monitor, or, joined to Competitors, every one the brand watches, live (many)
 - Erase:
   - `deleteBrandStrategy` in `src/lib/brandStrategy/store.ts`, on removing the record (an admin presses Start over on the Strategy tab)
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. One short record per brand, read whole by the writer, research, Next up and Vizzy.
-- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, through `get_brand_strategy`
-- Made by: `brand_strategy`, `competitor_find` (see Learning)
+- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, `theirArticles`, `theirNewArticles`, `competitorArticles`, `namingArticles`, through `get_brand_strategy`
+- Made by: `brand_strategy`, `competitor_find`, `competitor_claim_match`, `strategy_check` (see Learning)
+
+### Content strategy (`content_strategy`)
+
+The brand's plan for the quarter, one record per brand, approved by a person: its decided questions merged by meaning into slots (one article each, with a stage, a kind of page and the live articles that answer it), 3 to 6 pillars with a hub each, a score for each slot and a 12 week roadmap of what to write, refresh or combine. Keeps the draft, the approved plan Next up reads, the last 5 approved in short, and the splits, joins, skips and moves people made.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `content_strategy`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand, question and page ids only; `by` and decisions hold the admin's email or user id.
+- Links: `brand_strategy` through the approved strategy's focus situations, which its fit scores read; `brand_question` through the question ids each slot merges (many); `content_plan` through the live articles each slot is covered by, and what it refreshes or combines (many)
+- Erase:
+  - `deleteContentStrategy` in `src/lib/contentStrategy/store.ts`, on removing the record (an admin presses Start over on the Content plan)
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. One record per brand, read whole by Next up, the autopilot and Vizzy.
+- Numbers: `slotCount`, `liveSlots`, `openSlots`, `questionsInPlan`, `questionsInSlot`, `roadmapSharePercent`, `articlesPerWeek`, `refreshSharePercent`, `targetPercent`, `questionsPercent`, `roadmapPercent`, `fitScore`, `demandScore`, `gapScore`, `depthScore`, `balanceScore`, `slotScore`, through `get_content_strategy`
+- Made by: `content_strategy`, `slot_merge`, `roadmap_order` (see Learning)
 
 ### What we've seen note (`brand_note`)
 
@@ -1182,9 +1205,12 @@ A first hand note from the brand's team about what they have seen, or an open qu
 - Personal: yes, the brand's people
 - Stores:
   - `brand_notes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`. Kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025).
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Each note's and question's embedding, until retired (ADR-0025).
 - Links: `content_plan` through the articles it informed (many)
 - Erase:
   - `removeNote` in `src/lib/brandNotes/store.ts`, on removing the record
+  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer)
   - Gap: a person's erase does not find notes that name them: notes are free text
 - Export: gap. A person's export does not include notes that name them.
 - Search: `note`, `question`
@@ -1289,7 +1315,7 @@ A blog article's last 10 versions: its copy and meta just before Apply, Regenera
 
 ### AI original (`ai_original`)
 
-The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it and any approved pieces it followed as examples, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
+The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
 
 - Status: built
 - Home: the brand's region
@@ -1474,6 +1500,27 @@ A team member's conversation with Vizzy about the business, kept as words only (
 - Numbers: none. No numbers an agent reads.
 - Made by: `onboarding_voice`, `onboarding` (see Learning)
 
+### Your next action (`next_action_card`)
+
+The card Vizzy writes for Home's Your next action: 1 to 3 steps from the brand's four answers, the facts an admin kept and where the brand is, each with a line on why in the founder's own terms, and the newest 30 outcomes of earlier steps (done, answered, dismissed with the reason a person gave, or replaced untouched) with each step's newest dismissal of the last 30 days, which the next card reads. One record per brand. Each step is also an agent action, which holds only ids.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `next_action_cards`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per brand: the card, the hash of what it was written from, the day's count, and the newest 30 outcomes with each step's newest dismissal of the last 30 days; a dismissal's reason is the member's own words.
+- Links: `brand` through one record per brand; `agent_action` through each step's agentActionId (many); `business_fact` through the lines it was written from (many)
+- Erase:
+  - `forgetNextActionCard` in `src/lib/tenant/nextActionCards.ts`, on removing the record (an admin removes a fact or deletes a conversation in About your business: the card and every title, reason and answer go; only the day's count and which steps were dismissed (ids and times) stay)
+  - `trimOutcomes` in `src/lib/tenant/nextActionCards.ts`, on retention (outcomes past the newest 30 (besides each step's newest dismissal of the last 30 days), or older than 90 days, are never read again and leave when the record is next written)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: a person's erase does not find a reason that names them: it is free text
+- Export:
+  - `readNextActionCard` in `src/lib/tenant/nextActionCards.ts`, on the team member themselves (an admin reads the card on Home, and Vizzy reads it with its outcomes through get_next_action)
+- Search: none. A short card read whole on Home and by Vizzy, not searched.
+- Numbers: none. No numbers an agent reads.
+- Made by: `next_action` (see Learning)
+
 ### MCP client (`mcp_client`)
 
 An outside agent connected to the brand's MCP server, and what it may read and ask to write.
@@ -1528,14 +1575,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action; `next_action_card` through the card's step records name it; `launch_journey` through draft, a launch's welcome emails on the original engine (agent record); `lifecycle_journey` through draft, a journey Vizzy drafted or styled (agent record); `invite_wave` through draft, an invite wave Vizzy drafted (agent record); `content_plan` through draft, a plan Vizzy or the autopilot drafted (agent record); `brand_map` through draft, one research run or chat call with hashes of the keys it filed (agent record); `brand_note` through draft, a note Vizzy suggested in a chat (agent record); `repo_map` through draft, learning a product's map from its repo, by product (agent record); `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1555,7 +1602,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - Gap: team member ids stay as ids, with no export by team member
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach` (see Learning)
+- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot` (see Learning)
 
 ## Platform
 
@@ -1742,7 +1789,7 @@ The queue behind every email: a send, a step, a contact erase, a sync or a perso
 
 ### Brand search index (`search_index`)
 
-The brand's own index of what it wrote, by words and meaning, in its region's search database.
+The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).
 
 - Status: built
 - Home: the brand's region
@@ -1753,6 +1800,7 @@ The brand's own index of what it wrote, by words and meaning, in its region's se
 - Erase:
   - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased)
   - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
+  - `removeFamily` in `src/lib/search/familyIndex.ts`, on removing the record (at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed)
 - Export: none. Copies of the brand's own writing.
 - Search: none. It is the index.
 - Numbers: none. No numbers an agent reads.
@@ -1930,6 +1978,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Business fact (`business_fact`):
   - Erase: no path deletes a whole brand and everything it holds
   - Erase: a person's erase does not find a fact that names them: it is free text
+- Your next action (`next_action_card`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: a person's erase does not find a reason that names them: it is free text
 - Brand (`brand`):
   - Erase: no path deletes a whole brand and everything it holds
 - Member (`member`):
@@ -1954,11 +2005,15 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member
   - Export: team member ids in `by` stay as ids, with no export by team member
 - Field (`custom_field`):
-  - Erase: a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2
+  - Erase: a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave
+  - Erase: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
   - Export: team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person
   - Export: planned: piece F erases and exports it with the person
+- View (`view`):
+  - Erase: neither store holds a person's values, so a person's erase has nothing here; a team member's user id stays an id after they leave and shows as Former team member, and their member_views document stays, seen by nobody, as the field lists' user ids do
+  - Export: neither store holds a person's values, so a person's export has nothing here; team member ids stay as ids, with no export by team member
 - List (`list`):
   - Erase: planned: piece E erases and exports list entries with the person
   - Export: planned: piece E erases and exports list entries with the person
@@ -2012,16 +2067,16 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-91 kinds: 0 learn, 0 fleet only, 22 own, 29 gap and 40 none.
+98 kinds: 0 learn, 0 fleet only, 23 own, 34 gap and 41 none.
 
-111 call sites: 0 learn, 0 fleet only, 32 own, 34 gap and 45 none.
+119 call sites: 0 learn, 0 fleet only, 33 own, 40 gap and 46 none.
 
-Not learning: 79 of 111 call sites, under gap and none lines.
+Not learning: 86 of 119 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
 - `learned`: The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.
-- `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.
+- `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.
 - `vizzy_memory`: Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.
 - `brand_kit`: Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.
 - `brand_map`: The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.
@@ -2030,6 +2085,8 @@ Not learning: 79 of 111 call sites, under gap and none lines.
 - `content_plan`: An article's brief keeps up to 50 notes a person took out of it.
 - `broadcast`: Each one off launch email keeps its open and click rates once its report is read.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
+- `next_action_card`: The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.
+- `brand_strategy`: The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.
 
 ### Learns
 
@@ -2054,15 +2111,13 @@ No line says this yet.
   - `src/lib/brandMap/situationQuestions.ts`
   - `src/lib/brandMap/situationsApi.ts`
   - `src/lib/canvas/kinds/brandMap.ts`
+- `competitor_find` (AI purpose, Finding competitors), kept in `brand_strategy`. Where the strategy is joined to Competitors, a name a person marked Not a competitor is kept on the brand strategy and the finder never suggests it again.
+  - `src/lib/brandStrategy/finder.ts`
 - `blog_refresh` (AI purpose, Article refresh reviews), kept in `article_review`. A change your team dismissed on an article is kept with the last 50 on its review and not proposed for that article again.
   - `src/lib/content/blog/refreshReview.ts`
 - `seen_notes` (AI purpose, What we've seen), kept in `content_plan`. A note your team took out of an article is kept with the last 50 on its brief and not matched back into it.
   - `src/lib/content/blog/seen.ts`
 - `content_write` (AI purpose, Writing posts), kept in `post_learning`. Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet.
-  - `src/lib/content/create/generateNode.ts`
-- `content_email` (AI purpose, Writing workflow emails), kept in `post_learning`. Where turned on, a workflow email follows the emails your team approved, kept as examples of the brand's own writing, though how your team edited each draft teaches it nothing yet.
-  - `src/lib/content/create/generateNode.ts`
-- `content_hub` (AI purpose, Writing hub content), kept in `post_learning`. Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet.
   - `src/lib/content/create/generateNode.ts`
 - `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
@@ -2073,6 +2128,8 @@ No line says this yet.
   - `src/lib/nextUp/pick.ts`
 - `judge` (AI purpose, Sorting what buyers ask), kept in `learned`. Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays.
   - `src/lib/signals/judge.ts`
+- `next_action` (AI purpose, Your next action), kept in `next_action_card`. A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched.
+  - `src/lib/nextAction/service.ts`
 - `blog_hero` (AI purpose, Blog hero images), kept in `brand_kit`. Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it.
   - `src/lib/content/blog/hero.ts`
 - `post_image` (AI purpose, Post images), kept in `brand_kit`. Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it.
@@ -2091,6 +2148,8 @@ No line says this yet.
   - `src/lib/nextUp/candidates.ts`
 - `repeat_match` (rule, Repeat match), kept in `learned`. A question your team wrote anyway, added to an article or unlinked is kept on the Learned list and not matched that way again, though the closeness cut offs never move.
   - `src/lib/nextUp/repeats.ts`
+- `roadmap_order` (rule, Content plan roadmap), kept in `learned`. A pick your team skipped, on the roadmap or in Next up, is kept on the Learned list and left out of the next plan's roadmap for 30 days, though the funnel mix and the focus pillars never move by themselves.
+  - `src/lib/contentStrategy/roadmap.ts`
 - `freshness_clock` (rule, Refresh clock), kept in `refresh_record`. Each article gets a 20, 30 or 45 day clock in turn, and where article refresh is turned on, the refresh records show which clock gains clicks and a person accepts the clock it suggests.
   - `src/lib/content/blog/freshness.ts`
 - `competitor_topics` (rule, Competitor topics to add), kept in `brand_map`. A topic a person dismissed from the brand map is marked dismissed and left out of what Next up suggests from competitor articles.
@@ -2100,16 +2159,19 @@ No line says this yet.
 
 - `email_hero` (AI purpose, Email hero images), look again by 2027-01-31. Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.
   - `src/app/api/admin/email/image/route.ts`
-- `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images, and a dismissed suggestion is deleted with no record.
+- `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.
   - `src/lib/canvas/kinds/imageStyle.ts`
 - `image_style_pick` (rule, Image style used), look again by 2027-01-31. Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.
   - `src/lib/content/imageStyle/resolve.ts`
+- `next_action_order` (rule, Your next action order), look again by 2027-02-26. When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.
+  - `src/lib/onboarding/homeOrder.ts`
 - `spintax_variant` (rule, Recurring post variant), look again by 2027-03-31. A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.
   - `src/lib/distribute/spintax.ts`
 - `brand_strategy` (AI purpose, Proposing the brand strategy), look again by 2027-05-01. The brand strategy keeps each focus star a person kept or removed and each claim they edited, before and after, but nothing learns from them yet.
   - `src/lib/brandStrategy/propose.ts`
-- `competitor_find` (AI purpose, Finding competitors), look again by 2027-05-01. The brand strategy keeps which competitors the finder found that a person ticked to monitor or left out, but the finder learns nothing from them yet.
-  - `src/lib/brandStrategy/finder.ts`
+- `content_strategy` (AI purpose, Making the content plan), look again by 2027-05-01. The content plan keeps each pillar a person renamed and each slot they split or joined, but naming and grouping the pillars learns nothing from them yet.
+  - `src/lib/contentStrategy/make.ts`
+  - `src/lib/signals/collect.ts`
 - `blog_research` (AI purpose, Blog research), look again by 2027-05-01. Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.
   - `src/lib/content/blog/research.ts`
 - `autopilot_research` (AI purpose, Autopilot research), look again by 2027-05-01. The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.
@@ -2119,6 +2181,10 @@ No line says this yet.
   - `src/lib/content/create/generateNode.ts`
 - `architect` (AI purpose, Laying out workflows), look again by 2027-05-01. Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.
   - `src/lib/content/create/architectRun.ts`
+- `content_email` (AI purpose, Writing workflow emails), look again by 2027-05-01. Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.
+  - `src/lib/content/create/generateNode.ts`
+- `content_hub` (AI purpose, Writing hub content), look again by 2027-05-01. Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.
+  - `src/lib/content/create/generateNode.ts`
 - `content_angle` (AI purpose, Suggesting angles), look again by 2027-05-01. An angle you turn down with Suggest another is passed only to the next try and never kept as a no.
   - `src/lib/content/create/suggestAngle.ts`
 - `ebook` (AI purpose, eBooks), look again by 2027-05-01. eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.
@@ -2133,9 +2199,9 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
-- `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, but its first draft is not kept, so those changes cannot be counted.
+- `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.
   - `src/lib/canvas/kinds/journey.ts`
-- `canvas.lifecycle` (canvas), look again by 2027-05-01. Whether a journey Vizzy drafted gets published, and how much a person changed first, is never counted, so the next draft cannot get better.
+- `canvas.lifecycle` (canvas), look again by 2027-05-01. With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.
   - `src/lib/canvas/kinds/lifecycle.ts`
 - `rising_search` (connector rule), look again by 2027-05-01. A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.
   - `src/lib/connectors/signals/detect.ts`
@@ -2155,12 +2221,16 @@ No line says this yet.
   - `src/lib/brandNotes/rest.ts`
 - `ai_answer_match` (rule, AI answers prompt matched), look again by 2027-05-01. A question is shown the AI answers numbers of the monitored prompt with the same or most of the same words, by a fixed cut off, and the picks your team skips never change which prompt is matched.
   - `src/lib/connectors/signals/aiAnswers.ts`
+- `slot_merge` (rule, Questions merged into slots), look again by 2027-05-01. Questions close in meaning are merged into one article at a fixed closeness, and the closeness cut off never moves, though the slots your team splits or joins are kept on the plan.
+  - `src/lib/contentStrategy/slots.ts`
 - `refresh_share` (rule, Refresh share of Next up), look again by 2027-05-01. At most one of Next up's three picks is a refresh unless the brand sets another number, and whether refreshes or new articles won more clicks never moves it.
   - `src/lib/nextUp/pick.ts`
 - `refresh_due` (rule, Refresh due), look again by 2027-05-01. Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.
   - `src/lib/content/blog/freshnessWatch.ts`
-- `next_action_order` (rule, Your next action order), look again by 2027-05-01. Home lists the steps of the stage that fits the brand's four answers by a fixed rule, and whether the team then did those steps never changes the order.
-  - `src/lib/onboarding/homeOrder.ts`
+- `competitor_claim_match` (rule, Claims competitors now make), look again by 2027-05-01. A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.
+  - `src/lib/competitors/profile.ts`
+- `strategy_check` (rule, Weekly strategy check), look again by 2027-05-01. The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.
+  - `src/lib/brandStrategy/checkRules.ts`
 
 ### None
 
@@ -2236,6 +2306,8 @@ No line says this yet.
   - `src/lib/content/blog/foundLive.ts`
 - `competitor_coverage` (rule, Competitor coverage flags). The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them.
   - `src/lib/competitors/coverage.ts`
+- `competitor_profile` (rule, What competitors write). Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves.
+  - `src/lib/competitors/profile.ts`
 - `pattern_holdout` (rule, Post patterns holdout). A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results.
   - `src/lib/distribute/feedback/patterns.ts`
 - `waitlist_rank` (rule, Waitlist order). The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own.

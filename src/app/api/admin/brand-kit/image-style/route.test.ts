@@ -11,6 +11,8 @@ const control = vi.hoisted(() => ({
 vi.mock("@/lib/tenant/control", () => control);
 const tenants = vi.hoisted(() => ({ getTenantById: vi.fn() }));
 vi.mock("@/lib/tenant", () => tenants);
+const record = vi.hoisted(() => ({ closeStyle: vi.fn(async () => true), memberOf: (ctx: { userId?: string }) => ({ type: "member", id: ctx.userId ?? null }) }));
+vi.mock("@/lib/agentRecord/record", () => record);
 
 const { GET, PUT, DELETE } = await import("./route");
 const suggestion = await import("./suggestion/route");
@@ -62,6 +64,12 @@ describe("/api/admin/brand-kit/image-style", () => {
       undefined,
       { updatedBy: "usr_admin", clearSuggestionAt: "2026-10-19T10:00:00.000Z" },
     );
+    expect(record.closeStyle).toHaveBeenCalledWith(
+      admin,
+      "image_style.suggest",
+      "2026-10-19T10:00:00.000Z",
+      expect.objectContaining({ to: "acted", by: { type: "member", id: "usr_admin" }, fingerprint: expect.stringMatching(/^[0-9a-f]{16}$/) }),
+    );
   });
 
   it("refuses an unknown style or a stray field", async () => {
@@ -79,6 +87,7 @@ describe("/api/admin/brand-kit/image-style", () => {
     const res = await suggestion.DELETE(req("DELETE", { suggestedAt: "2026-10-19T10:00:00.000Z" }));
     expect(await res.json()).toEqual({ ok: true, cleared: true });
     expect(control.clearTenantImageStyleSuggestion).toHaveBeenCalledWith("ten_A", "2026-10-19T10:00:00.000Z");
+    expect(record.closeStyle).toHaveBeenCalledWith(admin, "image_style.suggest", "2026-10-19T10:00:00.000Z", { to: "declined", reason: "dismissed", by: { type: "member", id: "usr_admin" } });
     expect((await suggestion.DELETE(req("DELETE", {}))).status).toBe(400);
   });
 });

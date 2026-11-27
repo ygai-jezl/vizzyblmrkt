@@ -16,6 +16,8 @@ const control = vi.hoisted(() => ({
   clearTenantEmailStyleHeaderImage: vi.fn(async () => true),
 }));
 vi.mock("@/lib/tenant/control", () => control);
+const record = vi.hoisted(() => ({ closeStyle: vi.fn(async () => true), memberOf: (ctx: { userId?: string }) => ({ type: "member", id: ctx.userId ?? null }) }));
+vi.mock("@/lib/agentRecord/record", () => record);
 
 const { PUT, DELETE } = await import("./route");
 
@@ -130,6 +132,18 @@ describe("PUT /api/admin/brand-kit/email-style", () => {
       updatedBy: "usr_admin",
       clearSuggestionAt: suggestedAt,
     });
+    // Applied by this admin: Vizzy's record of the suggestion closes, with what was saved.
+    expect(record.closeStyle).toHaveBeenCalledWith(
+      admin,
+      "email_style.suggest",
+      suggestedAt,
+      expect.objectContaining({ to: "acted", by: { type: "member", id: "usr_admin" }, fingerprint: expect.stringMatching(/^[0-9a-f]{16}$/) }),
+    );
+  });
+
+  it("a save that isn't from a suggestion leaves the record alone", async () => {
+    expect((await PUT(req("PUT", style))).status).toBe(200);
+    expect(record.closeStyle).not.toHaveBeenCalled();
   });
 
   it("400s for a fromSuggestion that isn't a short string", async () => {

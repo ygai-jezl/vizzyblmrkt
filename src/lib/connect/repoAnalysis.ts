@@ -13,6 +13,7 @@ import { invalidateConnectionCaches } from "./connectionAuth";
 import { isDateFactsEnabled } from "./v2/flags";
 import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { prepareGitTokenForWorker } from "@/lib/integrations/tokenRefresh";
+import { closeDraft, memberOf, recordDraft } from "@/lib/agentRecord/record";
 
 /**
  * "Learn from your repo": propose a connection's catalog (onboarding steps and
@@ -136,6 +137,13 @@ export async function startRepoAnalysis(
     await repo.repoAnalyses.update(id, { status: "failed", error, finishedAt: now });
     return fail(503, error);
   }
+  // The agent record: research learning this product's map from its code, until a person accepts
+  // it; a newer run of the same product supersedes it (soft, never fails the start).
+  await recordDraft(
+    ctx,
+    { action: "product_map.learn", draft: { kind: "repo_map", ref: connectionId }, href: `/admin/products/${connectionId}?tab=learn`, label: conn.name, run: id },
+    { db: deps.db, nowMs },
+  );
   return { ok: true, value: { analysis } };
 }
 
@@ -299,5 +307,8 @@ export async function acceptProductMap(
   );
   const accepted = { steps: steps.length, events: events.length, traits: traits.length, facts: facts.length, glossary: glossary.length, entityKinds: entityKinds.length };
   await repo.repoAnalyses.update(analysisId, { acceptedAt: nowIso, acceptedBy: ctx.email ?? ctx.userId ?? null, accepted });
+  // Accepted into the catalog by this person, with how many items (agent record).
+  const kept = Object.values(accepted).reduce((n, v) => n + v, 0);
+  await closeDraft(ctx, { kind: "repo_map", ref: connectionId }, { to: "acted", by: memberOf(ctx), result: { kept } }, { db: deps.db, nowMs: deps.nowMs });
   return { ok: true, value: { catalog: saved.catalog, linkDomains: saved.linkDomains, accepted } };
 }

@@ -228,15 +228,15 @@ export const LOOPS = {
   onboarding_voice: none("Vizzy talks with one founder in the moment to cover four questions, and learning from what they said would carry it into calls with other brands."),
 
   // ----- Canvases Vizzy fills (src/lib/canvas/names.ts) -----
-  "canvas.journey": gap("Vizzy's launch email copy gets changed on the canvas before it goes live, but its first draft is not kept, so those changes cannot be counted.", LATER),
-  "canvas.lifecycle": gap("Whether a journey Vizzy drafted gets published, and how much a person changed first, is never counted, so the next draft cannot get better.", LATER),
+  "canvas.journey": gap("Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.", LATER),
+  "canvas.lifecycle": gap("With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.", LATER),
   "canvas.invite_wave": none("A launch sends only a few invite waves, so neither their size nor their copy learns, and a person sets the size and presses Send."),
   "canvas.content_plan": none("The plan only gathers pieces, and each piece, such as an article or a post, says how it learns under its own kind of writing."),
   "canvas.email_style": none("A brand sets its email look once and a person saves it, so there is no stream of repeated choices to learn a taste from."),
   "canvas.journey_style": none("A journey's own email look is a single choice a person saves on that journey, so nothing repeats that could be learned."),
   "canvas.person_plan": none("Each plan is about one named person and staff approve it, so learning from it would carry that person's details into plans for others."),
   "canvas.brand_map": own("brand_map", "A change a person dismissed is kept on the brand map and Vizzy does not file it again, though a buying situation a person asks Vizzy for in chat comes back as a suggestion."),
-  "canvas.image_style": gap("Vizzy suggests an image style without reading the thumbs on the brand's images, and a dismissed suggestion is deleted with no record.", IMAGES_BY),
+  "canvas.image_style": gap("Vizzy suggests an image style without reading the thumbs on the brand's images, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.", IMAGES_BY),
   "canvas.person_fields": none("Each suggestion is a fact about one person that a teammate confirms or dismisses, so it is right or wrong rather than a taste."),
   "canvas.new_person": none("Vizzy copies details from the chat into the New person form, and a person checks the facts and records consent, so no taste is involved."),
 

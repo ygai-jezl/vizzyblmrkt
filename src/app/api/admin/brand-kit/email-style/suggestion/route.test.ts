@@ -6,6 +6,8 @@ const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 const control = vi.hoisted(() => ({ clearTenantEmailStyleSuggestion: vi.fn(async (_id: string, _suggestedAt: string) => true) }));
 vi.mock("@/lib/tenant/control", () => control);
+const record = vi.hoisted(() => ({ closeStyle: vi.fn(async () => true), memberOf: (ctx: { userId?: string }) => ({ type: "member", id: ctx.userId ?? null }) }));
+vi.mock("@/lib/agentRecord/record", () => record);
 
 const { DELETE } = await import("./route");
 
@@ -54,6 +56,8 @@ describe("DELETE /api/admin/brand-kit/email-style/suggestion", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, cleared: true });
     expect(control.clearTenantEmailStyleSuggestion).toHaveBeenCalledWith("ten_A", SUGGESTED_AT);
+    // Dismissed by this admin, in the agent record.
+    expect(record.closeStyle).toHaveBeenCalledWith(admin, "email_style.suggest", SUGGESTED_AT, { to: "declined", reason: "dismissed", by: { type: "member", id: "usr_admin" } });
   });
 
   it("says so when a newer suggestion had replaced it", async () => {

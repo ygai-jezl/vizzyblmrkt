@@ -8,6 +8,9 @@ import { setTenantNotesRest } from "@/lib/tenant/control";
 import { BRAND_NOTE_LIMITS, BrandNoteInputSchema, BrandNotePatchSchema, NotesRestInputSchema } from "@/lib/types/brandNote";
 import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "./flags";
 import { answerQuestion, createNote, listNotes, removeNote, summariseNotes, updateNote, type NotesDeps, type NotesResult } from "./store";
+import { closeDraft, memberOf } from "@/lib/agentRecord/record";
+import { notePrint } from "@/lib/agentRecord/fingerprints";
+import { forgetReviewCount } from "@/lib/review/summary";
 
 /**
  * The APIs behind Brand › What we've seen: origin, flag, sign-in and (to change anything)
@@ -57,11 +60,20 @@ export async function createFromRequest(ctx: TenantContext, body: unknown, deps:
 export async function updateFromRequest(ctx: TenantContext, id: string, body: unknown, deps: NotesDeps = {}): Promise<Response> {
   const parsed = BrandNotePatchSchema.safeParse(body);
   if (!parsed.success) return invalid(parsed.error.issues);
-  return respond(await updateNote(ctx, id, parsed.data, deps), (note) => ({ note }));
+  const r = await updateNote(ctx, id, parsed.data, deps);
+  // Keep on a note Vizzy suggested: kept by this admin, edited if its text changed (agent record).
+  if (r.ok && parsed.data.status === "kept" && r.value.status === "kept") {
+    const closed = await closeDraft(ctx, { kind: "brand_note", ref: id }, { to: "acted", by: memberOf(ctx), fingerprint: notePrint(r.value) }, { db: deps.db });
+    if (closed) forgetReviewCount(ctx.tenantId);
+  }
+  return respond(r, (note) => ({ note }));
 }
 
 export async function removeFromRequest(ctx: TenantContext, id: string, deps: NotesDeps = {}): Promise<Response> {
-  return respond(await removeNote(ctx, id, deps), () => ({ ok: true }));
+  const r = await removeNote(ctx, id, deps);
+  // Remove on a note Vizzy suggested and nobody kept: dismissed by this admin (agent record).
+  if (r.ok && (await closeDraft(ctx, { kind: "brand_note", ref: id }, { to: "declined", reason: "dismissed", by: memberOf(ctx) }, { db: deps.db }))) forgetReviewCount(ctx.tenantId);
+  return respond(r, () => ({ ok: true }));
 }
 
 const AnswerBody = z.object({ text: z.string().max(BRAND_NOTE_LIMITS.MAX_TEXT), done: z.boolean().default(false) });

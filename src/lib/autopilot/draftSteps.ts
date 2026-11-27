@@ -22,6 +22,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import type { Workspace } from "@/lib/types/workspace";
 import type { AdvanceDeps, StepFn } from "./advance";
 import { draftsThisMonth, heldQuestionIds, notePlan, type StepPatch } from "./runs";
+import { recordPlanDraft } from "@/lib/agentRecord/drafts";
 
 /**
  * The run's own steps, past find and sort: picking the question (a scheduled run), then in Draft
@@ -276,6 +277,8 @@ export const nodesStep: StepFn = async (ctx, run, opts, deps) => {
   const fresh = await getContentPlan(ctx, g.workspace.id, g.plan.id, deps.db);
   if (fresh?.autopilot?.runId === run.id) {
     await updateContentPlan(ctx, g.workspace.id, g.plan.id, { autopilot: { runId: run.id, state: "done", at: new Date().toISOString() } }, deps.db);
+    // The agent record: the autopilot's draft, as it finished it (soft, never fails the step).
+    await recordPlanDraft(ctx, g.workspace.id, fresh, "autopilot", { db: deps.db });
   }
   return { step: "done", nodesLeft: [] };
 };

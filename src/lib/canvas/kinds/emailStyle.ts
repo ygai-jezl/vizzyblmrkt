@@ -33,6 +33,8 @@ import {
   themeForForm,
   themeLabel,
 } from "@/components/admin/brand-kit/emailStyleForm";
+import { recordDraft, styleKeyPart } from "@/lib/agentRecord/record";
+import { emailStylePrint } from "@/lib/agentRecord/fingerprints";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -390,8 +392,22 @@ export async function authorEmailStyleSuggestion(
   // Named in the answer: the theme, or Classic when this takes one away or was asked for.
   const shown: EmailTheme | null = checked.data.theme ?? (themeAsked || base.theme ? { preset: "classic" } : null);
   // Only the suggestion: `emailStyle` (what sends use) is never touched here.
+  const stored = await setTenantEmailStyleSuggestion(ctx.tenantId, checked.data, deps.db);
+  // The agent record: the brand's style is one draft, so a newer suggestion supersedes the last;
+  // its key is its suggestedAt, so Save and Dismiss find it (soft, never fails the save).
+  await recordDraft(
+    ctx,
+    {
+      action: "email_style.suggest",
+      draft: { kind: "email_style", ref: ctx.tenantId },
+      keyPart: styleKeyPart(stored.suggestedAt),
+      href: BRAND_KIT_EMAIL_STYLE_ROUTE,
+      fingerprint: emailStylePrint(stored),
+    },
+    { db: deps.db },
+  );
   return outcome(
-    await setTenantEmailStyleSuggestion(ctx.tenantId, checked.data, deps.db),
+    stored,
     images,
     shown ? { shown, webFonts: isEmailWebFontsEnabled() } : null,
   );

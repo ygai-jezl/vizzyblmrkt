@@ -32,6 +32,8 @@ const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands:
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
 const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
 vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
+const agentRecord = vi.hoisted(() => ({ runAgentRecordCatchUp: vi.fn(async () => ({ brands: 1, read: 4, closed: 2 })) }));
+vi.mock("@/lib/agentRecord/catchUp", () => (loaded.add("agent-record"), agentRecord));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
 const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
@@ -296,6 +298,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
     ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
+    ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
   ];
 
   /**
@@ -350,6 +353,17 @@ describe("each job's code loads only when its switch is on", () => {
     expect([...loaded]).toContain("field-erase");
     const [{ deadlineMs }] = fieldErase.runFieldErase.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 1000);
+  });
+
+  it("loads only the agent record's catch-up with only AGENT_RECORD_ENABLED on, within its own budget", async () => {
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", agentRecord: { brands: 1, read: 4, closed: 2 } });
+    expect([...loaded]).toEqual(["agent-record"]);
+    const [{ deadlineMs }] = agentRecord.runAgentRecordCatchUp.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {

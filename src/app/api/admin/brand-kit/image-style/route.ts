@@ -4,6 +4,9 @@ import { clearTenantImageStyle, setTenantImageStyle } from "@/lib/tenant/control
 import { getTenantById } from "@/lib/tenant";
 import { ImageStyleInputSchema } from "@/lib/types/imageStyle";
 import { imageStyleAdmin, imageStyleMember } from "@/lib/content/imageStyle/admin";
+import { closeStyle, memberOf } from "@/lib/agentRecord/record";
+import { imageStylePrint } from "@/lib/agentRecord/fingerprints";
+import { forgetReviewCount } from "@/lib/review/summary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +48,11 @@ export async function PUT(req: Request) {
     updatedBy: g.ctx.userId,
     ...(fromSuggestion ? { clearSuggestionAt: fromSuggestion } : {}),
   });
+  // Saved from Vizzy's suggestion: applied by this admin, edited if it changed first (agent record).
+  if (fromSuggestion) {
+    await closeStyle(g.ctx, "image_style.suggest", fromSuggestion, { to: "acted", by: memberOf(g.ctx), fingerprint: imageStylePrint(imageStyle) });
+    forgetReviewCount(g.ctx.tenantId);
+  }
   return NextResponse.json({ imageStyle });
 }
 

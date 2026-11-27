@@ -1322,3 +1322,22 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     }
   });
 });
+
+describe("Drafts from Vizzy and the agent record (AGENT_RECORD_ENABLED)", () => {
+  const review = (agentRecord: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ agentRecord }), "https://app.example.com");
+
+  it("says which rows the record adds to Drafts from Vizzy, and what Vizzy answers from it, only while it is on", () => {
+    const on = review(true);
+    expect(on).toContain("Admins also see an email or image style Vizzy suggested, which opens Brand › Email style or Brand › Image style");
+    expect(on).toContain("one row for the notes Vizzy suggested in your chats, which opens What we've seen");
+    expect(on).toContain("what happened to the drafts you made this month?");
+    expect(on).toContain("older drafts aren't in it");
+    const off = review(false);
+    expect(off).not.toContain("email or image style Vizzy suggested");
+    expect(off).not.toContain("what happened to the drafts");
+    for (const line of on.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+});

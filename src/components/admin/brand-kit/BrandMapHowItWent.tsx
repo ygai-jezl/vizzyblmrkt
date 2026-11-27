@@ -168,6 +168,7 @@ export function BrandMapHowItWent() {
           {month.partway && month.strategyAt ? <p className="text-[11px] text-neutral-500">{W.partway(dayWords(month.strategyAt))}</p> : null}
           <MonthTable month={month} before={before} />
           <div className="space-y-0.5 text-xs text-neutral-600 dark:text-neutral-300">
+            {month.resultsFor ? <p className="text-[11px] text-neutral-500">{W.resultsFor(dayWords(month.resultsFor.from), dayWords(month.resultsFor.to))}</p> : null}
             {site ? <p>{W.site(site.visits, site.connector)}</p> : null}
             {month.roadmap && month.roadmap.due ? <p>{W.roadmap(month.roadmap.done, month.roadmap.due)}</p> : null}
             <p>{W.did(month.did)}</p>

@@ -117,7 +117,8 @@ export async function monthInput(ctx: TenantContext, tenant: Tenant | null, doc:
   }
   const pages = [...byKey.values()].map((v) => ({ key: v.article.key, url: v.url }));
   const outcomes = await (deps.outcomes ?? readOutcomes)(ctx, pages, { ...deps.outcomeDeps, db: deps.db, now });
-  const plan = planDoc?.approved ?? null;
+  // A plan approved after the month ended had nothing due in it.
+  const plan = planDoc?.approved && planDoc.approved.at < monthBounds(month).endIso ? planDoc.approved : null;
   return {
     month,
     nowIso: now.toISOString(),

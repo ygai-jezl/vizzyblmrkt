@@ -97,7 +97,14 @@ export interface MonthInput {
   /** The brand's decided buying situations, with their questions and how many a live article answers. */
   situations: ReadonlyArray<{ id: string; text: string; questions: number; answered: number }>;
   articles: readonly MonthArticle[];
-  outcomes: { coverage: readonly KindCoverage[]; byPage: Readonly<Record<string, Partial<Record<MeaningKey, number>>>>; site: Partial<Record<MeaningKey, number>>; more: readonly OutcomeKind[] };
+  outcomes: {
+    coverage: readonly KindCoverage[];
+    byPage: Readonly<Record<string, Partial<Record<MeaningKey, number>>>>;
+    site: Partial<Record<MeaningKey, number>>;
+    more: readonly OutcomeKind[];
+    /** The days each measured kind's numbers cover. */
+    periods?: Partial<Record<OutcomeKind, { from: string; to: string }>>;
+  };
   /** Their articles (watched competitors, read), or null when the brand doesn't read them. */
   theirs: ReadonlyArray<{ publishedAt: string | null; situationIds: readonly string[] }> | null;
   roadmap: { due: number; done: number } | null;
@@ -194,7 +201,15 @@ export function monthLook(input: MonthInput): StrategyMonth {
     sources,
     missing: input.outcomes.coverage.flatMap((c) => (c.state === "measured" ? [] : [{ kind: c.kind, why: c.state }])),
     more: input.outcomes.more.filter((k) => sources[k] !== undefined),
+    resultsFor: resultsFor(input.outcomes.periods ?? {}, sources),
   });
+}
+
+/** The days the measured kinds cover together: the earliest first day and the latest last. */
+function resultsFor(periods: Partial<Record<OutcomeKind, { from: string; to: string }>>, sources: Partial<Record<OutcomeKind, MonthSource>>): { from: string; to: string } | null {
+  const days = (Object.keys(sources) as OutcomeKind[]).flatMap((k) => (periods[k] ? [periods[k]!] : [])).filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.from) && /^\d{4}-\d{2}-\d{2}$/.test(p.to));
+  if (!days.length) return null;
+  return { from: days.map((p) => p.from).sort()[0]!, to: days.map((p) => p.to).sort().at(-1)! };
 }
 
 const sizeOf = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;

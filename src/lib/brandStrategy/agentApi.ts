@@ -84,7 +84,7 @@ export function againstCompetitors(check: StrategyCheck | null, nowIso: string, 
 export const HOW_IT_WENT_NOTE =
   "Plain counts, added up by code once a month for the month before: each focus situation of the approved strategy beside the rest of the map. " +
   "Each kind of result comes from one connection, named in `sources`, so nothing is counted twice. A kind in `notMeasured` wasn't measured that month: never guess it. " +
-  "`siteVisits` is the whole site, never a situation's. Say what the numbers show; a person decides what to change.";
+  "`siteVisits` is the whole site, never a situation's. Connected results cover the days in `resultsFor`, not the calendar month. Say what the numbers show; a person decides what to change.";
 
 export const MEASURING_NOTE =
   "What each kind of result can be measured from now. For a kind with `measuredBy: null`, `whatToSay` is the line to give and `link` where a person connects or shares it.";
@@ -115,6 +115,7 @@ export function howItWent(v: StrategyMonthsView) {
     month: m.month,
     addedUpAt: m.at,
     approvedPartway: m.partway,
+    resultsFor: m.resultsFor,
     rows: m.rows.map((r) => ({
       situation: r.text,
       focus: r.id !== "rest",

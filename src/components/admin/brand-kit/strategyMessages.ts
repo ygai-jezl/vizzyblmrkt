@@ -104,6 +104,7 @@ export const HOW_IT_WENT_WORDS = {
   noQuestions: "no questions yet",
   answered: (answered: number, questions: number) => `${answered} of ${questions}`,
   roadmap: (done: number, due: number) => `Roadmap: ${done} of ${due} due went live.`,
+  resultsFor: (from: string, to: string) => `Results from your connected tools are for the 28 days ${from} to ${to}.`,
   site: (visits: number, connector: string) => `Visits to your whole site: ${visits.toLocaleString("en-GB")} (${connector}). It counts the whole site, so it can't say which situations bring them.`,
   more: (labels: string[]) => `${labels.join(" and ")} counted only the top pages the tool lists, so ${labels.length === 1 ? "it" : "they"} may be a little low.`,
   did(d: { starsKept: number; starsRemoved: number; claimsEdited: number; picksSkipped: number; checksActed: number; checksDismissed: number; capped: boolean }): string {

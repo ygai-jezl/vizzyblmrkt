@@ -493,6 +493,15 @@ export const StrategyMonthSchema = z.object({
   missing: tolerantArray(z.object({ kind: OutcomeKindSchema, why: z.enum(["not_shared", "failed", "not_connected"]) }), OUTCOME_KINDS.length),
   /** Kinds whose read had more rows than were read, so their numbers may be low. */
   more: z.array(OutcomeKindSchema).max(OUTCOME_KINDS.length).catch([]).default([]),
+  /**
+   * The days the connected results cover (YYYY-MM-DD, the tools' own zones): the 28 days to the
+   * day the month was added up, not the calendar month. Null when nothing was measured.
+   */
+  resultsFor: z
+    .object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
+    .nullable()
+    .catch(null)
+    .default(null),
 });
 export type StrategyMonth = z.infer<typeof StrategyMonthSchema>;
 

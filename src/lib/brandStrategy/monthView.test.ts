@@ -6,6 +6,7 @@ import { situationKey } from "@/lib/brandMap/keys";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { brandStrategyDocId } from "@/lib/types/brandStrategy";
+import { forTenant } from "@/lib/tenant";
 import { HOW_IT_WENT_WORDS } from "@/components/admin/brand-kit/strategyMessages";
 import { GONE_TEXT, REST_TEXT, runMonthFromRequest, strategyMonthsView } from "./monthView";
 
@@ -47,6 +48,19 @@ describe("How it went as the tab reads it", () => {
     expect(none).toMatchObject({ approvedAt: null, tooEarly: true, months: [] });
   });
 
+  it("counts too early from the first approval, so approving a change later never hides the months, and says when the next look is", async () => {
+    const db = new FakeFirestore();
+    await seed(db, A, "2026-12-10T09:00:00.000Z", [month("2026-11", [{ id: "rest" }])]);
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ history: [{ focusSituationIds: ["sit_aaaaaa01"], at: "2026-10-20T09:00:00.000Z" }] }));
+    const v = await strategyMonthsView(A, { db, now: () => NOW, catalog: allConnectors });
+    expect(v).toMatchObject({ approvedAt: "2026-12-10T09:00:00.000Z", tooEarly: false });
+    expect(v.months).toHaveLength(1);
+    // On the 2nd, with last month not added up yet, the look is today.
+    const db2 = new FakeFirestore();
+    await seed(db2, A, "2026-10-20T09:00:00.000Z");
+    expect((await strategyMonthsView(A, { db: db2, now: () => new Date("2026-12-02T08:00:00.000Z"), catalog: allConnectors })).nextLookOn).toBe("2026-12-02");
+  });
+
   it("by hand, says there's no month to add up without a strategy approved before this month", async () => {
     const db = new FakeFirestore();
     await seed(db, A, "2026-12-01T09:00:00.000Z");
@@ -64,6 +78,7 @@ describe("How it went as the tab reads it", () => {
       HOW_IT_WENT_WORDS.noMonthYet("2 Dec"),
       HOW_IT_WENT_WORDS.partway("14 Nov"),
       HOW_IT_WENT_WORDS.roadmap(6, 8),
+      HOW_IT_WENT_WORDS.resultsFor("4 Nov", "1 Dec"),
       HOW_IT_WENT_WORDS.site(900, "Cloudflare"),
       HOW_IT_WENT_WORDS.more(["Found in search"]),
       HOW_IT_WENT_WORDS.did(d),

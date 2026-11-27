@@ -8,7 +8,7 @@ import type { BrandMapSituation } from "@/lib/types/brandMapRecords";
 import { MONTH_REST_ID, type MonthRow, type StrategyMonth } from "@/lib/types/brandStrategy";
 import type { Tenant } from "@/lib/types/tenant";
 import { lookAtMonth, type MonthDeps } from "./month";
-import { GONE_TEXT, REST_TEXT, monthBounds, previousMonth, tooEarly } from "./monthRules";
+import { GONE_TEXT, REST_TEXT, monthBounds, monthDue, previousMonth, tooEarly } from "./monthRules";
 import { readBrandStrategyDoc } from "./store";
 
 /**
@@ -46,9 +46,10 @@ export function shownMonths(months: readonly StrategyMonth[], situations: Readon
   return months.map((m) => ({ ...m, rows: m.rows.map((r) => ({ ...r, text: r.id === MONTH_REST_ID ? REST_TEXT : (words.get(r.id) ?? GONE_TEXT) })) }));
 }
 
-/** The 2nd of the month after the one a moment is in. */
-const nextLookOn = (nowMs: number) => {
+/** When the next month is added up: today when one is due now, else the 2nd of the next month (or of this one, on the 1st). */
+const nextLookOn = (doc: Parameters<typeof monthDue>[0] | null, nowMs: number) => {
   const d = new Date(nowMs);
+  if (doc && monthDue(doc, nowMs)) return d.toISOString().slice(0, 10);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + (d.getUTCDate() < 2 ? 0 : 1), 2)).toISOString().slice(0, 10);
 };
 
@@ -60,7 +61,9 @@ export async function strategyMonthsView(ctx: TenantContext, deps: MonthViewDeps
     liveCoverage(ctx, { db: deps.db, catalog: deps.catalog }),
   ]);
   const approvedAt = doc?.approved?.at ?? null;
-  return { approvedAt, tooEarly: tooEarly(approvedAt, now), nextLookOn: nextLookOn(now), months: shownMonths(doc?.months ?? [], situations), measuring };
+  // Too early counts from the first approval kept, so approving a change later never hides the months.
+  const firstAt = approvedAt ? [approvedAt, ...(doc?.history ?? []).map((h) => h.at)].filter(Boolean).sort()[0]! : null;
+  return { approvedAt, tooEarly: tooEarly(firstAt, now), nextLookOn: nextLookOn(doc, now), months: shownMonths(doc?.months ?? [], situations), measuring };
 }
 
 /** GET map/strategy/month: any member reads it. */

@@ -99,6 +99,10 @@ describe("the month's look", () => {
     ]);
     // Only a kind it measured can have been capped.
     expect(m.more).toEqual(["search"]);
+    // The days the connected results cover: the 28 days to the look, not the calendar month.
+    const days = monthLook(input({ outcomes: { ...input().outcomes, periods: { search: { from: "2026-11-01", to: "2026-11-28" }, visits: { from: "2026-11-04", to: "2026-12-01" }, ai_answers: { from: "2026-10-01", to: "2026-12-01" } } } }));
+    expect(days.resultsFor).toEqual({ from: "2026-11-01", to: "2026-12-01" });
+    expect(m.resultsFor).toBeNull();
   });
 
   it("with no connectors, keeps the built in rows and no numbers", () => {
@@ -180,7 +184,8 @@ describe("keeping months", () => {
     expect(stored[0]!.month).toBe("2026-12");
     // A brand like the clinic above, with two focus situations and two kinds measured, keeps all 12.
     let typical: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < 12; i += 1) typical = withMonth(typical.map((x) => StrategyMonthSchema.parse(x)), month(`2026-${String(i + 1).padStart(2, "0")}`));
+    const withDays = (m: string) => ({ ...month(m), resultsFor: { from: `${m}-03`, to: `${m}-28` } });
+    for (let i = 0; i < 12; i += 1) typical = withMonth(typical.map((x) => StrategyMonthSchema.parse(x)), withDays(`2026-${String(i + 1).padStart(2, "0")}`));
     expect(typical).toHaveLength(12);
     expect(new TextEncoder().encode(JSON.stringify(typical)).length).toBeLessThanOrEqual(STRATEGY_MONTH_LIMITS.bytes);
   });

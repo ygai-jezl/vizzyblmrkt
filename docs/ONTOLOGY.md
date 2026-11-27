@@ -2133,11 +2133,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-103 kinds: 0 learn, 0 fleet only, 26 own, 35 gap and 42 none.
+104 kinds: 0 learn, 0 fleet only, 26 own, 35 gap and 43 none.
 
-124 call sites: 0 learn, 0 fleet only, 36 own, 41 gap and 47 none.
+125 call sites: 0 learn, 0 fleet only, 36 own, 41 gap and 48 none.
 
-Not learning: 88 of 124 call sites, under gap and none lines.
+Not learning: 89 of 125 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 

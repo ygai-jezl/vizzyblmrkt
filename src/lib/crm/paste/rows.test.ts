@@ -3,7 +3,7 @@ import { newPersonKey } from "@/lib/audience/addPerson";
 import type { RecordField } from "@/lib/types/recordField";
 import { mapColumns } from "./columns";
 import { parseSheet } from "./parse";
-import { firmDomain, isProfileSite, readRows, type RowsRead } from "./rows";
+import { firmDomain, isProfileSite, isSharedHost, readRows, type RowsRead } from "./rows";
 import { DONE_WHEN_TSV, KIT_HEADER, KIT_TSV } from "./testing/samples";
 import { ROW_REASONS, rowReasonLine } from "./words";
 
@@ -29,6 +29,12 @@ describe("readRows", () => {
     expect(r.rows).toEqual([{ row: 2, kind: "person", email: "jo@example.com", phone: null, firstName: "Jo", lastName: "Example", key: "jo@example.com", values: {} }]);
     expect(r.rows[0]!.kind === "person" && r.rows[0]!.key).toBe(newPersonKey({ email: " Jo@Example.com ", phone: null }));
     expect(r.left).toEqual([]);
+  });
+
+  it("keeps a stockist's name from a Business Name column on a firm row", () => {
+    const r = read("Business Name\tWebsite\tOwner\nGreenleaf Garden Centre\tgreenleaf-garden.test\tJo Example");
+    expect(r.rows).toEqual([{ row: 2, kind: "company", domain: "greenleaf-garden.test", name: "Greenleaf Garden Centre", values: {} }]);
+    expect(JSON.stringify(r)).not.toContain("Jo Example");
   });
 
   it("makes a person of a row with only a phone, keyed by the trimmed phone", () => {
@@ -85,6 +91,30 @@ describe("readRows", () => {
     expect(isProfileSite("www.x.com")).toBe(true);
     expect(isProfileSite("nfx.com")).toBe(false);
     expect(firmDomain("https://www.Northfield-Ventures.test:443/team")).toBe("northfield-ventures.test");
+  });
+
+  it("leaves out a firm whose web address is on a host many firms share, so they never become one company", () => {
+    const shared = [
+      "https://sites.google.com/view/northfield-ventures",
+      "docs.google.com/document/d/abc",
+      "https://bit.ly/3abcde",
+      "northfield.wixsite.com/home",
+      "https://harbour-lane.webflow.io",
+      "quayside.substack.com",
+      "https://fernhill-plants.github.io/",
+      "oak-lane.carrd.co",
+      "https://calendly.com/jo-example",
+    ];
+    const r = read(["Company,Website", ...shared.map((w, i) => `Firm ${i},${w}`)].join("\n"));
+    expect(r.rows).toEqual([]);
+    expect(r.left.map((l) => l.reason)).toEqual(Array(shared.length).fill("not_a_firm_site"));
+    for (const w of shared) expect(firmDomain(w), w).toBeNull();
+    expect(isSharedHost("northfield.wixsite.com")).toBe(true);
+    expect(isSharedHost("www.northfield-ventures.test")).toBe(false);
+    expect(isSharedHost("fernhill-plants.co.uk")).toBe(false);
+    expect(firmDomain("https://www.fernhill-plants.co.uk/lenders")).toBe("fernhill-plants.co.uk");
+    // Only a firm's web address: a link field may still hold a document (convertValue's badLink is isProfileSite).
+    expect(isProfileSite("docs.google.com")).toBe(false);
   });
 
   it("makes one company of two partners at one firm, and leaves out the same email twice", () => {

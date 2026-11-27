@@ -103,6 +103,26 @@ describe("mapColumns", () => {
     expect(map.columns.slice(1)).toEqual([{ kind: "field", person: null, company: STAGE }, { kind: "left" }]);
   });
 
+  it("reads a shop's or a lender's own words for the firm's name", () => {
+    const map = mapColumns(["Business Name", "Shop Name", "Store Name", "Organisation Name", "Organization Name", "Business", "Shop", "Store"], { person: [], company: [] });
+    expect(map.columns.every((c) => c.kind === "standard" && c.column === "company_name")).toBe(true);
+  });
+
+  it("reads Business, Shop or Store as the brand's own field of that name when it has one", () => {
+    const store = field("fld_00000000stor", "Store", "text", "person");
+    const map = mapColumns(["Email", "Store", "Business Name"], { person: [store], company: [] });
+    expect(map.columns).toEqual([
+      { kind: "standard", column: "email" },
+      { kind: "field", person: store, company: null },
+      { kind: "standard", column: "company_name" },
+    ]);
+    expect(map.read).toEqual([
+      { header: "Email", as: "Email" },
+      { header: "Store", as: "Store" },
+      { header: "Business Name", as: "Company name" },
+    ]);
+  });
+
   it("says the first row isn't a header when it holds values or names nothing it knows", () => {
     expect(mapColumns(["Jo", "jo@example.com"], { person: [], company: [] }).isHeader).toBe(false);
     expect(mapColumns(["Meadow Seed Fund", "https://meadow-seed.test"], { person: [], company: [] }).isHeader).toBe(false);

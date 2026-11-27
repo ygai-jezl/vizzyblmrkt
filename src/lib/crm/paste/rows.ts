@@ -1,4 +1,5 @@
 import { canonicalDomain } from "@/lib/crm/identifiers";
+import { getDomain } from "tldts";
 import { isPublicEmailProvider, normalizeHost, registrableDomain } from "@/lib/domains/registrableDomain";
 import { NAME_MAX, parseNewPerson } from "@/lib/audience/newPerson";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
@@ -15,7 +16,8 @@ import type { PasteNote, RowReason } from "./words";
  * 2. An email or a phone: a person, checked by New person's own rules (parseNewPerson). Names
  *    over 100 characters are left out of the row.
  * 3. Otherwise a web address: a company, by its registrable domain. A public email provider, a
- *    profile page or a directory is left out (`not_a_firm_site`).
+ *    profile page, a directory or a host many firms share (a shortener, a site builder, a
+ *    document) is left out (`not_a_firm_site`).
  * 4. Otherwise the row is left out (`no_contact`).
  * 5. The same person or the same firm again is left out (`repeated`): several partners at one
  *    firm make one company.
@@ -50,8 +52,48 @@ export const NOT_A_FIRM_SITE = [
 /** Directories on a host of a domain that is otherwise a firm's. */
 export const NOT_A_FIRM_HOST = ["signal.nfx.com", "connect.visible.vc"] as const;
 
+/**
+ * Hosts many firms share, by registrable domain: link shorteners, site builders, blogs, forms and
+ * documents. A firm's page on one is never its own domain, so keying a company on it would make
+ * every firm there one company. Refused only as a firm's web address: a link field may still hold
+ * one (a deck on a document host). Site builders on the public suffix list's private part
+ * (x.wixsite.com, x.webflow.io, x.github.io and the like) are refused by that list too.
+ */
+export const SHARED_HOST = [
+  "google.com",
+  "bit.ly",
+  "tinyurl.com",
+  "lnkd.in",
+  "t.co",
+  "about.me",
+  "calendly.com",
+  "airtable.com",
+  "typeform.com",
+  "wixsite.com",
+  "wix.com",
+  "squarespace.com",
+  "webflow.io",
+  "substack.com",
+  "wordpress.com",
+  "carrd.co",
+  "weebly.com",
+  "godaddysites.com",
+  "business.site",
+  "dropbox.com",
+  "canva.com",
+] as const;
+
 const NOT_A_FIRM = new Set<string>(NOT_A_FIRM_SITE);
 const NOT_A_FIRM_HOSTS = new Set<string>(NOT_A_FIRM_HOST);
+const SHARED = new Set<string>(SHARED_HOST);
+
+/** Whether a host is on a host many firms share (SHARED_HOST, or a private public suffix such as wixsite.com). */
+export function isSharedHost(host: string): boolean {
+  const h = normalizeHost(host);
+  const reg = registrableDomain(h);
+  if (reg === null) return false;
+  return SHARED.has(reg) || getDomain(h, { allowPrivateDomains: true }) !== reg;
+}
 
 /** Whether a host is a profile page or a directory, never a firm's own site. */
 export function isProfileSite(host: string): boolean {
@@ -73,7 +115,7 @@ export function firmDomain(raw: string): string | null {
   }
   // An address or a login in it ("mailto:jo@…", "user@host") is never a firm's own site.
   if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return null;
-  if (isProfileSite(url.hostname)) return null;
+  if (isProfileSite(url.hostname) || isSharedHost(url.hostname)) return null;
   const domain = canonicalDomain(url.hostname);
   if (!domain || isPublicEmailProvider(domain)) return null;
   return domain;

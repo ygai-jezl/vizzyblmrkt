@@ -18,7 +18,8 @@ import { PASTE_LIMITS } from "./parse";
  *   trailing s dropped ("E-mail" is "email", "Stages" is "stage").
  * - The standard columns (email, phone, names, the firm's name and web address) are read by their
  *   usual headers. Any other header equal to a live field's label fills that field: a People field
- *   on person rows, a company field on firm rows.
+ *   on person rows, a company field on firm rows. Business, Shop and Store name the firm only when
+ *   the brand has no field of that name (FIELD_FIRST_HEADERS).
  * - Profile links (LinkedIn, X and the like) are never kept, on any row.
  * - Firm rows never fill a field from a column about a person (names, title, role, city, state,
  *   country, location, or any of those with "investor" before it), whatever the field list says,
@@ -48,9 +49,33 @@ export const STANDARD_HEADERS: Record<StandardColumn, readonly string[]> = {
   first_name: ["First Name", "First", "Given Name", "Forename"],
   last_name: ["Last Name", "Last", "Surname", "Family Name"],
   full_name: ["Name", "Full Name", "Contact Name", "Person Name"],
-  company_name: ["Company Name", "Company", "Firm", "Firm Name", "Fund", "Fund Name", "Organisation", "Organization"],
+  company_name: [
+    "Company Name",
+    "Company",
+    "Firm",
+    "Firm Name",
+    "Fund",
+    "Fund Name",
+    "Organisation",
+    "Organization",
+    "Organisation Name",
+    "Organization Name",
+    "Business",
+    "Business Name",
+    "Shop",
+    "Shop Name",
+    "Store",
+    "Store Name",
+  ],
   website: ["Website", "Website Url", "Web", "Web Address", "Url", "Site", "Homepage", "Domain", "Company Website", "Firm Website", "Fund Website"],
 };
+
+/**
+ * Firm name headers that a brand may also use for a field of its own (a plant shop's People field
+ * "Store", for the shop someone buys from): read as that field when the brand has one of that
+ * name, and as the firm's name otherwise.
+ */
+export const FIELD_FIRST_HEADERS = ["Business", "Shop", "Store"] as const;
 
 /** A header containing one of these holds profile links: never kept. */
 export const PROFILE_PARTS = ["linkedin", "twitter", "facebook", "instagram", "crunchbase", "angellist"] as const;
@@ -93,6 +118,7 @@ export function headerKey(header: string): string {
 const STANDARD_BY_KEY = new Map<string, StandardColumn>(STANDARD_COLUMNS.flatMap((c) => STANDARD_HEADERS[c].map((h) => [headerKey(h), c] as const)));
 const PROFILE_KEYS = new Set<string>(PROFILE_HEADERS.map(headerKey));
 const PERSON_ONLY_KEYS = new Set<string>(PERSON_ONLY_HEADERS.map(headerKey));
+const FIELD_FIRST_KEYS = new Set<string>(FIELD_FIRST_HEADERS.map(headerKey));
 
 /** Whether a column holds profile links, which are never kept. */
 export function isProfileHeader(header: string): boolean {
@@ -151,21 +177,23 @@ export function mapColumns(header: readonly string[], fields: { person: readonly
   for (const h of header) {
     const key = headerKey(h);
     let col: ColumnRead = { kind: "left" };
+    // The brand's fields of this header's name, not yet taken by an earlier column.
+    const fieldsNamed = () => {
+      const p = person.find((f) => !used.person.has(f.key) && headerKey(f.label) === key) ?? null;
+      const c = isPersonOnlyHeader(h) ? null : (company.find((f) => !used.company.has(f.key) && headerKey(f.label) === key) ?? null);
+      return p || c ? { p, c } : null;
+    };
+    const named = key && !isProfileHeader(h) && (!STANDARD_BY_KEY.has(key) || FIELD_FIRST_KEYS.has(key)) ? fieldsNamed() : null;
     if (!key) {
       // A header with no letters or digits names nothing.
     } else if (isProfileHeader(h)) {
       col = { kind: "profile" };
       profileLinks = true;
+    } else if (named) {
+      col = { kind: "field", person: named.p, company: named.c };
+      if (named.p) used.person.add(named.p.key);
+      if (named.c) used.company.add(named.c.key);
     } else if (STANDARD_BY_KEY.has(key)) col = { kind: "standard", column: STANDARD_BY_KEY.get(key)! };
-    else {
-      const p = person.find((f) => !used.person.has(f.key) && headerKey(f.label) === key) ?? null;
-      const c = isPersonOnlyHeader(h) ? null : (company.find((f) => !used.company.has(f.key) && headerKey(f.label) === key) ?? null);
-      if (p || c) {
-        col = { kind: "field", person: p, company: c };
-        if (p) used.person.add(p.key);
-        if (c) used.company.add(c.key);
-      }
-    }
     columns.push(col);
     if (col.kind !== "left") known = true;
     if (col.kind === "standard") read.push({ header: shown(h), as: STANDARD_WORDS[col.column] });

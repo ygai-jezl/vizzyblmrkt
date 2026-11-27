@@ -55,6 +55,7 @@ export const RULE_DECISIONS = {
   auto_plug: { label: "Auto plug comment", file: "src/lib/distribute/autoPlug.ts" },
   next_action_order: { label: "Your next action order", file: "src/lib/onboarding/homeOrder.ts" },
   sidebar_fit: { label: "Sidebar sections that wait", file: "src/lib/onboarding/sidebarFit.ts" },
+  investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
   deck_outline: { label: "Deck sections by kind and stage", file: "src/lib/raise/docs/outlines.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
@@ -278,6 +279,7 @@ export const LOOPS = {
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
   next_action_order: gap("When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.", "2027-02-26"),
   sidebar_fit: none("A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept."),
+  investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
   deck_outline: gap("Every new deck starts from YouGrow's shipped outline for its kind and stage, and which outlines led to meetings is not counted yet.", LATER),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----

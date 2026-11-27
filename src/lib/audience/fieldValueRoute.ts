@@ -5,10 +5,13 @@ import { setFieldValues } from "./fields";
 import { isPersonId } from "./paths";
 import { FIELD_LIMITS, type RecordFieldObject } from "@/lib/types/recordField";
 import type { SetFieldValuesError } from "@/lib/tenant";
+import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 
 /**
  * The value routes for a person and a company (AUDIENCE_FIELDS_ENABLED): PATCH `{ changes:
- * { <fieldId>: value | null } }`, admins only. Every change goes through the one writer.
+ * { <fieldId>: value | null } }`, admins only. Every change goes through the one writer. A change to
+ * a person's Stage, Last touch or Next step date clears their open follow-ups from the investor and
+ * funding board at once (RAISE_FOLLOWUPS_ENABLED; off, nothing more is read).
  */
 
 const noStore = { "cache-control": "no-store" };
@@ -34,11 +37,12 @@ export async function patchFieldValues(req: Request, object: RecordFieldObject, 
   if (!parsed.success || Object.keys(parsed.data.changes).length > FIELD_LIMITS.liveFields) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400, headers: noStore });
   }
+  const by = { type: "member" as const, id: gate.ctx.userId ?? null };
   const r = await setFieldValues(gate.ctx, {
     object,
     recordId,
     changes: parsed.data.changes,
-    by: { type: "member", id: gate.ctx.userId ?? null },
+    by,
     source: "editor",
   });
   if (!r.ok) {
@@ -46,6 +50,12 @@ export async function patchFieldValues(req: Request, object: RecordFieldObject, 
       { error: r.error, ...(r.fieldId ? { fieldId: r.fieldId } : {}), ...(r.reason ? { reason: r.reason } : {}) },
       { status: STATUS[r.error], headers: noStore },
     );
+  }
+  if (object === "person" && r.changed.length && isRaiseFollowupsEnabled()) {
+    // Never throws: the value is saved whatever happens to the follow-ups, and the tick catches up.
+    await import("@/lib/raise/pipeline/followups")
+      .then((m) => m.clearFollowUpsAfterWrite(gate.ctx, recordId, r.changed, by))
+      .catch(() => null);
   }
   return NextResponse.json({ values: r.values, changed: r.changed }, { headers: noStore });
 }

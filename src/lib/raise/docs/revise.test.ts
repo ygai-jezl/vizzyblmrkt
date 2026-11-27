@@ -307,6 +307,29 @@ describe("helpers", () => {
     expect(quoteHas(1234.5, "CHF 1\u2019234.50", "de-CH")).toBe(true);
     // An unknown language reads the English way.
     expect(quoteHas(6200, "$6,200", "xx-nope")).toBe(true);
+    expect(quoteHas(6200, "$6,200", "not a tag!")).toBe(true);
+  });
+
+  it("never takes the whole part of a decimal, or a dot before fewer than three digits as thousands", () => {
+    expect(quoteHas(12, "notre croissance est de 12,5 %", "fr")).toBe(false);
+    expect(quoteHas(1234, "1.234,5 €", "de")).toBe(false);
+    expect(quoteHas(0, "churn is 0.9% a month")).toBe(false);
+    expect(quoteHas(12, "churn is 12.5% a month")).toBe(false);
+    expect(quoteHas(12, "12.000 shops", "de")).toBe(false);
+    expect(quoteHas(12000, "12.000 shops", "de")).toBe(true);
+    expect(quoteHas(12, "we have 12. Then more.")).toBe(true);
+    expect(quoteHas(125, "12.5% im Monat", "de")).toBe(false);
+    expect(quoteHas(12.5, "12.5% im Monat", "de")).toBe(true);
+    expect(quoteHas(1250, "12.50 €", "de")).toBe(false);
+    // Lakh grouping, and a comma that isn't a thousands mark in English.
+    expect(quoteHas(100000, "\u20b91,00,000")).toBe(true);
+    expect(quoteHas(15, "1,5 kg")).toBe(false);
+    expect(quoteHas(550, "5\u20ac50")).toBe(false);
+  });
+
+  it("reads a language's own digits", () => {
+    expect(quoteHas(12.5, "\u09e7\u09e8.\u09eb%", "bn")).toBe(true);
+    expect(quoteHas(125, "\u09e7\u09e8.\u09eb%", "bn")).toBe(false);
   });
 
   it("reads a typed number in the brand's own language", async () => {
@@ -316,6 +339,12 @@ describe("helpers", () => {
     expect((await revise(doc, [typed], {}, brand("de"))).ok).toBe(true);
     // Read the English way, those words hold 6.2, not 6200.
     expect(await revise(doc, [typed], {}, brand("en"))).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
+    // A brand that can't be read: only a number held whichever way its marks are read.
+    const unread = deps({ loadTenant: async () => Promise.reject(new Error("down")) });
+    expect(await revise(doc, [typed], {}, unread)).toMatchObject({ ok: false, error: "quote_mismatch" });
+    // A fresh deck: the first call above saved a new version of this one.
+    const fresh = await deck();
+    expect(await revise(fresh, [{ ...typed, quote: "unser Umsatz liegt bei 6200 € im Monat" }], {}, unread)).toMatchObject({ ok: true });
   });
 
   it("keeps the deck's own ids for lines it holds and adds new ones after them", () => {

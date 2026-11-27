@@ -108,35 +108,49 @@ export function parseOps(raw: readonly unknown[]): { ok: true; ops: ReviseOp[] }
 export const onlyRefresh = (ops: readonly unknown[]) =>
   ops.length > 0 && ops.every((o) => typeof o === "object" && o !== null && (o as { change?: unknown }).change === "refresh_numbers");
 
+/** A language this runtime formats numbers for, else English: never the machine's own language. */
+function numberLocale(locale: string): string {
+  try {
+    return Intl.NumberFormat.supportedLocalesOf(locale).length ? locale : "en";
+  } catch {
+    return "en";
+  }
+}
+
 /** The decimal mark a locale writes: "." in English, "," in French or German. "." when unknown. */
 export function decimalMark(locale: string): "." | "," {
-  try {
-    return new Intl.NumberFormat(locale).formatToParts(1.5).find((p) => p.type === "decimal")?.value === "," ? "," : ".";
-  } catch {
-    return ".";
-  }
+  return new Intl.NumberFormat(numberLocale(locale)).formatToParts(1.5).find((p) => p.type === "decimal")?.value === "," ? "," : ".";
+}
+
+/** A quote with a language's own digits (Bengali, Marathi and the like) written as 0 to 9. */
+function asciiDigits(quote: string, locale: string): string {
+  const f = new Intl.NumberFormat(numberLocale(locale), { useGrouping: false });
+  const map = new Map<string, string>();
+  for (let d = 0; d <= 9; d++) map.set(f.format(d), String(d));
+  return quote.replace(/\p{Nd}/gu, (ch) => map.get(ch) ?? ch);
 }
 
 /**
  * Whether the person's own words hold this number, read with the decimal mark of the brand's
- * language (`locale`): the other of "." and ",", and a space or an apostrophe between groups of
- * three digits, are thousands marks, and it is never part of a longer number. In English "$6,200 a
- * month" holds 6200 and "0.125%" holds 0.125; in French or German "12,5 %" holds 12.5 and
- * "6.200 €" or "14 200 €" holds 6200. "about 6k" doesn't hold 6000, so Vizzy asks for the figure
- * rather than turning words into a number.
+ * language (`locale`), never as part of a longer number or as the whole part of a decimal. A
+ * thousands mark (the other of "." and ",", a space or an apostrophe) counts only before a group
+ * of three digits, or in lakh. In English "$6,200 a month" holds 6200 and "0.125%" holds 0.125;
+ * in French or German "12,5 %" holds 12.5 (never 12 or 125) and "6.200 €" holds 6200 (never
+ * 6.2). "about 6k" doesn't hold 6000, so Vizzy asks for the figure rather than turning words into
+ * a number.
  */
 export function quoteHas(value: number, quote: string, locale = "en"): boolean {
   const dec = decimalMark(locale);
-  const group = dec === "," ? "." : ",";
-  let said = quote
+  const group = dec === "," ? "\\." : ",";
+  let said = asciiDigits(quote, locale)
     .replace(/(\d)[\s\u00a0\u202f'\u2019](?=\d{3}(?!\d))/g, "$1")
-    .replace(new RegExp(`(\\d)\\${group}(?=\\d)`, "g"), "$1");
+    .replace(new RegExp(`(\\d)${group}(?=\\d{3}(?!\\d)|\\d{2}${group})`, "g"), "$1");
   if (dec === ",") said = said.replace(/(\d),(?=\d)/g, "$1.");
   const digits = String(Math.abs(value));
   if (!/^\d+(?:\.\d+)?$/.test(digits)) return false;
   const [whole, frac] = digits.split(".");
   const pattern = frac ? `${whole}\\.${frac}0*` : `${whole}(?:\\.0+)?`;
-  return new RegExp(`(?<![\\d.])${pattern}(?!\\d)`).test(said);
+  return new RegExp(`(?<![\\d.])${pattern}(?!\\.?\\d)`).test(said);
 }
 
 // ----- Helpers ---------------------------------------------------------------------------------
@@ -369,8 +383,9 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
   const removed = new Set<string>();
   let refresh = false;
   // The brand, read once: its language sets how a typed number is read, and the pack needs it.
-  let tenantRead: Promise<Tenant | null> | null = null;
-  const tenantOnce = () => (tenantRead ??= (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null));
+  // undefined when it couldn't be read, null when there is none.
+  let tenantRead: Promise<Tenant | null | undefined> | null = null;
+  const tenantOnce = () => (tenantRead ??= (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => undefined));
 
   const idAt = (pos: number, i: number): string | null => {
     const s = read[pos - 1];
@@ -447,7 +462,10 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
           break;
         }
         if (op.change === "typed_number") {
-          if (!quoteHas(op.value, op.quote, (await tenantOnce())?.defaultLocale ?? "en")) return fail(422, "quote_mismatch", { issues: [`ops.${i}.quote: ${OP_ISSUES.notInQuote(String(Math.abs(op.value)))}`] });
+          const brand = await tenantOnce();
+          // Unread, the number must be held whichever way its marks are read.
+          const held = brand === undefined ? quoteHas(op.value, op.quote, "en") && quoteHas(op.value, op.quote, "de") : quoteHas(op.value, op.quote, brand?.defaultLocale ?? "en");
+          if (!held) return fail(422, "quote_mismatch", { issues: [`ops.${i}.quote: ${OP_ISSUES.notInQuote(String(Math.abs(op.value)))}`] });
           const b = typedBlock(
             { name: op.name, value: op.value, unit: op.unit, currency: op.currency, per: op.per ?? null, from: op.from },
             { typedBy: ctx.userId ?? "vizzy", saidInChat: true, quote: op.quote },
@@ -502,7 +520,7 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
   // Text changes: one model call for all of them.
   let sources: PackLine[] | undefined;
   if (tasks.length) {
-    const tenant = await tenantOnce();
+    const tenant = (await tenantOnce()) ?? null;
     const fresh = await raiseContext(ctx, { audience: doc.audience, stage: doc.stage }, { db: deps.db, loadTenant: async () => tenant, ...deps.pack, reader });
     const merged = mergeLines(doc.sources, fresh.lines);
     if (merged.sources.length > doc.sources.length) sources = merged.sources;

@@ -188,6 +188,35 @@ export const WORK_COPY = {
   pastePlaceholder: "Paste the rows here, header row first.",
   deleteConfirm: "Delete this task? Its history stays in the Log.",
   makeIdeaHint: "Opens a new one with this title, and the task links to it.",
+  // Quick edit on the list (WORK_QUICK_EDIT_ENABLED): the open row under a task's row.
+  showAll: "Show all",
+  rowCheckLabel: "Check",
+  rowBlockedLabel: "Blocked by",
+  rowLinksLabel: "Links",
+  rowDecisionLabel: "The decision",
+  rowPickLabel: "The new pick",
+  rowApproveLabel: "The plan's approval",
+  saving: "Saving…",
+  saved: "Saved",
+  rowChanged: "Someone changed this task just now. Their change is showing, and your text is still in its box, so save again.",
+  rowChangedPick: "Someone changed this task just now. Their change is showing, so make your change again.",
+  rowChangedShort: "Someone changed this task just now.",
+  keptNote: "This task no longer matches your filters. It leaves the list when you close it.",
+  noSuchTask: "There's no task with that number that you can see.",
+  leftList: "That task left this list.",
+  openFull: "Open the full page",
+  closeRow: "Close",
+  closeRowHint: "Close (Esc)",
+  sortAgain: "Sort again",
+  opening: "Opening…",
+  keepEditing: "Keep editing",
+  discard: "Discard",
+  undo: "Undo",
+  putBack: "Put back what was there.",
+  clickToRename: "Click to rename",
+  adminsOnly: "Admins and owners only.",
+  noDescription: "No description yet.",
+  noNotes: "No notes yet.",
 } as const;
 
 // --- People ------------------------------------------------------------------------------------
@@ -666,4 +695,26 @@ export function importButton(n: number): string {
 /** "All 12 rows. The preview shows up to 20." */
 export function previewHint(total: number): string {
   return total <= 20 ? `All ${plural(total, "row", "rows")}.` : `${total} rows. The preview shows the first 20.`;
+}
+
+// --- Quick edit on the list --------------------------------------------------------------------
+
+/** "Newest 5 of 9", over History when the open row shows only the newest. */
+export function historyNewest(n: number, total: number): string {
+  return `Newest ${n} of ${total}`;
+}
+
+/** "Check has changes that aren't saved.", asked in the open row before it goes. */
+export function unsavedLine(label: string): string {
+  return `${label} has changes that aren't saved.`;
+}
+
+/** What the list says once a task was deleted from its open row. */
+export function deletedLine(ref: number, title: string): string {
+  return `Deleted #${ref} ${title}. Its history stays in the Log.`;
+}
+
+/** The open row's Close, for a screen reader. */
+export function closeTaskLabel(ref: number): string {
+  return `Close task #${ref}`;
 }

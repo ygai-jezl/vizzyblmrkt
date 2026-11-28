@@ -13,11 +13,14 @@ import {
   brandHint,
   changeWords,
   checkSideLine,
+  closeTaskLabel,
   dayNWords,
   dayTitle,
+  deletedLine,
   emptyText,
   emptyTitle,
   ENTRY_STATE_LABEL,
+  historyNewest,
   IMPORT_FIELD_LABEL,
   importButton,
   importedText,
@@ -46,6 +49,7 @@ import {
   suggestionLine,
   tasksTabLabel,
   unreadableText,
+  unsavedLine,
   vizzyWroteLine,
   whenWords,
   whoWords,
@@ -111,6 +115,11 @@ describe("Work's screen words", () => {
       carriedLine(1),
       carriedLine(4),
       carriedLine(0),
+      // Quick edit on the list (WORK_QUICK_EDIT_ENABLED): the open row's own lines, with each editor's label it asks about.
+      historyNewest(5, 9),
+      ...[WORK_COPY.rowCheckLabel, WORK_COPY.rowBlockedLabel, WORK_COPY.rowLinksLabel, WORK_COPY.rowDecisionLabel, WORK_COPY.rowPickLabel, WORK_COPY.rowApproveLabel, WORK_COPY.measureTitle].map(unsavedLine),
+      deletedLine(81, "Register for VAT"),
+      closeTaskLabel(81),
     ];
     for (const s of all) {
       expect(dashesIn(s), s).toEqual([]);

@@ -26,6 +26,22 @@ import { zoneOf } from "./schedule";
 export interface WorkDeps extends WorkStores {
   now?: () => Date;
   lookup?: UserLookup;
+  /** One page load's task reads, shared by the list and the open row (sharedReads()). */
+  shared?: SharedReads;
+}
+
+/**
+ * The team's tasks as one page load read them, by what was read, so the list and the open row on
+ * it read each set once (WORK_QUICK_EDIT_ENABLED). Made for one request and dropped with it: never
+ * kept between requests, so one team's tasks can't reach another. `reads` counts the reads made.
+ */
+export interface SharedReads {
+  loads: Map<string, Promise<unknown>>;
+  reads: number;
+}
+
+export function sharedReads(): SharedReads {
+  return { loads: new Map(), reads: 0 };
 }
 
 export const nowOf = (deps: WorkDeps): Date => (deps.now ?? (() => new Date()))();

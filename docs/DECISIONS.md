@@ -1974,6 +1974,40 @@ accepted those departures on 26 Nov):
     entries alone would need an index of their own. So one nobody has logged for a year drops off
     (a departure: plan decision 5 names no window), and a read that hits 2,000 rows says the
     oldest workstreams may be missing. The day rail always ends on today, whichever day is shown.
+15. **Quick edit in the list (a follow up, plan-work-quick-edit v2, approved 28 Nov).** Behind
+    `WORK_QUICK_EDIT_ENABLED` (server only, needs `WORK_ENABLED`, `"false"` in `apphosting.yaml`), a
+    click on any part of a task's row opens it under the row with everything its page has, the
+    quick fields first in the columns' order. Off, the list is today's, `?open` is ignored and
+    nothing more is read. The open row lives in the address (`?open=<ref>`, changed with
+    `router.replace` so it neither scrolls nor adds to Back): the server reads the list and the
+    open task side by side (`openRow` in `src/lib/work/screens.ts`), and one page load's shared
+    read (`sharedReads()`, never kept between requests) serves the list, the task's pickers and its
+    blockers. For a team of 2 brands on the default view, opening a row is about 19 queries (the
+    list's 9, shared, and 10 of the task's own) and 2 sign in lookups, a burst of changes 19 once
+    the line empties, and closing 9; a brand or status filter adds the pickers' own 9. A browser
+    fetch of the row would have cost 28 per burst and needed a new route, so it was rejected. The
+    concurrency rule (`src/lib/work/quickEdit.ts`, run by `useRowQueue`): one line of changes per
+    open row, one in flight at a time; an unsent change to a field is replaced by a newer one to
+    the same field, but a link added or removed builds on the one before; each change is built
+    from the newest task the row knows and sent with its newest stamp, or with the stamp its
+    editor opened on if someone else's change came in since; decisions don't change the stamp, so
+    they don't wait; a refusal drops what waits, puts the fields back, keeps typed text in its box
+    and reads the task again. So the row's own changes never refuse each other, and anyone else's
+    in between is refused. The order holds for the whole visit (owner's decision 2): changed rows
+    stay put, new tasks go on top, and Sort again shows once anything would move; a filter change
+    or a reload sorts afresh. A task the filters no longer show is kept, with a note, until it is
+    closed, and one opened from elsewhere shows on top. A task whose region didn't answer says so,
+    where the task page says not found. List edits are change rows with the tool `work_list`,
+    already allowed, so History, the Log and `get_work` read them like page edits. Outside the
+    switch the task page reads its brands' team names side by side, the same names. Held by
+    `src/lib/work/flags.test.ts`, `src/components/admin/work/taskPageLock.test.ts` (the task
+    page's and the list's markup, locked before the split into `TaskSections.tsx`),
+    `src/lib/work/quickEdit.test.ts` (`openRow`, the shared read, the line's rules, the held order
+    and focus), `src/components/admin/work/quickEdit.test.ts` (the open row's markup),
+    `src/app/admin/work/pages.test.ts` (the switch off and on) and
+    `src/lib/help/workSwitch.test.ts`. The task page keeps its own Edit and one change at a time
+    until a follow up brings the line there (owner's decision 3); quick pickers on a cell wait for
+    the walk (decision 4).
 
 Enforced where: `src/lib/tenant/work.test.ts` (regions, a region down, append only, no `ttlAt`,
 erase and repoint, and entries appended once under worked out ids), `src/lib/work/carry.test.ts`

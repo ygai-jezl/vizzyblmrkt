@@ -19,3 +19,12 @@ export function isWorkEnabled(): boolean {
 export function isWorkVizzyEnabled(): boolean {
   return isWorkEnabled() && process.env.WORK_VIZZY_ENABLED === "true";
 }
+
+/**
+ * Quick edit on Work's list: click a task's row and it opens in place, under itself, with
+ * everything its page has (`?open=<ref>`), and changes save one after another. Needs WORK_ENABLED.
+ * Off, the list is today's: the title links to the task's page and `?open` is ignored. Server only.
+ */
+export function isWorkQuickEditEnabled(): boolean {
+  return isWorkEnabled() && process.env.WORK_QUICK_EDIT_ENABLED === "true";
+}

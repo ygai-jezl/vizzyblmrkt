@@ -9,6 +9,15 @@ import { LUMEN_EU, LUMEN_US, ORG } from "@/lib/work/testing/fixtures";
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 vi.mock("@/lib/auth/adminAuth", () => ({ adminAuth: () => ({ getUsers: async () => ({ users: [] }) }) }));
+// Firebase Auth knows nobody here. A task's read looks up each brand's team names side by side, and
+// Vitest can hand one of two imports of a mocked module made at the same moment the real module,
+// which then spends seconds looking for a Google Cloud project (past the time a test gets on CI).
+// So the names lookup gets its own lookup that finds nobody, and never imports Firebase Auth.
+vi.mock("@/lib/team/names", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/team/names")>();
+  const nobody = async () => [];
+  return { ...real, teamMemberNames: (...[ctx, ids, opts]: Parameters<typeof real.teamMemberNames>) => real.teamMemberNames(ctx, ids, { ...opts, lookup: opts?.lookup ?? nobody }) };
+});
 const dbs = vi.hoisted(() => ({ map: {} as Record<string, unknown> }));
 vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant/firestore")>()),

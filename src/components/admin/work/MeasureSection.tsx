@@ -10,6 +10,7 @@ import type { Measure, ThenMeasure, WorkTask } from "@/lib/work/types";
 import type { MeaningKey } from "@/lib/metrics/meanings";
 import type { ProductOption } from "@/lib/work/screens";
 import { MeasurePicker } from "./MeasurePicker";
+import { useRowEditor } from "./rowEditors";
 import { useFocusSwap } from "./useFocusSwap";
 
 type Part = Exclude<Measure, { kind: "done" }> | ThenMeasure;
@@ -69,11 +70,16 @@ export function MeasureSection({
   const m = task.measure;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MeasureDraft>(() => draftOfMeasure(m));
+  const [seed, setSeed] = useState<MeasureDraft>(() => draftOfMeasure(m));
   const focus = useFocusSwap(editing);
   const open = () => {
-    setDraft(draftOfMeasure(m));
+    const d = draftOfMeasure(m);
+    setDraft(d);
+    setSeed(d);
     setEditing(true);
   };
+  // In the open row on Work's list: a picked measure not saved yet is asked about before it goes.
+  useRowEditor("measure", editing ? { label: WORK_COPY.measureTitle, dirty: JSON.stringify(draft) !== JSON.stringify(seed), close: () => setEditing(false) } : null);
   const connection = (id: string) => products?.find((p) => p.id === id)?.name;
   // An event as the picker names it: its catalog label, else its name.
   const event = (connectionId: string, name: string) => {

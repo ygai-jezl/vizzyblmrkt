@@ -375,6 +375,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Quick edit on Work's list: a task opens in place under its row, with everything its page has, and
+  # saves each change in turn. Needs WORK_ENABLED. Off: the list is today's and ignores ?open.
+  - variable: WORK_QUICK_EDIT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Waitlists and invites ==
   # Invite your waitlist.

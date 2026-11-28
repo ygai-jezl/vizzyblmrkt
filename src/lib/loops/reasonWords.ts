@@ -26,6 +26,7 @@ export const CANVAS_TITLES: Record<CanvasKindName, string> = {
   image_style: "Image style suggestion",
   person_fields: "Field changes for a person",
   new_person: "New person form",
+  raise_deck: "Deck or lender pack",
 };
 
 /** Each connector rule by what it flags. */

@@ -11,7 +11,7 @@ import { onlyRefresh, parseOps, reviseDeck, type ReviseDeps } from "@/lib/raise/
 import { countRaiseDocs, listRaiseDocs, readRaiseDoc, type StoreDeps } from "@/lib/raise/docs/store";
 import { DECK_AUDIENCES, INVESTOR_STAGES, RAISE_DOC_ID, RAISE_DOC_LIMITS as L, type RaiseDoc } from "@/lib/raise/docs/types";
 import { CARD_NOTE, CHAT_WORDS } from "@/lib/raise/docs/words";
-import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasCard, CanvasKind } from "../types";
+import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasCard, CanvasKind, CanvasSaved } from "../types";
 
 /**
  * The `raise_deck` canvas kind (VIZZY_RAISE_ENABLED): Vizzy drafts a deck for investors or a pack
@@ -79,8 +79,14 @@ function statusLine(doc: RaiseDoc): string {
   return [waiting ? CHAT_WORDS.needs(waiting, what) : CHAT_WORDS.noNeeds, CHAT_WORDS.checks(checks), CHAT_WORDS.draftOnly].join(" ");
 }
 
-function saved(doc: RaiseDoc, summary: string, warnings: string[]): CanvasAuthorOutcome {
-  return { ok: true, id: doc.id, status: "draft", url: raiseDocHref(doc.id), summary, warnings, card: deckCard(doc) };
+/**
+ * The outcome, with what it saved for the canvas route's count (learning loops step 5): the deck
+ * counts no made of its own, as it only gathers slides, and the words on them count under
+ * raise_write where they are saved (draftDeck, reviseDeck). So a draft is `none`, and a revise that
+ * saved a new version is `rewritten`: Vizzy's new words on a deck, never a deck counted twice.
+ */
+function saved(doc: RaiseDoc, summary: string, warnings: string[], what: CanvasSaved): CanvasAuthorOutcome {
+  return { ok: true, id: doc.id, status: "draft", url: raiseDocHref(doc.id), summary, warnings, card: deckCard(doc), saved: what };
 }
 
 export async function authorRaiseDeck({ ctx, input, brief }: CanvasAuthorArgs, deps: RaiseDeckDeps = {}): Promise<CanvasAuthorOutcome> {
@@ -111,7 +117,7 @@ export async function authorRaiseDeck({ ctx, input, brief }: CanvasAuthorArgs, d
     if (!r.ok) return refused(r.status, r.error);
     const { doc, drafted, warnings } = r.value;
     const first = CHAT_WORDS.drafted(doc.current.slides.length, kindLabel(doc.audience, doc.stage));
-    return saved(doc, [first, ...(drafted ? [] : [CHAT_WORDS.outlineOnly]), statusLine(doc)].join(" "), warnings);
+    return saved(doc, [first, ...(drafted ? [] : [CHAT_WORDS.outlineOnly]), statusLine(doc)].join(" "), warnings, "none");
   }
 
   const ops = parseOps(req.ops!);
@@ -124,9 +130,9 @@ export async function authorRaiseDeck({ ctx, input, brief }: CanvasAuthorArgs, d
   const r = await reviseDeck(ctx, doc, { ops: ops.ops, baseVersion: req.baseVersion ?? doc.version, note: req.note }, { db: deps.db, now: deps.now, ...deps.revise });
   if (!r.ok) return refused(r.status, r.error, r.issues);
   const next = r.value.doc;
-  if (!r.value.saved) return saved(next, onlyRefresh(ops.ops) ? CHAT_WORDS.upToDate : CHAT_WORDS.unchanged, r.value.warnings);
+  if (!r.value.saved) return saved(next, onlyRefresh(ops.ops) ? CHAT_WORDS.upToDate : CHAT_WORDS.unchanged, r.value.warnings, "none");
   const note = next.changes[0]?.note ?? "";
-  return saved(next, [CHAT_WORDS.saved(next.version, note), statusLine(next)].join(" "), r.value.warnings);
+  return saved(next, [CHAT_WORDS.saved(next.version, note), statusLine(next)].join(" "), r.value.warnings, "rewritten");
 }
 
 export const raiseDeckCanvasKind: CanvasKind<"raise_deck"> = {

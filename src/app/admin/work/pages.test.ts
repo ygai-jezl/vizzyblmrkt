@@ -18,6 +18,15 @@ const { requireAdminContext, notFound } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth/session", () => ({ requireAdminContext }));
 vi.mock("@/lib/auth/adminAuth", () => ({ adminAuth: () => ({ getUsers: async () => ({ users: [] }) }) }));
+// Firebase Auth knows nobody here. The task page reads each brand's team names side by side, and
+// Vitest can hand one of two imports of a mocked module made at the same moment the real module,
+// which then spends seconds looking for a Google Cloud project (past the time a test gets on CI).
+// So the names lookup gets its own lookup that finds nobody, and never imports Firebase Auth.
+vi.mock("@/lib/team/names", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/team/names")>();
+  const nobody = async () => [];
+  return { ...real, teamMemberNames: (...[ctx, ids, opts]: Parameters<typeof real.teamMemberNames>) => real.teamMemberNames(ctx, ids, { ...opts, lookup: opts?.lookup ?? nobody }) };
+});
 vi.mock("next/navigation", () => ({ notFound, useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }), usePathname: () => "/admin/work" }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
@@ -56,6 +65,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+// Each of these tests draws a whole page, and the first to draw a part loads its modules then:
+// on CI's slower runners that can take longer than the 5 seconds a test gets by default.
+const WHOLE_PAGE = { timeout: 30_000 };
+
 describe("with WORK_ENABLED off", () => {
   it("every Work page is not found, before the session is read", async () => {
     vi.stubEnv("WORK_ENABLED", "");
@@ -67,7 +80,7 @@ describe("with WORK_ENABLED off", () => {
   });
 });
 
-describe("the Tasks tab", () => {
+describe("the Tasks tab", WHOLE_PAGE, () => {
   it("shows an owner one list across both brands, with the Brand column, Import and Add task", async () => {
     await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US, mustHave: true, stage: "billing_tax" });
     await add(PEOPLE.nina, { title: "Cookie notice in German", brandId: LUMEN_EU });
@@ -122,7 +135,7 @@ describe("the Tasks tab", () => {
   });
 });
 
-describe("the Tasks tab with quick edit", () => {
+describe("the Tasks tab with quick edit", WHOLE_PAGE, () => {
   const reads = () => ["(default)", "signups-eu", "signups-asia"].reduce((n, id) => n + (dbs.map[id] as { collectionCalls: (c: string) => number }).collectionCalls("work_tasks"), 0);
 
   it("off, draws today's list exactly, ignoring ?open and reading nothing more", async () => {
@@ -185,7 +198,7 @@ describe("the Tasks tab with quick edit", () => {
   });
 });
 
-describe("one task", () => {
+describe("one task", WHOLE_PAGE, () => {
   it("shows the task with its origin, links, decisions and measure, and a plan to approve", async () => {
     const t = await add(PEOPLE.nina, {
       title: "Invite people to a shared notebook",
@@ -232,7 +245,7 @@ describe("one task", () => {
   });
 });
 
-describe("the add page", () => {
+describe("the add page", WHOLE_PAGE, () => {
   it("offers pull requests and switches only where a repo is connected", async () => {
     const lumen = await html(NewPage({ searchParams: Promise.resolve({}) }));
     expect(lumen).toContain("Add a task");
@@ -248,7 +261,7 @@ describe("the add page", () => {
   });
 });
 
-describe("the Log", () => {
+describe("the Log", WHOLE_PAGE, () => {
   it("opens on Today with the box to log a workstream", async () => {
     const page = await log();
     expect(page).toContain("In flight");
@@ -265,7 +278,7 @@ describe("the Log", () => {
   });
 });
 
-describe("Edit then add", () => {
+describe("Edit then add", WHOLE_PAGE, () => {
   const newPage = (sp: Record<string, string>) => html(NewPage({ searchParams: Promise.resolve(sp) }));
   async function suggest(brandId: string | null = LUMEN_US) {
     const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };

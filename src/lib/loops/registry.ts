@@ -49,6 +49,7 @@ export const RULE_DECISIONS = {
   competitor_claim_match: { label: "Claims competitors now make", file: "src/lib/competitors/profile.ts" },
   strategy_check: { label: "Weekly strategy check", file: "src/lib/brandStrategy/checkRules.ts" },
   strategy_month: { label: "How the strategy went each month", file: "src/lib/brandStrategy/monthRules.ts" },
+  strategy_suggest: { label: "The strategy's suggestion each month", file: "src/lib/brandStrategy/suggestRules.ts" },
   image_style_pick: { label: "Image style used", file: "src/lib/content/imageStyle/resolve.ts" },
   pattern_holdout: { label: "Post patterns holdout", file: "src/lib/distribute/feedback/patterns.ts" },
   waitlist_rank: { label: "Waitlist order", file: "src/lib/waitlist/scoring.ts" },
@@ -106,7 +107,8 @@ export const LEARNED_STORES = {
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
-  brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
+  brand_strategy:
+    "The brand strategy keeps the newest 50 names a person marked Not a competitor, and the monthly suggestions a person put off with Not now with their reasons, beside the stars, ticks, groups and edits people made.",
   lifecycle_journey: "A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.",
 } as const satisfies Record<string, string>;
 
@@ -286,6 +288,7 @@ export const LOOPS = {
   competitor_claim_match: gap("A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.", LATER),
   strategy_check: gap("The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.", LATER),
   strategy_month: none("How it went adds up plain counts anyone can check, each from a source it names, and chooses nothing for the brand, so it has nothing to learn."),
+  strategy_suggest: own("brand_strategy", "A suggestion your team put off with Not now stays away 60 days, or 90 for one about connecting a tool, and the reason they gave is kept with the strategy."),
   image_style_pick: gap("Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.", IMAGES_BY),
   pattern_holdout: none("A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results."),
   waitlist_rank: none("The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own."),

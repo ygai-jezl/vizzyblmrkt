@@ -296,3 +296,124 @@ describe("How it went's monthly look", () => {
     expect((await readBrandStrategyDoc(ctx, { db }))!.months).toEqual([]);
   });
 });
+
+describe("the month's suggestion, kept with the month (STRATEGY_SUGGEST_ENABLED)", () => {
+  const GA = { connectorId: "google-analytics", name: "Google Analytics 4", href: "/admin/account/connections/google-analytics", siteOnly: false };
+  const AI = { connectorId: "answers", name: "Answer Tracker", href: "/admin/account/connections/answers", siteOnly: false };
+  /** Search measured; visits and key actions could come from Google Analytics, AI answers from another tool. */
+  const WITH_COULD = (): OutcomeRead => ({
+    ...SEARCH_ONLY(),
+    coverage: SEARCH_ONLY().coverage.map((c) => (c.state === "not_connected" ? { ...c, could: [c.kind === "ai_answers" ? AI : GA] } : c)),
+  });
+  const withCould = { outcomes: vi.fn(async () => WITH_COULD()) };
+
+  it("is worked out when the month is kept, without moving the revision; off, nothing but the month is written", async () => {
+    const db = new FakeFirestore();
+    const off = await brand("ten_A", db, { approve: true });
+    await run(deps(db, ["ten_A"], T1, withCould));
+    const raw = await forTenant(off, db).brandStrategy.getById(brandStrategyDocId("ten_A"));
+    expect(raw).not.toHaveProperty("suggestion");
+    expect(raw).not.toHaveProperty("suggestHolds");
+    const kept = (await readBrandStrategyDoc(off, { db }))!;
+    expect(kept.suggestion).toBeNull();
+
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    const on = await brand("ten_B", db, { approve: true });
+    const rev = (await readBrandStrategyDoc(on, { db }))!.rev;
+    await run(deps(db, ["ten_B"], T1, withCould));
+    const doc = (await readBrandStrategyDoc(on, { db }))!;
+    expect(doc.rev).toBe(rev);
+    expect(doc.suggestion).toMatchObject({
+      month: "2026-11",
+      state: "open",
+      about: "visits",
+      raisedAt: T1.toISOString(),
+      detail: { kind: "measure_more", outcome: "visits", why: "not_connected", connectors: [{ connectorId: "google-analytics", name: "Google Analytics 4" }] },
+      basedOn: { builtIn: ["connections"], measured: [{ kind: "search", connector: "Google Search Console" }] },
+      cantSee: [
+        { kind: "visits", why: "not_connected", connector: "Google Analytics 4" },
+        { kind: "key_actions", why: "not_connected", connector: "Google Analytics 4" },
+        { kind: "ai_answers", why: "not_connected", connector: "Answer Tracker" },
+      ],
+    });
+    expect(doc.suggestHolds).toEqual([]);
+    // The month itself is the same with it on or off.
+    expect(doc.months[0]!.rows).toEqual(kept.months[0]!.rows);
+    // The other brand's record is left alone.
+    expect((await readBrandStrategyDoc(off, { db }))!.suggestion).toBeNull();
+  });
+
+  it("names the plan's entries due by the month's end that no live article answers", async () => {
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    vi.stubEnv("CONTENT_STRATEGY_ENABLED", "true");
+    const db = new FakeFirestore();
+    const ctx = await brand("ten_A", db, { approve: true });
+    const slot = (id: string, title: string, q: string) => ({ id, title, questionIds: [q] });
+    db.seed("content_strategy", "cst_ten_A", {
+      tenantId: "ten_A",
+      rev: 1,
+      approved: {
+        at: "2026-10-25T09:00:00.000Z",
+        slots: [
+          slot("slt_aaaaaa01", "Why does my back hurt after sitting?", "q_aaaaaaa1"),
+          slot("slt_aaaaaa02", "Is a standing desk worth it?", "q_aaaaaaa3"),
+          slot("slt_aaaaaa03", "Can I run with knee pain at 45?", "q_aaaaaaa4"),
+          slot("slt_aaaaaa04", "Heel pain in the morning", "q_zzzzzzz8"),
+          slot("slt_aaaaaa05", "Taping a knee for a 10k", "q_zzzzzzz9"),
+        ],
+        roadmap: [
+          { week: "2026-W45", slotId: "slt_aaaaaa01", action: "write" },
+          { week: "2026-W46", slotId: "slt_aaaaaa02", action: "write" },
+          // Due in October and still not live: it counts too.
+          { week: "2026-W43", slotId: "slt_aaaaaa03", action: "write" },
+          { week: "2026-W48", slotId: "slt_aaaaaa04", action: "write" },
+          // Due in December: not yet.
+          { week: "2026-W50", slotId: "slt_aaaaaa05", action: "write" },
+        ],
+      },
+    } as never);
+    await run(deps(db, ["ten_A"], T1));
+    const doc = (await readBrandStrategyDoc(ctx, { db }))!;
+    // None is answered on this map, so every entry due by the end of November is behind, the earliest first.
+    expect(doc.months[0]!.roadmap).toEqual({ due: 3, done: 0 });
+    expect(doc.suggestion).toMatchObject({
+      about: "plan:2026-10-25T09:00:00.000Z",
+      detail: {
+        kind: "behind_plan",
+        behind: 4,
+        entries: [
+          { slotId: "slt_aaaaaa03", title: "Can I run with knee pain at 45?" },
+          { slotId: "slt_aaaaaa01", title: "Why does my back hurt after sitting?" },
+          { slotId: "slt_aaaaaa02", title: "Is a standing desk worth it?" },
+        ],
+      },
+      basedOn: { builtIn: ["articles", "roadmap"], measured: [] },
+    });
+  });
+
+  it("skips what a person put off with Not now, and a new month's suggestion replaces the open one", async () => {
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    const db = new FakeFirestore();
+    const ctx = await brand("ten_A", db, { approve: true });
+    const far = "2027-03-01T00:00:00.000Z";
+    await forTenant(ctx, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({
+      suggestHolds: [
+        { kind: "measure_more", about: "visits", until: far, reason: "not_a_priority" },
+        // Ended already: it goes at the next write.
+        { kind: "measure_more", about: "search", until: "2026-11-30T00:00:00.000Z", reason: "other" },
+      ],
+    }));
+    await run(deps(db, ["ten_A"], T1, withCould));
+    let doc = (await readBrandStrategyDoc(ctx, { db }))!;
+    expect(doc.suggestion?.detail).toMatchObject({ kind: "measure_more", outcome: "key_actions" });
+    expect(doc.suggestHolds).toEqual([{ kind: "measure_more", about: "visits", until: far, reason: "not_a_priority" }]);
+    // December: Google Analytics now measures both, so the open one is replaced by the next kind missing.
+    const measured = (kind: "visits" | "key_actions", measure: "ga4Sessions" | "ga4KeyEvents") =>
+      ({ kind, state: "measured" as const, connectionId: "dcn_cccccccccccccccccccc", connectorId: "google-analytics", connector: "Google Analytics 4", measure, siteOnly: false, alsoConnected: [] });
+    const dec = (): OutcomeRead => ({ ...WITH_COULD(), coverage: [WITH_COULD().coverage[0]!, measured("visits", "ga4Sessions"), measured("key_actions", "ga4KeyEvents"), WITH_COULD().coverage[3]!] });
+    await run(deps(db, ["ten_A"], monthTickFrom("2027-01-02T00:00:00.000Z"), { outcomes: vi.fn(async () => dec()) }));
+    doc = (await readBrandStrategyDoc(ctx, { db }))!;
+    expect(doc.months.map((m) => m.month)).toEqual(["2026-12", "2026-11"]);
+    expect(doc.suggestion).toMatchObject({ month: "2026-12", state: "open", detail: { kind: "measure_more", outcome: "ai_answers" } });
+  });
+});

@@ -16,7 +16,7 @@ import {
   type SuggestHold,
   type SuggestionKind,
 } from "@/lib/types/brandStrategy";
-import { arrowFor, monthBefore } from "./monthRules";
+import { arrowFor, monthBefore, monthCounts, type MonthInput, type MonthRecord } from "./monthRules";
 
 /**
  * One suggestion a month (STRATEGY_SUGGEST_ENABLED), by rules, with no model call. Pure and client
@@ -350,6 +350,40 @@ export function nextSuggestion(current: StrategySuggestion | null, picked: Strat
   if (!picked) return null;
   if (current && current.state === "open" && current.key === picked.key) return { ...picked, raisedAt: current.raisedAt };
   return picked;
+}
+
+/** What working out the month's suggestion needs of the strategy record. */
+export interface SuggestRecord extends Pick<MonthRecord, "approved" | "history"> {
+  approved: (Pick<Strategy, "at" | "focusSituationIds" | "claims" | "goal">) | null;
+  history: ReadonlyArray<Pick<Strategy, "at" | "claims">>;
+  months: readonly StrategyMonth[];
+  suggestion: StrategySuggestion | null;
+  suggestHolds: readonly SuggestHold[];
+}
+
+/**
+ * What keeping a month writes for the suggestion (STRATEGY_SUGGEST_ENABLED): the month's suggestion
+ * from the months that count (the one just kept first), the approved strategy, the plan and the
+ * look's reads, and the holds still in force. Pure.
+ */
+export function suggestAfterLook(doc: SuggestRecord, look: StrategyMonth, input: MonthInput, nowIso: string): { suggestion: StrategySuggestion | null; suggestHolds: SuggestHold[] } {
+  const holds = liveHolds(doc.suggestHolds, nowIso);
+  if (!doc.approved) return { suggestion: null, suggestHolds: holds };
+  const months = [look, ...doc.months.filter((m) => m.month !== look.month)].filter((m) => monthCounts(doc, m.month)).sort((a, b) => b.month.localeCompare(a.month));
+  const picked = pickSuggestion({
+    nowIso,
+    months,
+    approved: doc.approved,
+    history: doc.history,
+    plan: input.plan && input.behind ? { at: input.plan.at, behind: input.behind } : null,
+    situations: input.situations,
+    theirs: input.theirs,
+    articles: input.articles,
+    byPage: input.outcomes.byPage,
+    coverage: input.outcomes.coverage,
+    holds,
+  });
+  return { suggestion: nextSuggestion(doc.suggestion, picked), suggestHolds: holds };
 }
 
 /** Whether a suggestion makes a Review row: open, and not a line for How it went. */

@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, inputClass } from "@/components/admin/connect/ui";
 import type { WorkRead } from "@/lib/work/types";
+import { WORK_COPY } from "@/lib/work/screenWords";
 import { workCall, workErrorText } from "./api";
+import { useRowEditor } from "./rowEditors";
 
 /** The one tap read on a measure's check, in the order drawn. */
 export const READ_BUTTONS: ReadonlyArray<{ read: WorkRead; label: string }> = [
@@ -15,6 +17,9 @@ export const READ_BUTTONS: ReadonlyArray<{ read: WorkRead; label: string }> = [
 ];
 
 export type CheckSend = { action: "checked" } | { action: "look_again"; day?: string; time?: string } | { action: "read"; read: WorkRead };
+
+/** What a sender says back: the answer's notice, or the refusal in words. */
+export type CheckAnswer = { ok: true; notice: string | null } | { ok: false; error: string };
 
 /** What each button says, and whether it waits, while one is being sent. */
 export function checkButtons(byMeasure: boolean, busy: string | null): Array<{ key: string; label: string; disabled: boolean }> {
@@ -35,6 +40,10 @@ export const checkNoticeOf = (notice: string | null | undefined): string => noti
  * after an answer, and an answered check is no longer due, so these buttons go: a page passes
  * `onSaid` to keep the notice somewhere that stays, and `onStart` to clear what it said before.
  * `setAt` is the check as the page shows it: once it moved since, the tap is refused.
+ *
+ * The open row on Work's list passes `send`, its line of changes: the tap waits its turn there,
+ * nothing is disabled while it waits, and the row reads the task again once its changes are in.
+ * Without `send` it works as it always has.
  */
 export function CheckActions({
   taskRef,
@@ -44,14 +53,16 @@ export function CheckActions({
   compact = false,
   onStart,
   onSaid,
+  send: sender,
 }: {
   taskRef: number;
   byMeasure: boolean;
-  via: "work_page" | "today";
+  via: "work_page" | "today" | "work_list";
   setAt?: string;
   compact?: boolean;
   onStart?: () => void;
   onSaid?: (notice: string) => void;
+  send?: (body: CheckSend) => Promise<CheckAnswer>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -59,6 +70,16 @@ export function CheckActions({
   const [error, setError] = useState<string | null>(null);
 
   async function send(body: CheckSend, key: string) {
+    if (sender) {
+      setError(null);
+      onStart?.();
+      const a = await sender(body);
+      if (!a.ok) return setError(a.error);
+      const notice = checkNoticeOf(a.notice);
+      if (onSaid) onSaid(notice);
+      else setSaid(notice);
+      return;
+    }
     setBusy(key);
     setError(null);
     onStart?.();
@@ -103,18 +124,44 @@ export function CheckActions({
 
 /**
  * Move a check to another day and time: a measure's check keeps asking about its measure. `onMoved`
- * gets what Work set, so the page's line says the new date, never the old one.
+ * gets what Work set, so the page's line says the new date, never the old one. The open row passes
+ * `send` and `via`, as for CheckActions, and is told while a date or time is picked but not moved.
  */
-export function MoveCheck({ taskRef, today, setAt, onClose, onMoved }: { taskRef: number; today: string; setAt?: string; onClose: () => void; onMoved?: (notice: string) => void }) {
+export function MoveCheck({
+  taskRef,
+  today,
+  setAt,
+  onClose,
+  onMoved,
+  send: sender,
+  via = "work_page",
+}: {
+  taskRef: number;
+  today: string;
+  setAt?: string;
+  onClose: () => void;
+  onMoved?: (notice: string) => void;
+  send?: (body: CheckSend) => Promise<CheckAnswer>;
+  via?: "work_page" | "work_list";
+}) {
   const router = useRouter();
   const [day, setDay] = useState(today);
   const [time, setTime] = useState("08:00");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useRowEditor("check-move", { label: WORK_COPY.rowCheckLabel, dirty: day !== today || time !== "08:00", close: onClose });
   async function save() {
+    if (sender) {
+      setError(null);
+      const a = await sender({ action: "look_again", day, ...(time !== "08:00" ? { time } : {}) });
+      if (!a.ok) return setError(a.error);
+      onMoved?.(checkNoticeOf(a.notice));
+      onClose();
+      return;
+    }
     setBusy(true);
     setError(null);
-    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: taskRef, action: "look_again", day, ...(time !== "08:00" ? { time } : {}), via: "work_page", ...(setAt ? { setAt } : {}) });
+    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: taskRef, action: "look_again", day, ...(time !== "08:00" ? { time } : {}), via, ...(setAt ? { setAt } : {}) });
     setBusy(false);
     if (!r.ok) return setError(workErrorText(r.data));
     onMoved?.(checkNoticeOf(r.data.notice));

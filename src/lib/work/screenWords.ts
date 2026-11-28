@@ -185,6 +185,14 @@ export const WORK_COPY = {
   pastePlaceholder: "Paste the rows here, header row first.",
   deleteConfirm: "Delete this task? Its history stays in the Log.",
   makeIdeaHint: "Opens a new one with this title, and the task links to it.",
+  // Quick edit on the list (WORK_QUICK_EDIT_ENABLED): the open row under a task's row.
+  showAll: "Show all",
+  rowCheckLabel: "Check",
+  rowBlockedLabel: "Blocked by",
+  rowLinksLabel: "Links",
+  rowDecisionLabel: "The decision",
+  rowPickLabel: "The new pick",
+  rowApproveLabel: "The plan's approval",
 } as const;
 
 // --- People ------------------------------------------------------------------------------------
@@ -639,4 +647,11 @@ export function importButton(n: number): string {
 /** "All 12 rows. The preview shows up to 20." */
 export function previewHint(total: number): string {
   return total <= 20 ? `All ${plural(total, "row", "rows")}.` : `${total} rows. The preview shows the first 20.`;
+}
+
+// --- Quick edit on the list --------------------------------------------------------------------
+
+/** "Newest 5 of 9", over History when the open row shows only the newest. */
+export function historyNewest(n: number, total: number): string {
+  return `Newest ${n} of ${total}`;
 }

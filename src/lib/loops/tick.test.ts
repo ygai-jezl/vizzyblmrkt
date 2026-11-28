@@ -213,6 +213,75 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
     expect((await readLoopLane(db)).loopsOnFrom).toBeUndefined();
   });
 
+  /** The runs every 10 minutes in between, left out: the lane's document says the last was just before `at`. */
+  const ranJustBefore = (at: Date) => {
+    const cur = db.raw(LOOP_LANE, LANE_DOC_ID) as { d: Record<string, unknown> };
+    db.seed(LOOP_LANE, LANE_DOC_ID, { d: { ...cur.d, at: new Date(at.getTime() - 10 * 60_000).toISOString() } });
+  };
+  const runAt = (at: Date) => lane({ now: () => at });
+  const orgsOf = (week: string) => row(fleetCellId.orgs(week));
+
+  it("starts the loops' week again after both switches were off for weeks, when nothing ran the lane", async () => {
+    db.cols.get(LOOP_LANE)?.delete(LANE_DOC_ID);
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    await runAt(new Date("2026-11-30T09:00:00.000Z"));
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W49");
+    // Both off: the lane doesn't run, so nothing takes the week away.
+    vi.stubEnv("LOOPS_ENABLED", "");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    expect((await runAt(new Date("2026-12-14T09:00:00.000Z"))).skipped).toBe("switch");
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W49");
+    // Back on five weeks later: no week from the time off is reported or listed.
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const back = new Date("2027-01-04T09:00:00.000Z");
+    expect(await runAt(back)).toMatchObject({ brands: 1, reported: 0, cells: 0 });
+    expect((await readLoopLane(db)).loopsOnFrom).toBe(loopWeekOf(back));
+    for (const w of ["2026-W49", "2026-W50", "2026-W51", "2026-W52", "2026-W53"]) expect(orgsOf(w), w).toBeUndefined();
+    expect((await readLaneState(ctxOf("ten_hearth"), db)).reportsFromWeek).toBe(loopWeekOf(back));
+  });
+
+  it("with only LOOPS_ENABLED on, reports no week from the time it was off once it is back", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    db.cols.get(LOOP_LANE)?.delete(LANE_DOC_ID);
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    const t1 = new Date("2026-11-10T10:00:00.000Z");
+    await runAt(t1);
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W46");
+    // Hearth makes 12 picks in 2026-W46, reported the next week by a lane that ran all along.
+    await countKindSignals(ctxOf("ten_hearth"), "next_up", { made: 12 }, { db, now: t1 });
+    const t2 = new Date("2026-11-17T10:00:00.000Z");
+    ranJustBefore(t2);
+    expect(await runAt(t2)).toMatchObject({ reported: 1 });
+    expect(row(fleetCellId.kind("next_up", "2026-W46"))).toMatchObject({ out: { none: { made: 12 } } });
+    // Off for three weeks: with image style versions off too, the lane doesn't run.
+    vi.stubEnv("LOOPS_ENABLED", "");
+    expect((await runAt(new Date("2026-11-25T10:00:00.000Z"))).skipped).toBe("switch");
+    // Back on in 2026-W50, and an hour later: nothing from 2026-W47 to W49 goes out, nor unused from W46.
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const t3 = new Date("2026-12-09T10:00:00.000Z");
+    expect(await runAt(t3)).toMatchObject({ reported: 0 });
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W50");
+    expect(await runAt(new Date(t3.getTime() + 3_600_000))).toMatchObject({ reported: 0 });
+    for (const w of ["2026-W47", "2026-W48", "2026-W49"]) {
+      expect(orgsOf(w), w).toBeUndefined();
+      expect(row(fleetCellId.kind("next_up", w)), w).toBeUndefined();
+    }
+    expect(await readLaneState(ctxOf("ten_hearth"), db)).toMatchObject({ heartbeatWeek: "2026-W49", reportsFromWeek: "2026-W50" });
+  });
+
+  it("keeps the loops' week across runs a few minutes apart", async () => {
+    db.cols.get(LOOP_LANE)?.delete(LANE_DOC_ID);
+    const t = new Date("2026-11-30T09:00:00.000Z");
+    await runAt(t);
+    await runAt(new Date(t.getTime() + 10 * 60_000));
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W49");
+    // The next week, with the runs in between: still the week they came on in.
+    const later = new Date("2026-12-08T09:00:00.000Z");
+    ranJustBefore(later);
+    await runAt(later);
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W49");
+  });
+
   it("runs with only LOOPS_ENABLED on: it folds and reports each brand's closed week, and never seeds or reads image rows", async () => {
     vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
     expect(loopWeekOf(IN_W)).toBe(W);

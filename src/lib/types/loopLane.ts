@@ -31,8 +31,10 @@ export const LaneDocSchema = z.object({
   listedWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /**
    * The ISO week the learning loops were last turned on in (learning loops step 5): set by the
-   * first run with LOOPS_ENABLED on, and taken away by a run with it off, so no heartbeat reports
-   * a week from before it, when nothing was counted across brands.
+   * first run with LOOPS_ENABLED on, taken away by a run with it off, and set again by a run that
+   * finds `at` more than a day old (with both switches off nothing runs the lane, so the loops may
+   * have been off between), so no heartbeat reports a week from before it, when nothing was
+   * counted across brands.
    */
   loopsOnFrom: z.string().regex(ISO_WEEK_RE).optional(),
 });

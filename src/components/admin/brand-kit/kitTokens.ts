@@ -21,22 +21,23 @@ export function handUpGroupToken<G extends TokenGroup>(group: G, token: string):
   return next;
 }
 
-/** The tokens Account › Brand sends with its next save. */
+/**
+ * The tokens Account › Brand sends with its next save. A guidelines PDF's extract sends none: its
+ * route stores the kit and counts it kept there, so only colours kept from a source wait here.
+ */
 export interface KitTokens {
-  /** The newest extract's token: each extract replaces the one before, whose kit is gone. */
-  extract: string | null;
   /** The tokens of colours kept from a source since the kit was last saved or replaced. */
   colours: string[];
 }
 
-export const NO_KIT_TOKENS: KitTokens = { extract: null, colours: [] };
+export const NO_KIT_TOKENS: KitTokens = { colours: [] };
 
 /**
- * The kit was replaced (an extract, or the stored kit loading): only that extract's token, if
- * any, is kept. Colours kept from a source before are no longer in the kit, so theirs go.
+ * The kit was replaced (an extract, or the stored kit loading): colours kept from a source before
+ * are no longer in the kit, so their tokens go.
  */
-export function kitReplaced(extractToken: string | null): KitTokens {
-  return { extract: extractToken, colours: [] };
+export function kitReplaced(): KitTokens {
+  return { colours: [] };
 }
 
 /** Colours from a source went into the kit: their group's token goes with the next save, once. */
@@ -46,5 +47,5 @@ export function withColourToken(t: KitTokens, token: string): KitTokens {
 
 /** The tokens the next save sends. After it saves, the page starts again from NO_KIT_TOKENS. */
 export function kitTokensToSend(t: KitTokens): string[] {
-  return [...(t.extract ? [t.extract] : []), ...t.colours];
+  return [...t.colours];
 }

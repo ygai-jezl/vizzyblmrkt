@@ -1,3 +1,4 @@
+import { NO_DRAFT } from "@/lib/types/loopDay";
 import { isImageKind } from "./imageKinds";
 import { isUnanswered } from "./unanswered";
 
@@ -6,7 +7,8 @@ import { isUnanswered } from "./unanswered";
  * what was made, what people did with it, the saves with no stamp, how much of it is stamped
  * (coverage) and how much went unused. Read from the counter trees count.ts writes (a week's
  * shards added up, a folded `lt:` week, or a version's `lv:` totals), never from records, so the
- * lane and the Loops section add no reads. Counts only: no words and no people. Pure.
+ * lane and the Loops section add no reads. Counts only: no words and no people. Pure, but for the
+ * agent record's switch, which isUnanswered reads.
  */
 
 type Tree = Record<string, unknown>;
@@ -23,6 +25,8 @@ export interface KindTally {
   kept: number;
   edited: number;
   declined: number;
+  /** Stamped things that went out with no AI draft kept to compare (NO_DRAFT): used, though no answer says how. */
+  noDraft: number;
   /** Saves with no stamp, by any reason but a lost stamp. */
   unstamped: number;
   /** Records lost after their output was used (`stamp_lost`). */
@@ -34,7 +38,7 @@ export interface KindTally {
   recordsOff: number;
 }
 
-const empty = (): KindTally => ({ made: 0, kept: 0, edited: 0, declined: 0, unstamped: 0, lost: 0, recordsOff: 0 });
+const empty = (): KindTally => ({ made: 0, kept: 0, edited: 0, declined: 0, noDraft: 0, unstamped: 0, lost: 0, recordsOff: 0 });
 
 /** Add a signal's leaves into a kind's tally: `<arm>.<signal>` maps, one per version. */
 function addArms(into: KindTally, byV: unknown): void {
@@ -45,6 +49,7 @@ function addArms(into: KindTally, byV: unknown): void {
       if (!isObj(signals)) continue;
       into.made += num(signals.made);
       for (const a of ANSWERS) into[a] += num(signals[a]);
+      into.noDraft += num(signals[NO_DRAFT]);
     }
   }
 }
@@ -112,8 +117,10 @@ export const ANSWER_WEEKS = 2;
 /**
  * Things of each kind made in one week that nobody kept, edited or declined (4.4), for every kind
  * but the image kinds and their learner (whose versions say it, unusedOfVersion) and the kinds no
- * path can answer yet (UNANSWERED in ./unanswered.ts, which would read as all unused): made in
- * week W, less the answers counted in W and the ANSWER_WEEKS weeks after it, never below 0.
+ * path can answer yet (isUnanswered in ./unanswered.ts, which would read as all unused): made in
+ * week W, less the answers counted in W and the ANSWER_WEEKS weeks after it, never below 0. A
+ * thing that went out with no AI draft kept to compare (NO_DRAFT, a post published while
+ * CONTENT_AI_DRAFT_KEPT_ENABLED is off) counts as an answer too: it was used, so it is never unused.
  * `weeks` is W first, then the weeks after it in order; answers past W+2 are left out, so pass
  * them only once W+2 has closed for the number to be final. An answer in a later week may be for
  * a thing made later, so it can read a little low, never high.
@@ -124,7 +131,7 @@ export function unusedForWeek(weeks: readonly unknown[]): Map<string, number> {
   const made = tallyByKind(weeks[0]);
   const answered = new Map<string, number>();
   for (const w of weeks.slice(0, ANSWER_WEEKS + 1)) {
-    for (const [kind, t] of tallyByKind(w)) answered.set(kind, (answered.get(kind) ?? 0) + t.kept + t.edited + t.declined);
+    for (const [kind, t] of tallyByKind(w)) answered.set(kind, (answered.get(kind) ?? 0) + t.kept + t.edited + t.declined + t.noDraft);
   }
   for (const [kind, t] of made) {
     if (isImageKind(kind) || kind === "loop_learn" || isUnanswered(kind) || t.made <= 0) continue;

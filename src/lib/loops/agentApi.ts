@@ -15,7 +15,7 @@ import { keyWords, kindLabel, reasonWords, unstampedWords } from "./reasonWords"
 import { decisionKind, IMAGE_STYLE_SCOPES, LOOP_RULES, LOOPS, type Decision, type DecisionKind, type LoopKind } from "./registry";
 import { IMAGE_POOL, looksInUse, ROW_KINDS, rowKindOf, rowLine, rowsOfWeek, rowStage, STAGE_WEEKS, type LookInUse, type RowWeek, type Stage, type StuckStep } from "./stages";
 import { tallyByKind, unusedForWeek } from "./tally";
-import { UNANSWERED } from "./unanswered";
+import { unansweredWhy } from "./unanswered";
 import { shortDay } from "./verdictWords";
 
 /**
@@ -405,8 +405,8 @@ export async function agentLearning(ctx: TenantContext, q: LearningQuery = {}, d
     const counts: Record<string, number> = { made: Math.max(0, t.made) };
     for (const s of PERSON_SIGNALS) if ((t.out[s] ?? 0) > 0) counts[s] = t.out[s]!;
     const words = !pool && !isImageKind(row);
-    // A kind no path can answer yet: every thing made would read as unused, so it gives no shares.
-    const unanswered = UNANSWERED[row as LoopKind];
+    // A kind no path can answer yet (or only the agent record, while it is off): every thing made would read as unused, so it gives no shares.
+    const unanswered = unansweredWhy(row);
     const learner = rowLine(row).learns || t.learned > 0 || Object.keys(t.refused).length > 0;
     return {
       kind: row,

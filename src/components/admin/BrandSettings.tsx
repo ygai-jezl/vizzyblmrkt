@@ -23,8 +23,8 @@ function lines(s: string): string[] {
 
 export function BrandSettings() {
   const [kit, setKit] = useState<BrandKit>({});
-  // The stamp tokens of what was made for the kit (the newest extract, and colours kept from a
-  // source since), sent with the next save once (learning loops step 5).
+  // The stamp tokens of colours kept from a source since the kit was last saved or replaced, sent
+  // with the next save once (learning loops step 5). An extract's kit is counted where it is stored.
   const [stampTokens, setStampTokens] = useState<KitTokens>(NO_KIT_TOKENS);
   const addStampToken = useCallback((token: string) => setStampTokens((t) => withColourToken(t, token)), []);
   const [fontsText, setFontsText] = useState("");
@@ -37,10 +37,10 @@ export function BrandSettings() {
   const [colorsDirty, setColorsDirty] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  /** Replaces the kit, palette included, so only that extract's token is still sent. */
-  function applyKit(k: BrandKit, extractToken: string | null = null) {
+  /** Replaces the kit, palette included, so no colour kept from a source before is still sent. */
+  function applyKit(k: BrandKit) {
     setKit(k);
-    setStampTokens(kitReplaced(extractToken));
+    setStampTokens(kitReplaced());
     setFontsText((k.fonts ?? []).join("\n"));
     setDosText((k.dos ?? []).join("\n"));
     setDontsText((k.donts ?? []).join("\n"));
@@ -67,9 +67,9 @@ export function BrandSettings() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pdfPath: path, pdfName: name }),
         });
-        const data = (await res.json().catch(() => ({}))) as { brandKit?: BrandKit; stampToken?: string };
+        const data = (await res.json().catch(() => ({}))) as { brandKit?: BrandKit };
         if (res.ok && data.brandKit) {
-          applyKit(data.brandKit, typeof data.stampToken === "string" ? data.stampToken : null);
+          applyKit(data.brandKit);
           setMsg("Brand kit extracted — review and save.");
         } else {
           setMsg("Extraction failed — try another PDF or fill the fields manually.");

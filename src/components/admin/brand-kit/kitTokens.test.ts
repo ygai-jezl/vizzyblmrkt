@@ -54,15 +54,13 @@ describe("brand kit stamp tokens", () => {
     expect(group.colors).toEqual(COLOURS);
   });
 
-  it("a new extract replaces the one before, and drops colour tokens whose colours it replaced", () => {
-    let tokens = kitReplaced("tok_extract_1");
+  it("sends a colour token once however often it is kept, and drops it when an extract or the stored kit replaces its colours", () => {
+    let tokens = withColourToken(kitReplaced(), "tok_website");
     tokens = withColourToken(tokens, "tok_website");
-    tokens = withColourToken(tokens, "tok_website");
-    expect(kitTokensToSend(tokens)).toEqual(["tok_extract_1", "tok_website"]);
-    tokens = kitReplaced("tok_extract_2");
-    expect(kitTokensToSend(tokens)).toEqual(["tok_extract_2"]);
-    // The stored kit loading replaces everything, an extract's too.
-    expect(kitTokensToSend(kitReplaced(null))).toEqual([]);
+    tokens = withColourToken(tokens, "tok_logo");
+    expect(kitTokensToSend(tokens)).toEqual(["tok_website", "tok_logo"]);
+    // An extract sends no token of its own: its route stores the kit and counts it kept there.
+    expect(kitTokensToSend(kitReplaced())).toEqual([]);
   });
 
   it("a group run again since keeps its new token", () => {

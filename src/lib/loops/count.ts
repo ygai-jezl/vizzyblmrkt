@@ -238,15 +238,26 @@ export async function countMade(ctx: TenantContext, kind: LoopKind, made: Made, 
   if (m) await addToWeek(ctx, m.kind, m.tree, "made", opts);
 }
 
+/**
+ * Count a thing the same request made and stored, with no save of a person's between (the brand
+ * kit a guidelines PDF is read into): made and kept against its stamp in one write, as it is in
+ * force as made, or made with why it has none. A route that stores what it made calls this in
+ * place of handing a token back for a save that may never come (decision 20).
+ */
+export async function countMadeKept(ctx: TenantContext, kind: LoopKind, made: Made, opts: CountDeps & { type?: string } = {}): Promise<void> {
+  const m = madeTree(kind, made, opts.type, 1, true);
+  if (m) await addToWeek(ctx, m.kind, m.tree, "made and kept", opts);
+}
+
 /** The counters made things add, under the kind they count for, or null for a stamp that can't name any or a count of none. */
-function madeTree(kind: LoopKind, made: Made, type?: string, n = 1): { kind: LoopKind; tree: CounterTree } | null {
+function madeTree(kind: LoopKind, made: Made, type?: string, n = 1, kept = false): { kind: LoopKind; tree: CounterTree } | null {
   if (!Number.isInteger(n) || n < 1) return null;
   const k = Math.min(n, MADE_AT_ONCE_MAX);
   const t: CounterTree = type && KIND_KEY.test(type) ? { t: { [type]: { made: k } } } : {};
   if ("unstamped" in made) return { kind, tree: { u: { [kind]: { [made.unstamped]: k } }, ...t } };
   const s = countableStamp(made);
   if (!s) return null;
-  return { kind: s.kind, tree: { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: { made: k } } } } }, ...t } };
+  return { kind: s.kind, tree: { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: kept ? { made: k, kept: k } : { made: k } } } } }, ...t } };
 }
 
 /** The signals a person's own image can count: it was never made, kept or edited by YouGrow. */

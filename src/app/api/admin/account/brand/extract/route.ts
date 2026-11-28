@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { countMadeKept, countsFor } from "@/lib/loops/count";
 import { learnedFor } from "@/lib/loops/read";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
@@ -21,7 +21,7 @@ const ExtractSchema = z.object({
   pdfName: z.string().max(300).nullable().optional(),
 });
 
-/** Read the stored brand PDF, AI-extract a structured kit, persist it on the tenant. */
+/** Read the stored brand PDF, AI-extract a structured kit, persist it on the tenant, and count it made and kept. */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;
@@ -67,7 +67,10 @@ export async function POST(req: Request) {
   merged.palette = mergeExtractedPalette(existing?.brandKit?.palette, kit.data.palette);
   merged.fonts = mergeExtractedFonts(existing?.brandKit?.fonts, kit.data.fonts);
   await updateTenantConfig(ctx.tenantId, { brandKit: merged });
-  // Handed to the browser to save later: counted made once and its stamp signed for the save (learning loops step 5, decision 20).
-  const stampToken = await handBack(ctx, "brand_kit", (await learnedFor(ctx, "brand_kit")).stamp);
-  return NextResponse.json(withStampToken({ brandKit: merged }, stampToken));
+  // Stored here, so the extracted kit is the brand's kit whether or not anyone presses Save: it is
+  // counted made and kept at once, and no stamp token goes back for a save that may never come
+  // (learning loops step 5, decision 20). Colours kept from a source keep their tokens, as only a
+  // person's Save stores them.
+  if (countsFor("brand_kit")) await countMadeKept(ctx, "brand_kit", (await learnedFor(ctx, "brand_kit")).stamp);
+  return NextResponse.json({ brandKit: merged });
 }

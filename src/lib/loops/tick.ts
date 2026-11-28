@@ -57,7 +57,9 @@ import { seedBrand } from "./seed";
  *   once, against the brands the heartbeat visited for it (opted out and late ones included).
  * - The lane document keeps the week the learning loops were last turned on in (`loopsOnFrom`):
  *   a run with LOOPS_ENABLED on sets it when it is missing, one with it off takes it away, and no
- *   week before it is reported or listed, as nothing was counted across brands then.
+ *   week before it is reported or listed, as nothing was counted across brands then. With both
+ *   switches off nothing runs the lane, so a run that finds the last one more than
+ *   LANE.GAP_HOURS ago starts it again from its own week too: the loops may have been off between.
  * - Logs: the route adds "brands=<n> rows=<n> heapDeltaMiB=<n>" to its "[tick] loops <ms>ms"
  *   line, and "[loops] fold behind <days>" shows a fold more than 42 days behind.
  * Nothing is kept between brands. Server only.
@@ -81,9 +83,16 @@ export const LANE = {
   LIMIT_SHARE: 0.6,
   /** A brand with nothing due by time is still looked at fully after a week. */
   QUIET_MAX_DAYS: 7,
+  /**
+   * A run that finds the last one longer ago than this sets `loopsOnFrom` to its own week, as
+   * nothing runs the lane with both switches off. The lane runs about every 10 minutes, so only
+   * a long outage reads as a gap too, which can only undercount.
+   */
+  GAP_HOURS: 24,
 } as const;
 
 const MIB = 1024 * 1024;
+const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
 /** A tick the lane runs on: Math.floor(now / 120_000) % 5 === 1. */
@@ -436,8 +445,12 @@ export async function runLoopsLane(opts: { deadlineMs: number }, deps: LoopsLane
 
   const callsToday = doc.day === today ? (doc.calls ?? 0) : 0;
   // The week the learning loops were last turned on in: this run's open week when they just came
-  // on, and none while they are off, so a later turn on starts again from its own week.
-  const loopsOnFrom = loopsOn ? (doc.loopsOnFrom ?? loopWeekOf(now)) : undefined;
+  // on, and none while they are off, so a later turn on starts again from its own week. A run
+  // after a gap (both switches may have been off, and then nothing runs the lane) starts it again
+  // too, so no week from that time is reported or listed.
+  const lastRunMs = doc.at ? Date.parse(doc.at) : NaN;
+  const gap = Number.isFinite(lastRunMs) && now.getTime() - lastRunMs > LANE.GAP_HOURS * HOUR_MS;
+  const loopsOnFrom = loopsOn ? ((gap ? undefined : doc.loopsOnFrom) ?? loopWeekOf(now)) : undefined;
   const fleet = new FleetBuffer();
   const run = { learn: newLearnRun({ deadlineMs: opts.deadlineMs, callsToday }), verdicts: newVerdictRun(), deadlineMs: opts.deadlineMs, fleet, loopsOnFrom };
   await pool(brands, LANE.AT_ONCE, async (row) => {

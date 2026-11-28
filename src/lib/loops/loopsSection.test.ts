@@ -5,8 +5,9 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { FLEET_CELLS, FLEET_READ_MAX } from "@/lib/tenant/fleetCells";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { CARD_SIGNALS } from "./count";
 import { brandWeekReport, creditMark, FleetBuffer } from "./heartbeat";
-import { LOOPS_COPY, loopsData, loopsSection, loopsWeeks, planLabel, readLoopsWeeks, weekLabel, type LoopsData, type LoopsSectionView } from "./loopsSection";
+import { cardWords, LOOPS_COPY, loopsData, loopsSection, loopsWeeks, planLabel, readLoopsWeeks, weekLabel, type LoopsData, type LoopsSectionView } from "./loopsSection";
 import { LOOP_RULES } from "./registry";
 import { ROW_KINDS } from "./stages";
 
@@ -441,6 +442,28 @@ describe("a closed week, every block of screen 6", () => {
     expect(d.industries).toEqual([{ k: "Unknown", v: "17", faint: false }]);
     expect(d.differs).toEqual([LOOPS_COPY.differsNone]);
     expect(d.cleanup).toBe("Brands still holding a look in the old place: 2. It stays there for switching back: a brand's Forget or Reset clears its own, and there is no step yet to clear the rest.");
+  });
+
+  it("says what happened to Go back cards in plain words, an ignored card as one of those closed without an answer", () => {
+    const withCards = (cards: Record<string, number>) =>
+      loopsData(
+        { week: W, orgs: { orgs: 12 }, rows: new Map<string, unknown>([["image_style", { orgs: 12, week: { orgs: 12 }, made: { orgs: 12 }, cards: { orgs: 3, ...cards } }]]) },
+        { meterOn: true, today: NOW, docsUrl: "" },
+      ).cards;
+    const answered = withCards({ proposed: 3, acted: 1, declined: 1 });
+    expect(answered).toEqual([
+      "Organisations with a Go back card in the last 28 days: 3.",
+      "What happened to them this week: suggested 3, went back 1, kept the look 1.",
+      "Declines by reason: fewer than 10 organisations.",
+    ]);
+    const left = withCards({ proposed: 3, expired: 2, ignored: 1 });
+    expect(left[1]).toBe(`What happened to them this week: suggested 3, closed without an answer 2 (1 of them left for ${LOOP_RULES.cardDays} days).`);
+    // No card signal's key shows as a word.
+    for (const line of [...answered, ...left]) {
+      for (const key of CARD_SIGNALS) expect(line, `${key} in ${line}`).not.toMatch(new RegExp(`\\b${key}\\b`, "i"));
+    }
+    expect(cardWords({ ignored: 2 })).toEqual([`left for ${LOOP_RULES.cardDays} days without an answer 2`]);
+    expect(cardWords({})).toEqual([]);
   });
 
   it("lists every line that doesn't learn by its label, with its reason, gaps open and the overdue ones marked", async () => {

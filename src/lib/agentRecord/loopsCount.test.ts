@@ -466,6 +466,16 @@ describe("notes Vizzy suggests in a chat, counted where their records close", { 
       warn.mockRestore();
     }
   });
+
+  it("count no made with the agent record off, as nothing could count their answers", async () => {
+    vi.stubEnv("AGENT_RECORD_ENABLED", "false");
+    const db = new FakeFirestore();
+    const d = deps(db);
+    const r = await agentSuggestNotes(admin, { notes: [{ text: "Buyers order sourdough before the weekend." }, { text: "Most orders come in after a market day." }] }, d);
+    expect(r).toMatchObject({ status: 200, body: { filed: 2 } });
+    expect(await records(db, admin)).toEqual([]);
+    expect(answers(db, admin.tenantId, "brand_notes")).toEqual({});
+  });
 });
 
 describe("a content plan Vizzy drafts, counted only through its pieces", () => {

@@ -21,7 +21,7 @@ import { loopWeekOf } from "./count";
 import { weekBefore } from "./fold";
 import { LOOP_RULES } from "./registry";
 import { IMAGE_POOL, ROW_KINDS } from "./stages";
-import { UNANSWERED } from "./unanswered";
+import { RECORD_OFF_WHY, UNANSWERED } from "./unanswered";
 
 /**
  * get_learning (learning loops step 5, 4.10): Hearth Bakery's own learning by kind, read from its
@@ -230,6 +230,21 @@ describe("status, stuck and the learner", () => {
     expect(e.shares).toBeUndefined();
     expect(e.unanswered).toBe(UNANSWERED.send_time);
     expect(NOTE).toContain("`unanswered` says why");
+  });
+
+  it("gives no shares for journeys Vizzy drafted while the agent record is off, as only the record counts their answers", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    for (const n of [1, 2, 3, 4]) folded(n, words("canvas.journey", { made: 1 }));
+    vi.stubEnv("AGENT_RECORD_ENABLED", "false");
+    const off = entry(await ask({ kinds: ["canvas.journey"] }), "canvas.journey")! as Entry & { unanswered?: string };
+    expect(off.counts).toEqual({ made: 4 });
+    expect(off.shares).toBeUndefined();
+    expect(off.unanswered).toBe(RECORD_OFF_WHY);
+    // With the record on, a person's answer can count, so the shares come back.
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    const on = entry(await ask({ kinds: ["canvas.journey"] }), "canvas.journey")! as Entry & { unanswered?: string };
+    expect(on.unanswered).toBeUndefined();
+    expect(on.shares).toMatchObject({ keptShare: 0, unusedShare: 1 });
   });
 });
 

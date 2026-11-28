@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FLEET_CELLS, fleetCellId } from "@/lib/tenant/fleetCells";
 import { laneMarkId, LOOP_LANE } from "@/lib/tenant/loopLane";
-import { loopDayId, readLaneState } from "@/lib/tenant/loops";
+import { loopDayId, readBrandPointers, readLaneState } from "@/lib/tenant/loops";
 import type { TenantPageRow } from "@/lib/tenant/registry";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { MARK_OUTPUTS_MAX, type LaneMark } from "@/lib/types/loopLane";
+import { setHelpCheck } from "./actions";
 import { loopWeekOf } from "./count";
-import { weekBefore } from "./fold";
+import { weekAfter, weekBefore } from "./fold";
 import {
   brandWeekReport,
   callsSince,
@@ -421,6 +422,43 @@ describe("a brand's heartbeat", () => {
     const next = Object.fromEntries(later.cells().map((c) => [c.id, c.n]));
     expect(next[fleetCellId.calls(w4)]).toMatchObject({ calls: { blog_write: 3 } });
     expect(next[fleetCellId.kind("next_up", w4)]).not.toHaveProperty("unused");
+  });
+
+  it("keeps a time out that starts and ends between two heartbeats out of every report, its calls too", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    let total = 5;
+    const usage = async () => ({ model_tokens: { total: 0, calls: 0, lostCalls: 0, byPurpose: {}, callsByPurpose: { blog_write: total } } });
+    const at = (iso: string) => new Date(iso);
+    const [mon1, tue, fri, mon2, mon3] = ["2026-12-14", "2026-12-15", "2026-12-18", "2026-12-21", "2026-12-28"].map((d) => at(`${d}T09:00:00.000Z`)) as [Date, Date, Date, Date, Date];
+    const [w0, w1, w2] = [weekBefore(loopWeekOf(mon1)), loopWeekOf(tue), loopWeekOf(mon2)] as [string, string, string];
+    // Reported 2026-W50 on Monday; turning the setting on for a brand that was never out keeps nothing.
+    seedWeek(lumen, w0, words("next_up", { made: 1 }));
+    await heartbeat(lumen, row("ten_lumen"), state({ foldedThrough: w0 }), new FleetBuffer(), { db, controlDb: db, now: mon1, usage });
+    expect(await setHelpCheck(lumen, true, { db, now: mon1 })).toEqual({ ok: true, offSince: null });
+    expect((await readLaneState(lumen, db)).optedOutThrough).toBeUndefined();
+    // Out on Tuesday, 6 picks and 500 calls, back in on Friday: the week it ended in is kept on ls:.
+    expect(await setHelpCheck(lumen, false, { db, now: tue })).toMatchObject({ ok: true });
+    total = 505;
+    seedWeek(lumen, w1, words("next_up", { made: 6 }));
+    expect(await setHelpCheck(lumen, true, { db, now: fri })).toEqual({ ok: true, offSince: null });
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: w0, optedOutThrough: w1 });
+    // Monday's heartbeat sends nothing of 2026-W51: the visit only.
+    const out = new FleetBuffer();
+    const r = await heartbeat(lumen, row("ten_lumen"), state({ lane: await readLaneState(lumen, db), pointers: await readBrandPointers(lumen, db), foldedThrough: w1 }), out, { db, controlDb: db, now: mon2, usage });
+    expect(r).toEqual({ weeks: 0, late: 0, optedOut: true });
+    expect(out.cells()).toEqual([{ id: fleetCellId.orgs(w1), n: { visited: 1 } }]);
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: w1, optedOutThrough: w1 });
+    // The week after reports as a first report: no calls from the time out, and none of its 6 picks.
+    total = 507;
+    seedWeek(lumen, w2, words("next_up", { made: 1 }));
+    const back = new FleetBuffer();
+    expect(await heartbeat(lumen, row("ten_lumen"), state({ lane: await readLaneState(lumen, db), foldedThrough: w2 }), back, { db, controlDb: db, now: mon3, usage })).toEqual({ weeks: 1, late: 0 });
+    const cells = Object.fromEntries(back.cells().map((c) => [c.id, c.n]));
+    expect(cells[fleetCellId.calls(w2)]).toBeUndefined();
+    expect(cells[fleetCellId.kind("next_up", w2)]).toMatchObject({ out: { none: { made: 1 } } });
+    // Its windows start after the time out from now on, as optedOutThrough is kept.
+    expect(await readLaneState(lumen, db)).toMatchObject({ heartbeatWeek: w2, optedOutThrough: w1 });
+    expect(reportsFrom(await readLaneState(lumen, db), weekAfter(w2)).week).toBe(weekAfter(w1));
   });
 
   it("reports a brand back after weeks it never reported (the switch was off) as a first report", async () => {

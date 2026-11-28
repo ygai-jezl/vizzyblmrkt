@@ -19,8 +19,8 @@ const week = {
 describe("a week by kind", () => {
   it("adds up made and what people did across scopes, versions and arms", () => {
     const t = tallyByKind(week);
-    expect(t.get("content_write")).toEqual({ made: 10, kept: 4, edited: 3, declined: 1, unstamped: 3, lost: 1, recordsOff: 0 });
-    expect(t.get("post_image")).toEqual({ made: 7, kept: 0, edited: 0, declined: 0, unstamped: 2, lost: 0, recordsOff: 0 });
+    expect(t.get("content_write")).toEqual({ made: 10, kept: 4, edited: 3, declined: 1, noDraft: 0, unstamped: 3, lost: 1, recordsOff: 0 });
+    expect(t.get("post_image")).toEqual({ made: 7, kept: 0, edited: 0, declined: 0, noDraft: 0, unstamped: 2, lost: 0, recordsOff: 0 });
     expect(t.get("blog_write")).toMatchObject({ made: 2 });
     // Types and anything that isn't a counter are left out.
     expect([...t.keys()].sort()).toEqual(["blog_write", "content_write", "post_image"]);
@@ -53,6 +53,17 @@ describe("unused", () => {
     expect(u.get("blog_write")).toBe(2);
     // Never below 0, even when later weeks answer things made later.
     expect(unusedForWeek([week, answers(40)]).get("content_write")).toBe(0);
+  });
+
+  it("never counts a post that went out with no AI draft kept as unused: it was used", () => {
+    // Three Hearth Bakery posts published while CONTENT_AI_DRAFT_KEPT_ENABLED is off: counted no_draft, never kept or edited.
+    const published = { c: { content_write: { content_write: { v0: { none: { made: 3, no_draft: 3 } } } } } };
+    expect(tallyByKind(published).get("content_write")).toMatchObject({ made: 3, noDraft: 3, kept: 0, edited: 0 });
+    expect(unusedForWeek([published, undefined, undefined]).get("content_write")).toBe(0);
+    // One published the week after counts too, as any answer in the two weeks after does.
+    const made = { c: { content_write: { content_write: { v0: { none: { made: 3, no_draft: 1 } } } } } };
+    const later = { c: { content_write: { content_write: { v0: { none: { no_draft: 1 } } } } } };
+    expect(unusedForWeek([made, later, undefined]).get("content_write")).toBe(1);
   });
 
   it("leaves image kinds and their learner to their versions, and kinds with nothing made out", () => {

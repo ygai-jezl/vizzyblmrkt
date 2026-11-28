@@ -15,7 +15,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 }));
 
 const { appendPatternVersionTx, getPatternVersion, listPatternVersions } = await import("@/lib/tenant/patternVersions");
-const { readBrandPointers, runLoopsTransaction, writeBrandPointersTx, LOOP_DAYS } = await import("@/lib/tenant/loops");
+const { readBrandPointers, readLaneState, runLoopsTransaction, writeBrandPointersTx, LOOP_DAYS } = await import("@/lib/tenant/loops");
 const { getAgentAction, listOpenAgentActions } = await import("@/lib/ontology/agentActions");
 const { proposeGoBack, GO_BACK_ACTION } = await import("./cards");
 const { editLook, forgetLook, forgetPreview, forgetUndone, goBackLook, keepLook, setHelpCheck, setImageLearningPaused, undoLook, resumeSuggestions } = await import("./actions");
@@ -133,6 +133,20 @@ describe("the learning setting", () => {
     const pointers = await readBrandPointers(hearth, db);
     expect(pointers.fleetOptOut).toBeUndefined();
     expect(pointers.scopes[NATURAL]?.v).toBe(2);
+    // With the learning loops off nothing is counted across brands, so the lane's state is left as it was.
+    expect(await readLaneState(hearth, db)).toEqual({});
+  });
+
+  it("with the learning loops on, keeps the week a time out ended in on the lane's state, keeping what is there", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    db.seed(LOOP_DAYS, `ls:${hearth.tenantId}`, { tenantId: hearth.tenantId, d: { heartbeatWeek: "2027-W08", runs: 4 } });
+    expect(await setHelpCheck(hearth, false, deps())).toMatchObject({ ok: true });
+    expect(await readLaneState(hearth, db)).toEqual({ heartbeatWeek: "2027-W08", runs: 4 });
+    expect(await setHelpCheck(hearth, true, { ...deps(), now: new Date("2027-03-04T09:00:00.000Z") })).toEqual({ ok: true, offSince: null });
+    expect(await readLaneState(hearth, db)).toEqual({ heartbeatWeek: "2027-W08", runs: 4, optedOutThrough: loopWeekOf(NOW) });
+    // Turned on again while already on: nothing more is kept.
+    expect(await setHelpCheck(hearth, true, { ...deps(), now: new Date("2027-03-20T09:00:00.000Z") })).toEqual({ ok: true, offSince: null });
+    expect((await readLaneState(hearth, db)).optedOutThrough).toBe(loopWeekOf(NOW));
   });
 
   it("does nothing with versions and the learning loops off", async () => {

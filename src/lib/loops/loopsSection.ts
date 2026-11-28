@@ -527,11 +527,30 @@ function stampRows(views: ReadonlyMap<string, KindView>): StampRow[] {
   });
 }
 
-const CARD_ORDER = ["proposed", "acted", "declined", "expired", "ignored"];
-const cardRank = (k: string) => {
-  const i = CARD_ORDER.indexOf(k);
-  return i < 0 ? CARD_ORDER.length : i;
-};
+/**
+ * What happened to Go back cards, in plain words (4.7: the keys stay in get_learning's data). An
+ * ignored card, left the 14 days, is one of the cards closed without an answer, so it is said
+ * with them and never reads as a second outcome.
+ */
+const CARD_WORDS = [
+  ["proposed", "suggested"],
+  ["acted", "went back"],
+  ["declined", "kept the look"],
+  ["expired", "closed without an answer"],
+] as const;
+
+/** A week's Go back card counts as words, in the order a card moves. */
+export function cardWords(cards: Readonly<Record<string, number>>): string[] {
+  const n = (k: string) => Math.max(0, cards[k] ?? 0);
+  const left = n("ignored");
+  const out: string[] = [];
+  for (const [k, words] of CARD_WORDS) {
+    if (n(k) === 0) continue;
+    out.push(k === "expired" && left > 0 ? `${words} ${n(k)} (${Math.min(left, n(k))} of them left for ${LOOP_RULES.cardDays} days)` : `${words} ${n(k)}`);
+  }
+  if (n("expired") === 0 && left > 0) out.push(`left for ${LOOP_RULES.cardDays} days without an answer ${left}`);
+  return out;
+}
 
 function cardLines(views: ReadonlyMap<string, KindView>): string[] {
   let orgs = 0;
@@ -555,9 +574,9 @@ function cardLines(views: ReadonlyMap<string, KindView>): string[] {
   }
   const out = [`Organisations with a Go back card in the last ${LOOP_RULES.stallDays} days: ${orgs || "none"}.`];
   if (orgs > 0) {
-    const what = Object.entries(cards).sort((a, b) => cardRank(a[0]) - cardRank(b[0]) || a[0].localeCompare(b[0]));
+    const what = cardWords(cards);
     if (!cardsShown) out.push(`What happened to them this week: ${LOOPS_COPY.fewer}.`);
-    else if (what.length) out.push(`What happened to them this week: ${what.map(([k, n]) => `${keyWords(k).toLowerCase()} ${n}`).join(", ")}.`);
+    else if (what.length) out.push(`What happened to them this week: ${what.join(", ")}.`);
   }
   const why = Object.entries(declined).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   // Until a kind has 10 organisations that gave a reason, none is shown, nor "none": 0 is under 10 too.

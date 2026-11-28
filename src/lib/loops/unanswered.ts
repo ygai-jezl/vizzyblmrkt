@@ -1,3 +1,4 @@
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import type { LoopKind } from "./registry";
 
 /**
@@ -8,7 +9,8 @@ import type { LoopKind } from "./registry";
  * their counts and why (`unanswered`). A kind leaves this list once a save counts its answers.
  *
  * Image kinds aren't here: votes answer them, and their versions say what went unused. Kinds that
- * count made nowhere (a pick inside a sender, a rule) need no line. Pure.
+ * count made nowhere (a pick inside a sender, a rule) need no line. The kinds only the agent
+ * record answers join them while it is off (RECORD_ONLY, unansweredWhy).
  */
 export const UNANSWERED: Partial<Record<LoopKind, string>> = {
   send_time: "Each email goes out at the time YouGrow picks, and nothing a person does answers that time.",
@@ -43,7 +45,31 @@ export const UNANSWERED: Partial<Record<LoopKind, string>> = {
   "canvas.brand_map": "Vizzy's changes to the brand map keep no stamp, so a dismissal isn't counted against them.",
 };
 
+/**
+ * The kinds whose only answer is the agent record's close (ADR-0026: its lines that count at the
+ * transition, for kinds no other path answers): Vizzy's journeys and lifecycle journeys, a
+ * journey's own style, and the email and image style suggestions. While AGENT_RECORD_ENABLED is
+ * off no record keeps their stamp, so nothing can answer them, and they read as unanswered. The
+ * other transition lines need no place here: Vizzy's notes count no made while the record is off
+ * (src/lib/brandNotes/agentApi.ts), and the product map counts none at all.
+ * src/lib/loops/unanswered.test.ts checks the list against the record's lines.
+ */
+export const RECORD_ONLY: readonly LoopKind[] = ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.email_style", "canvas.image_style"];
+
+/** Why a RECORD_ONLY kind reads as unanswered while the agent record is off. */
+export const RECORD_OFF_WHY = "Its answer is kept on the agent record, which is off on this copy.";
+
+/**
+ * Why no path counts an answer to this kind's made things yet (UNANSWERED, or RECORD_OFF_WHY for a
+ * RECORD_ONLY kind while the agent record is off), or null when one does. Reads the switch each
+ * call, so the heartbeat and get_learning follow the copy as it is now.
+ */
+export function unansweredWhy(kind: string): string | null {
+  if (Object.prototype.hasOwnProperty.call(UNANSWERED, kind)) return UNANSWERED[kind as LoopKind] ?? null;
+  return !isAgentRecordEnabled() && (RECORD_ONLY as readonly string[]).includes(kind) ? RECORD_OFF_WHY : null;
+}
+
 /** Whether no path counts an answer to this kind's made things yet. */
 export function isUnanswered(kind: string): boolean {
-  return Object.prototype.hasOwnProperty.call(UNANSWERED, kind);
+  return unansweredWhy(kind) !== null;
 }

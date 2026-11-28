@@ -14,6 +14,7 @@ import {
   countLearnedSignal,
   countLearnOutcome,
   countMade,
+  countMadeKept,
   countRefusedToken,
   countSignals,
   countsFor,
@@ -32,8 +33,11 @@ import { usedAcrossBrands } from "./used";
  * LOOPS_ENABLED off is today exactly (learning loops step 5, decision 22 of the plan for steps 4
  * and 5), in one place: every way step 5 stamps, counts and reports runs here with the switch off,
  * and nothing reads or writes `loop_days`, `loop_lane` or `fleet_cells` beyond what step 4 already
- * did. With every switch off, as the copy ships, nothing touches the database at all; with image
- * style versions on, the lane is step 4's lane. The senders' own off cases sit beside them
+ * did, but for one read: with the usage meter on, Work's purpose walk reads each brand's learning
+ * setting (`lb:`) to leave out a brand that opted out of counts across brands
+ * (src/lib/work/counted.test.ts). With every switch off, as the copy ships, nothing touches the
+ * database at all; with image style versions on, the lane is step 4's lane. The senders' own off
+ * cases sit beside them
  * (src/lib/lifecycle/runner.test.ts, src/lib/nextUp/pick.test.ts,
  * src/lib/distribute/scheduler.counts.test.ts and src/lib/loops/writers.test.ts). Hearth Bakery
  * is made up.
@@ -102,6 +106,7 @@ describe.each([
       await countSignals(hearth, stamp, { made: 1, kept: 1, edited: 1, declined: 1, undone: 1 }, deps);
       await countMade(hearth, kind, stamp, { ...deps, type: "template", n: 3 });
       await countMade(hearth, kind, { unstamped: "loops_off" }, deps);
+      await countMadeKept(hearth, kind, stamp, deps);
       await countUnstamped(hearth, kind, "loops_off", deps);
       await countUnstamped(hearth, kind, "stamp_lost", deps);
       await countRefusedToken(hearth, kind, "expired", deps);

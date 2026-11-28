@@ -232,9 +232,11 @@ export const LaneStateSchema = z.object({
    */
   heartbeatWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /**
-   * The newest closed week the brand was opted out of the counts across brands for (learning loops
-   * step 5, decision 4): once it opts back in, no week up to it enters a report's window, and its
-   * first report counts no calls from before, so nothing from its time out is ever sent.
+   * The newest week the brand was opted out of the counts across brands for (learning loops step 5,
+   * decision 4): the last closed week a heartbeat found it out, or the week it opted back in
+   * (setHelpCheck), so a time out between two heartbeats keeps its week too. Once it is back, no
+   * week up to it is reported or enters a report's window, and its first report counts no calls
+   * from before, so nothing from its time out is ever sent.
    */
   optedOutThrough: z.string().regex(ISO_WEEK_RE).optional(),
   /**

@@ -38,9 +38,10 @@ Decided:
    email is stamped `send_time`, with an AI line as its root; each invite reads its wave's stamp. A
    stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save
    and counted kept there once per stamp (`keptFromTokens`), for the kinds whose save checks one
-   (`TOKEN_SAVES`: brand voice, the brand kit, its extract and the colours kept from a source on
-   either page, and brand notes); the other hand backs count made and sign no token, so no token
-   goes out that nothing checks.
+   (`TOKEN_SAVES`: brand voice, the brand kit's colours kept from a source on either page, and
+   brand notes); the other hand backs count made and sign no token, so no token goes out that
+   nothing checks. A guidelines PDF's extract stores the kit itself, so its route counts it made
+   and kept at once (`countMadeKept`) and signs no token.
    The other makers (26 files: the brand map, strategy, competitors, blog, notes, onboarding, trending,
    the judge, enrichment, the architect, the content plan, journeys and Your next action) count made
    at their own save with no stamp on their records yet. New unstamped reasons: `nothing_made`,
@@ -275,6 +276,21 @@ Where the build follows the code, not the plan (the plan's intent kept):
   before it is reported, listed or held in a window (a short time off with image style versions
   on included), and the first report after it counts no calls. Stamp coverage says "Nothing was
   made in the last 28 days." in place of an empty table.
+- After review round 6: the brand kit a guidelines PDF is read into is stored by its route, so it
+  counts made and kept there and hands back no token; only colours kept from a source wait for a
+  save. A post that went out with no AI draft kept (`no_draft`) counts as an answer in
+  `unusedForWeek`, so with `CONTENT_AI_DRAFT_KEPT_ENABLED` off published posts never read as
+  unused. Turning Help check that learning works back on, while the loops are on, keeps the week
+  it ended in as `optedOutThrough` on `ls:` (in the same transaction as `lb:`), and the heartbeat
+  sends a week up to it as an opted out week, the visit only, so a time out between two
+  heartbeats sends nothing of that week and no calls from it. A lane run that finds the last one
+  more than a day ago (`LANE.GAP_HOURS`) sets `loopsOnFrom` to its own week, since with both
+  switches off nothing runs the lane to take it away. While `AGENT_RECORD_ENABLED` is off, the
+  kinds only the record answers (`RECORD_ONLY`: Vizzy's journeys and lifecycle journeys, a
+  journey's own style, the email and image style suggestions) read as unanswered
+  (`unansweredWhy`), with no unused and no shares, and Vizzy's notes count no made. The Loops
+  section says what happened to Go back cards in plain words (suggested, went back, kept the
+  look, closed without an answer), an ignored card as one of those closed.
 
 Enforced where:
 
@@ -317,7 +333,8 @@ from 10 organisations, so they can't say when a task's outputs since Done reach 
 that falls due on a count needs a run that counts before the check shows. They move to the
 company retro (step 6), with a per brand made count since Done. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
 product journeys, a journey's own style and the email and image style suggestions keep theirs only
-on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted. An email named by its enrolment keeps its
+on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted: they count
+made with no unused or shares then, and Vizzy's notes count no made. An email named by its enrolment keeps its
 stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not
 counted, and a failed synthesis writes no line. An operator path for agents waits for the company
 retro (step 6), decline reasons for other kinds for the edits loop (step 7), and fleet defaults,
@@ -327,7 +344,9 @@ What follows: two new collections in the control plane, `fleet_cells` and `loop_
 organisation marks; the 4 step 5 field exemptions written in ADR-0028's deploy, deployed only when
 the owner says; one switch, off; and one Vizzy tool, which needs a redeploy (asked first). No new
 service, Function, scheduler job, secret, dependency, rule change or composite index. With the
-switch off, one thing changes for everyone: the post pattern judge defers. The privacy page line
+switch off, two things change for everyone: the post pattern judge defers, and Work's Used
+{purpose} walk reads each brand's learning setting (`lb:`, one regional read a brand on a due
+check) and leaves out the brands that opted out of counts across brands. The privacy page line
 and the DPA's aggregate statistics clause, checked by counsel, must be live before `LOOPS_ENABLED`
 is on in prod. `docs/ONTOLOGY.md` gains `fleet_cell`, `loop_lane` and `get_learning` for `loop_day`.
 

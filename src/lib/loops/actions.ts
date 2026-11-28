@@ -2,7 +2,7 @@ import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { removeFromIndex } from "@/lib/search/indexer";
 import { forTenant, transitionAgentAction } from "@/lib/tenant";
-import { loopDayId, readBrandPointers, readBrandPointersTx, readLoopDays, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
+import { loopDayId, readBrandPointers, readBrandPointersTx, readLoopDays, readLoopDaysTx, runLoopsTransaction, setLoopDayTx, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { appendPatternVersionTx, excludeOnVersionTx, getPatternVersion, listPatternVersions, readPatternVersionTx, removeWordsTx } from "@/lib/tenant/patternVersions";
 import { getTenantPageRow, type TenantPageRow } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext, TransactionLike } from "@/lib/tenant/types";
@@ -12,7 +12,7 @@ import { EVIDENCE_IDS_MAX, type LearnedItem, type LearnedPatternVersion } from "
 import { VersionTotalsSchema, type BrandPointers } from "@/lib/types/loopDay";
 import { goBackOf, openGoBackCards, supersedeGoBackCards } from "./cards";
 import { clearOldCopy } from "./oldCopy";
-import { countCard, countVersionSignal } from "./count";
+import { countCard, countVersionSignal, loopWeekOf } from "./count";
 import { isLoopsEnabled } from "./flags";
 import { BRAND_SCOPE } from "./read";
 import { IMAGE_STYLE_SCOPES, type ImageStyleScope } from "./registry";
@@ -432,16 +432,32 @@ export async function forgetUndone(ctx: TenantContext, scope: unknown, deps: Act
  * of counts across brands); on takes it away. The brand's own learning carries on either way. It
  * works while image style versions or the learning loops are on, so a brand can always leave the
  * counts across brands while they run (decision 4).
+ *
+ * Turned back on while the learning loops are on, the open week its time out reached goes on the
+ * lane's state (`optedOutThrough` on `ls:`, in the same transaction, as both live in the brand's
+ * region), so a time out that starts and ends between two heartbeats still keeps that week, and
+ * the calls made in it, out of every report (heartbeat.ts).
  */
 export async function setHelpCheck(ctx: TenantContext, on: boolean, deps: ActionDeps = {}): Promise<ActionResult> {
   if (!isImageStyleVersionsOn() && !isLoopsEnabled()) return fail("switch");
-  const at = (deps.now ?? new Date()).toISOString();
+  const now = deps.now ?? new Date();
+  const at = now.toISOString();
   return inTransaction(ctx, deps, async (txn) => {
     const pointers = await readBrandPointersTx(txn, ctx, deps.db);
     if (on) {
-      const { fleetOptOut: _was, ...rest } = pointers;
-      void _was;
+      const { fleetOptOut: was, ...rest } = pointers;
+      const back = Boolean(was) && isLoopsEnabled();
+      const laneId = loopDayId.lane(ctx.tenantId);
+      // Read before any write, as a transaction needs.
+      const [lane] = back ? await readLoopDaysTx(txn, ctx, [laneId], deps.db) : [null];
       writeBrandPointersTx(txn, ctx, rest, deps.db);
+      if (back) {
+        const d: Record<string, unknown> = lane?.d && typeof lane.d === "object" && !Array.isArray(lane.d) ? { ...lane.d } : {};
+        const week = loopWeekOf(now);
+        // Never moved back from a later week kept before.
+        const through = typeof d.optedOutThrough === "string" && d.optedOutThrough > week ? d.optedOutThrough : week;
+        setLoopDayTx(txn, ctx, laneId, { ...d, optedOutThrough: through }, {}, deps.db);
+      }
       return { ok: true, offSince: null };
     }
     const offSince = pointers.fleetOptOut?.at ?? at;

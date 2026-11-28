@@ -11,6 +11,7 @@ import {
   countLearnOutcome,
   countLostStamp,
   countMade,
+  countMadeKept,
   countRefusedToken,
   countSignal,
   countSignals,
@@ -105,7 +106,21 @@ describe("several records from one save (the stamp scan, step 5)", () => {
   it("counts nothing with LOOPS_ENABLED off (decision 22)", async () => {
     const db = new FakeFirestore();
     await countMade(hearth, "templates", templates, { db, now: NOW, type: "template", n: 3 });
+    await countMadeKept(hearth, "brand_kit", { ...templates, made: "m1.brand_kit.0.n", kind: "brand_kit", scope: "brand_kit" }, { db: untouchable, now: NOW });
     expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({});
+  });
+});
+
+describe("a thing its own route stores (the brand kit a guidelines PDF is read into)", () => {
+  const kit: LoopStamp = { made: "m1.brand_kit.0.n", kind: "brand_kit", scope: "brand_kit", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, at: "2027-01-15T09:00:00.000Z" };
+
+  it("counts made and kept at once, in one write, so a kit in force never reads as unused; with no stamp, made with why", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await countMadeKept(hearth, "brand_kit", kit, { db, now: NOW, random: () => 0 });
+    expect(db.dump(LOOP_DAYS)).toHaveLength(1);
+    await countMadeKept(hearth, "brand_kit", { unstamped: "loops_off" }, { db, now: NOW, random: () => 0 });
+    expect(sumWeek(db, hearth.tenantId, WEEK)).toEqual({ c: { brand_kit: { brand_kit: { v0: { none: { made: 1, kept: 1 } } } } }, u: { brand_kit: { loops_off: 1 } } });
   });
 });
 

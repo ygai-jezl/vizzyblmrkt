@@ -542,9 +542,10 @@ export interface HeartbeatResult {
 /**
  * Report the brand's closed weeks not yet reported, into the run's buffer. Nothing with
  * LOOPS_ENABLED off, or before the week is folded. Never throws for the brand's own trouble.
- * `loopsOnFrom`: the week the learning loops were last turned on in (the lane's document). Weeks
- * before it were kept while LOOPS_ENABLED was off, with image style versions on or nothing at
- * all, so they send nothing: they are marked done, and the next report's window starts there.
+ * `loopsOnFrom`: the week the learning loops were last turned on in (the lane's document, set
+ * again after a gap between the lane's runs). Weeks before it were kept while LOOPS_ENABLED was
+ * off, with image style versions on or nothing at all, so they send nothing: they are marked done,
+ * and the next report's window starts there.
  */
 export async function heartbeat(
   ctx: TenantContext,
@@ -570,8 +571,14 @@ export async function heartbeat(
   // Opted out: nothing of the brand's is sent, and the weeks are marked done, and marked as its
   // time out (optedOutThrough), so a report once it opts back in sends nothing from them. The
   // visit itself counts, as brands listed count every brand, so coverage compares like with like.
-  if (state.pointers.fleetOptOut) {
-    const kept = await mergeLaneState(ctx, { heartbeatWeek: last, optedOutThrough: last }, deps.db).then(
+  // A time out that has ended since (setHelpCheck keeps the week it ended in, which may be after
+  // the last heartbeat) is sent the same way, week by week: its weeks are the visit only.
+  const outThrough = state.lane.optedOutThrough;
+  const outWeeks = state.pointers.fleetOptOut ? weeks : weeks.filter((w) => outThrough !== undefined && w <= outThrough);
+  const inWeeks = weeks.slice(outWeeks.length);
+  if (inWeeks.length === 0) {
+    const through = outThrough && outThrough > last ? outThrough : last;
+    const kept = await mergeLaneState(ctx, { heartbeatWeek: last, optedOutThrough: through }, deps.db).then(
       () => true,
       (err: unknown) => {
         warn("keeping the heartbeat's week", err);
@@ -591,11 +598,11 @@ export async function heartbeat(
   }
 
   // The window's folded weeks, and the totals of the looks in use, in one batched read.
-  let start = weeks[0]!;
+  let start = inWeeks[0]!;
   for (let i = 1; i < STAGE_WEEKS; i++) start = weekBefore(start);
   const windowWeeks: string[] = [];
   for (let w = start; w <= last; w = weekAfter(w)) windowWeeks.push(w);
-  const from = reportsFrom(state.lane, weeks[0]!, onFrom);
+  const from = reportsFrom(state.lane, inWeeks[0]!, onFrom);
   // Weeks before `from.week` enter no report: they add no stage, unused thing, refusal or card.
   const readWeeks = from.week ? windowWeeks.filter((w) => w >= from.week!) : windowWeeks;
   // With image style versions off, images use the look on the brand record (decision 22), so no
@@ -631,7 +638,7 @@ export async function heartbeat(
   const oldCopy = holdsOldLook(row);
   // Each folded week is read by row once, however many reports' windows hold it.
   const byRow = new Map(windowWeeks.map((w) => [w, rowsOfWeek(folded.get(w))]));
-  const reports = weeks.map((week, i) => {
+  const reports = inWeeks.map((week, i) => {
     const ws: string[] = [];
     let w = week;
     for (let k = 0; k < STAGE_WEEKS; k++, w = weekBefore(w)) ws.unshift(w);
@@ -642,7 +649,7 @@ export async function heartbeat(
       looks,
       plan,
       industry,
-      calls: i === weeks.length - 1 ? (calls?.delta ?? {}) : {},
+      calls: i === inWeeks.length - 1 ? (calls?.delta ?? {}) : {},
       oldCopy,
     });
   });
@@ -665,7 +672,7 @@ export async function heartbeat(
     warn("keeping the heartbeat's week", err);
     return none;
   }
-  // Each week the brand claimed, counted once: reported or late, against brands listed.
+  // Each week the brand claimed, counted once: reported, late or out, against brands listed.
   for (const week of weeks) buffer.add(week, `${FLEET_ROWS.orgs}/visited`, 1);
 
   // 3. The organisation's mark, one transaction a week.

@@ -6,11 +6,11 @@ import { signStamp, verifyStamps } from "./stamp";
 
 /**
  * Outputs handed to the browser and saved later (learning loops step 5, decision 20 and 4.2 of the
- * plan for steps 4 and 5): email assist, Edit mode Vizzy, the brand voice and brand kit drafts,
- * notes extract, Suggest an angle, the email layout and the email images. The route that makes
- * one counts it made once; for a kind whose save checks a token (TOKEN_SAVES) it also hands back
- * its stamp as a signed token beside the output, and the save route checks the token and counts
- * what the person saved kept against it (keptFromTokens).
+ * plan for steps 4 and 5): email assist, Edit mode Vizzy, the brand voice draft, the brand kit's
+ * colours from a source, notes extract, Suggest an angle, the email layout and the email images.
+ * The route that makes one counts it made once; for a kind whose save checks a token (TOKEN_SAVES)
+ * it also hands back its stamp as a signed token beside the output, and the save route checks the
+ * token and counts what the person saved kept against it (keptFromTokens).
  *
  * With the kind's switch off (decision 22) nothing is counted, signed or read: no token goes out,
  * and a save reads no key. A token is good for LOOP_RULES.stampTokenDays and its signature covers
@@ -29,8 +29,9 @@ export interface HandBackDeps {
 export const SAVE_TOKENS_MAX = 20;
 
 /**
- * The kinds whose save checks a stamp token today: brand voice, the brand kit (its extract and the
- * colours kept from a source, both saved with Brand settings) and brand notes. Every other hand
+ * The kinds whose save checks a stamp token today: brand voice, the brand kit (the colours kept
+ * from a source, saved with Brand settings or Colours; a guidelines PDF's extract stores its kit
+ * itself and counts it made and kept at once, countMadeKept) and brand notes. Every other hand
  * back (email assist, Edit mode Vizzy, the email layout, hero and block image, Suggest an angle)
  * counts made but signs no token, since no save would check it, and a token would read the
  * brand's key for nothing. A kind joins once its save sends `x-stamp-tokens` and checks them.

@@ -95,6 +95,8 @@ export interface HelpBodyProps {
   work?: boolean;
   /** Vizzy's Work tools: suggestions in Review and drafts in chat (isWorkVizzyEnabled(), a server switch, from the shell too). */
   workVizzy?: boolean;
+  /** A task opens in place on Work's list (isWorkQuickEditEnabled(), a server switch, from the shell too). */
+  workQuickEdit?: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), a server switch: the drawer gets it from the admin shell). */
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */

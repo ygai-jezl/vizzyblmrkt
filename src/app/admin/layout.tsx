@@ -53,7 +53,7 @@ import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { isRaiseKitEnabled, isVizzyRaiseEnabled } from "@/lib/raise/docs/flags";
 import { isPasteEnabled, isVizzyPasteEnabled } from "@/lib/crm/paste/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
-import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
+import { isWorkEnabled, isWorkQuickEditEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -248,6 +248,7 @@ export default async function AdminLayout({
             join={isOrganisationJoinEnabled()}
             work={work}
             workVizzy={isWorkVizzyEnabled()}
+            workQuickEdit={isWorkQuickEditEnabled()}
             onboarding={isOnboardingEnabled()}
             onboardingVoice={isOnboardingVoiceEnabled()}
             settingsHistory={isSettingsHistoryEnabled()}

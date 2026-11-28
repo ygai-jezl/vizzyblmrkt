@@ -52,6 +52,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     join: shell?.join ?? false,
     work: shell?.work ?? false,
     workVizzy: shell?.workVizzy ?? false,
+    workQuickEdit: shell?.workQuickEdit ?? false,
     ideas: shell?.ideas ?? false,
     ideaWords: shell?.ideaWords ?? false,
     onboarding: shell?.onboarding ?? false,

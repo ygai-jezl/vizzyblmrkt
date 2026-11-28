@@ -2,7 +2,7 @@ import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
-import { isWorkVizzyEnabled } from "@/lib/work/flags";
+import { isWorkQuickEditEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { DRAFT_COPY } from "@/lib/work/draft";
 import { carriedLine, carryOverLabel, IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
 import { COMPANY_STAGES } from "@/lib/work/stages";
@@ -16,7 +16,9 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * know it worked, checks, import, and Work in Review. The lines about Vizzy suggesting tasks and
  * drafting Log notes and decisions show while Vizzy's Work tools are on (WORK_VIZZY_ENABLED, a server
  * switch: the How to drawer passes the shell's answer). "Make it an idea" is in the words people
- * read (ideaWords). Every business named is made up, and the words it quotes are the app's own.
+ * read (ideaWords). With quick edit on (WORK_QUICK_EDIT_ENABLED, a server switch passed the same
+ * way), Your tasks says how a task opens in place on the list and how each field saves there.
+ * Every business named is made up, and the words it quotes are the app's own.
  */
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -44,7 +46,7 @@ const CANT_COUNT = countedLine({
   timeZone: "Europe/London",
 });
 
-export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords = isIdeaWordsEnabled(), workQuickEdit = isWorkQuickEditEnabled() }: HelpBodyProps = {}) {
   const word = ideaWord(ideaWords);
   const reasons = DECLINE_WHY_CHOICES.map((r) => r.label);
   return (
@@ -96,7 +98,14 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           a description and notes, the stage, the brand, <strong>Must have</strong>, Connected to and Other links, what it waits
           for, a check and How we&apos;ll know it worked. Press <strong>Add task</strong>.
         </li>
-        <li>Open a task from the list to see its own page. All tasks takes you back.</li>
+        {workQuickEdit ? (
+          <li>
+            Click any part of a task&apos;s row to open it right there, under the row, with everything its page has. See{" "}
+            <strong>Change a task in the list</strong>, below.
+          </li>
+        ) : (
+          <li>Open a task from the list to see its own page. All tasks takes you back.</li>
+        )}
       </Steps>
       <UL>
         <li>
@@ -115,8 +124,9 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           all done, a To do task shows in Review under Ready to start.
         </li>
         <li>
-          On a task&apos;s page, press <strong>Edit</strong> beside Description to change the title, description and notes. A
-          command in the description written between backticks gets a <strong>Copy</strong> button.
+          On a task&apos;s {workQuickEdit ? "full page" : "page"}, press <strong>Edit</strong> beside Description to change the
+          title, description and notes{workQuickEdit ? "; in the list, click them instead" : ""}. A command in the description
+          written between backticks gets a <strong>Copy</strong> button.
         </li>
         <li>
           The line under the title says where the task came from, such as &quot;Added by you on 18 Nov.&quot; or &quot;Imported
@@ -132,6 +142,49 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           Admins and owners can press <strong>Delete task</strong>. Its history stays in the Log.
         </li>
       </UL>
+      {workQuickEdit ? (
+        <>
+          <H3>Change a task in the list</H3>
+          <UL>
+            <li>
+              Click a task&apos;s row and it opens under the row. One row is open at a time. Click the cell you want to change,
+              such as Status, Stage, Brand, Blocked by or Check, and that field is ready to use. The task&apos;s number, or the
+              title, opens it at its heading. Cmd or Ctrl click on the title opens its full page in a new tab, and{" "}
+              <strong>{WORK_COPY.openFull}</strong> goes there too.
+            </li>
+            <li>
+              Click the title to rename it: Enter saves, Esc puts the old title back, and an empty title isn&apos;t saved.
+              Click the description or the notes, or <strong>Edit</strong>, to change them: Enter is a new line, and clicking
+              elsewhere or Cmd+Enter (Ctrl+Enter on Windows) saves. Esc puts back what was there, with{" "}
+              <strong>{WORK_COPY.undo}</strong>.
+            </li>
+            <li>
+              Status and Must have save the moment you pick. Stage and Brand save half a second after your last pick, and a
+              link as you add or remove it. The check, Blocked by, How we&apos;ll know it worked and a decision save with{" "}
+              <strong>Save</strong>.
+            </li>
+            <li>
+              Make several changes in a row, as fast as you like: they save one after another. The line under the heading says
+              Saving…, then Saved, or what Work did besides, such as the check Done set.
+            </li>
+            <li>
+              <strong>{WORK_COPY.closeRow}</strong>, the task&apos;s number or Esc closes the row. Esc closes the innermost thing
+              first: a list of choices, then an editor, then the row. Closing, opening another row or changing a filter waits
+              for saves to finish, and an editor with changes asks first: &quot;Check has changes that aren&apos;t saved.&quot;
+              Press <strong>{WORK_COPY.keepEditing}</strong> or <strong>{WORK_COPY.discard}</strong>.
+            </li>
+            <li>
+              The list holds still while you work down it: changed rows stay where they are, new tasks appear on top, and{" "}
+              <strong>{WORK_COPY.sortAgain}</strong> shows beside the order line once anything would move. Changing a filter or
+              reloading the page sorts afresh.
+            </li>
+            <li>
+              A task that no longer matches your filters, such as one set Done under Status Open, stays where it is until you
+              close it, saying &quot;{WORK_COPY.keptNote}&quot;
+            </li>
+          </UL>
+        </>
+      ) : null}
       <H3>Who sees which tasks</H3>
       <UL>
         <li>In an organisation with one brand, everyone on the team sees every task.</li>
@@ -553,6 +606,12 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
             ? ([
                 [WORK_MESSAGES.suggestion_decided, "Someone on your team added or dismissed it a moment ago. Refresh Review."],
                 [DRAFT_COPY.logDraftGone, "Ask Vizzy to draft the note again, or type it in the Log box yourself."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(workQuickEdit
+            ? ([
+                [WORK_COPY.rowChanged, "Read their change in the row, then save your text again, or press Esc to put it back."],
+                [WORK_COPY.rowChangedPick, "Read their change in the row, then pick again if yours still holds."],
               ] as Array<[string, string]>)
             : []),
         ]}

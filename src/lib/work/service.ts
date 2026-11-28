@@ -194,6 +194,26 @@ interface Loaded {
  * brand it reads by equality alone and the caller sorts.
  */
 export async function loadTasks(scope: WorkScope, opts: { brandId: string | null | undefined; allClosed: boolean }, deps: WorkDeps): Promise<Loaded> {
+  const shared = deps.shared;
+  if (!shared) return readTasks(scope, opts, deps);
+  // The same read in one page load is read once: the list's, and the open row's pickers and blockers.
+  const key = [scope.organisationId, scope.userId, scope.view, opts.brandId === undefined ? "*" : (opts.brandId ?? "none"), opts.allClosed ? "all" : "recent"].join("|");
+  let read = shared.loads.get(key) as Promise<Loaded> | undefined;
+  if (!read) {
+    shared.reads += 1;
+    read = readTasks(scope, opts, deps);
+    shared.loads.set(key, read);
+  }
+  const l = await read;
+  return { ...l, tasks: [...l.tasks] };
+}
+
+/** What the add page and the task page read to offer open tasks: every brand the person sees, open ones and the newest closed. */
+export function pickerReadOf(scope: WorkScope): { brandId: string | undefined; allClosed: false } {
+  return { brandId: scope.view === "brand" ? scope.session.id : undefined, allClosed: false };
+}
+
+async function readTasks(scope: WorkScope, opts: { brandId: string | null | undefined; allClosed: boolean }, deps: WorkDeps): Promise<Loaded> {
   const brandOpt = opts.brandId === undefined ? {} : { brandId: opts.brandId };
   const [open, closed, checks] = await Promise.all([
     listWorkTasks(scope.organisationId, { open: true, ...brandOpt }, deps),
@@ -348,6 +368,22 @@ function statusMatches(f: WorkFilters["status"], t: WorkTask, now: Date): boolea
   return t.status === f;
 }
 
+/** Whether the list shows this task under these filters (the brand one included, which the list reads by). */
+export function shownOn(filters: WorkFilters, v: Pick<WorkTaskView, "task" | "due">, now: Date): boolean {
+  const brandOk = filters.brand === null || (filters.brand === "none" ? v.task.brandId === null : v.task.brandId === filters.brand);
+  return brandOk && matchesFilters(filters, v, now);
+}
+
+function matchesFilters(filters: WorkFilters, v: Pick<WorkTaskView, "task" | "due">, now: Date): boolean {
+  return (
+    (statusMatches(filters.status, v.task, now) || (filters.due && v.due)) &&
+    (!filters.stage || (filters.stage === "none" ? v.task.stage === null : v.task.stage === filters.stage)) &&
+    (!filters.mustHave || v.task.mustHave) &&
+    (!filters.due || v.due) &&
+    (!filters.kind || (filters.kind === "none" ? v.task.measure === null : v.task.measure?.kind === filters.kind))
+  );
+}
+
 /** The one list, filtered, in its order. */
 export async function listTasks(scope: WorkScope, filters: WorkFilters, deps: WorkDeps = {}): Promise<WorkResult<WorkList>> {
   const brand = brandFilterOf(scope, filters.brand);
@@ -357,14 +393,7 @@ export async function listTasks(scope: WorkScope, filters: WorkFilters, deps: Wo
   const down = new Set(loaded.unanswered);
   const map = await lookupMap(scope, loaded.tasks, wantedOf(loaded.tasks), deps, down);
   const views = loaded.tasks.map((t) => viewOf(scope, t, map, now));
-  const shown = views.filter(
-    (v) =>
-      (statusMatches(filters.status, v.task, now) || (filters.due && v.due)) &&
-      (!filters.stage || (filters.stage === "none" ? v.task.stage === null : v.task.stage === filters.stage)) &&
-      (!filters.mustHave || v.task.mustHave) &&
-      (!filters.due || v.due) &&
-      (!filters.kind || (filters.kind === "none" ? v.task.measure === null : v.task.measure?.kind === filters.kind)),
-  );
+  const shown = views.filter((v) => matchesFilters(filters, v, now));
   shown.sort(listOrder);
   return ok({
     view: scope.view,
@@ -501,10 +530,25 @@ export interface WorkTaskPage extends WorkTaskView {
 
 /** One task, with its decisions, its plan links' approvals and the count on a due measure's check. */
 export async function taskPage(scope: WorkScope, ref: number, deps: WorkDeps = {}): Promise<WorkResult<WorkTaskPage>> {
+  const r = await readTaskPage(scope, ref, deps);
+  return "unread" in r ? refuse("not_found") : r;
+}
+
+/**
+ * The same, or the regions that didn't answer when no region that did holds the task: the open
+ * row on the list says so, where the task page and its route say not found. With a shared read
+ * (the open row's), the tasks it names are looked up in it first, not one by one in each region.
+ */
+export async function readTaskPage(scope: WorkScope, ref: number, deps: WorkDeps = {}): Promise<WorkResult<WorkTaskPage> | { unread: RegionDown[] }> {
   const found = await findWorkTaskByRef(scope.organisationId, ref, deps);
+  if (!found.task && found.unanswered.length) return { unread: downOf(found.unanswered) };
   if (!found.task || !seesTask(scope, found.task)) return refuse("not_found");
   const task = await countDueCheck(scope, found.task, deps);
-  const [stored, map] = await Promise.all([listTaskDecisions(scope.organisationId, task.region, task.id, deps), lookupMap(scope, [task], wantedOf([task]), deps)]);
+  const known = deps.shared ? loadTasks(scope, pickerReadOf(scope), deps).then((l) => l.tasks) : Promise.resolve<WorkTask[]>([]);
+  const [stored, map] = await Promise.all([
+    listTaskDecisions(scope.organisationId, task.region, task.id, deps),
+    known.then((tasks) => lookupMap(scope, [...tasks, task], wantedOf([task]), deps)),
+  ]);
   const decisions = [...stored].sort(decisionOrder);
   const ids = [
     task.origin.kind === "coding_agent" ? null : task.origin.by,
@@ -513,10 +557,9 @@ export async function taskPage(scope: WorkScope, ref: number, deps: WorkDeps = {
     ...task.recent.map((r) => r.who.id),
     ...decisions.map((d) => d.decision.chosen?.by),
   ];
-  const names: Record<string, string> = {};
-  for (const b of scope.brands.slice(0, 5)) {
-    Object.assign(names, await teamMemberNames({ tenantId: b.id, region: b.region, source: "system" }, ids, { db: deps.controlDb, lookup: deps.lookup }));
-  }
+  // Each brand's team names, read side by side and kept in the brands' order, as one after another did.
+  const per = await Promise.all(scope.brands.slice(0, 5).map((b) => teamMemberNames({ tenantId: b.id, region: b.region, source: "system" }, ids, { db: deps.controlDb, lookup: deps.lookup })));
+  const names: Record<string, string> = Object.assign({}, ...per);
   const brand = brandForTask(scope, task);
   const repos = brand ? brand.repos : scope.brands.flatMap((b) => b.repos);
   return ok({

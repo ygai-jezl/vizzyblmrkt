@@ -13,6 +13,8 @@ import { isAssetTranslationsEnabled } from "./flags";
 import { brandLanguages, languageReaders, minReadersOf } from "./languageReaders";
 import { DEFAULT_LOCALE, normalizeLocale, resolveCampaignLocale } from "./locale";
 import { TRANSLATE_TIMEOUT_MS, translateEmail, translationUsage, type TranslateInput, type TranslateResult } from "./translate";
+import { ARTICLE_TRANSLATE_TIMEOUT_MS, type ArticleTranslateInput, type ArticleTranslateResult } from "./translateArticle";
+import { translateArticleOne } from "./articleTranslations";
 
 /**
  * The translations lane of the lifecycle tick (ASSET_TRANSLATIONS_ENABLED). It runs on every tick,
@@ -52,6 +54,7 @@ export interface TranslationsDeps {
   now?: () => number;
   listTenants?: () => Promise<Tenant[]>;
   translate?: (input: TranslateInput) => Promise<TranslateResult>;
+  translateArticle?: (input: ArticleTranslateInput) => Promise<ArticleTranslateResult>;
   log?: (line: string) => void;
 }
 
@@ -261,7 +264,14 @@ export async function runTranslations(opts: { deadlineMs: number }, deps: Transl
       const queued = await repo.translations.find({ where: [["state", "==", "queued"]], limit: LANE.CALLS_PER_RUN + 1 });
       for (const q of queued) {
         if (calls >= LANE.CALLS_PER_RUN || opts.deadlineMs - clock() < LANE.MIN_START_MS) break;
-        const outcome = await translateOne(ctx, t, q.id, { db: deps.db, nowMs: clock(), translate: deps.translate });
+        // An article needs a longer call: it waits for a run with time for one (PAGE_LANGUAGES_ENABLED).
+        if (q.kind === "article" && opts.deadlineMs - clock() < ARTICLE_TRANSLATE_TIMEOUT_MS + 5_000) continue;
+        const outcome =
+          q.kind === "article"
+            ? await translateArticleOne(ctx, t, q.id, { db: deps.db, nowMs: clock(), deadlineMs: opts.deadlineMs, dailyCap: LANE.DAILY_CAP, translate: deps.translateArticle })
+            : q.kind === "journey_email"
+              ? await translateOne(ctx, t, q.id, { db: deps.db, nowMs: clock(), translate: deps.translate })
+              : "busy";
         if (outcome === "made" || outcome === "failed") calls += 1;
         if (outcome === "made") result.made += 1;
         if (outcome === "failed") result.failed += 1;

@@ -10,6 +10,7 @@ import { keepApprovedSeen } from "./hubActions";
 import { syncPlanPageSoftly } from "./pageActions";
 import { recordApproval } from "@/lib/content/create/aiOriginals";
 import { keepApprovedExample } from "@/lib/content/create/approvedExamples";
+import { queuePlanArticles } from "@/lib/i18n/articleTranslations";
 
 /**
  * Found live (BLOG_LIVE_WATCH_ENABLED): an article up on the brand's site was accepted by the
@@ -96,6 +97,8 @@ export async function writeLiveMark(
   const after = await getContentPlan(ctx, workspaceId, plan.id, deps.db).catch(() => null);
   await syncPlanPageSoftly(ctx, { workspaceId, planId: plan.id, ...(after ? { plan: after } : {}) }, { db: deps.db });
   if (after) {
+    // Approved by being found live: its versions in other languages are made (PAGE_LANGUAGES_ENABLED).
+    await queuePlanArticles(ctx, { workspaceId, plan: after }, deps.db);
     await keepApprovedSeen(ctx, { workspaceId, before: plan, after }, { db: deps.db });
     indexPlanAfterSave(ctx, after);
     await closeDraftRows(ctx, after, { db: deps.db });

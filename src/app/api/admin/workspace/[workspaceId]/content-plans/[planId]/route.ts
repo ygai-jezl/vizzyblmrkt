@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { forgetPlanTranslations } from "@/lib/i18n/articleTranslations";
+import { forgetPlanTranslations, queuePlanArticles } from "@/lib/i18n/articleTranslations";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
 import { forgetPlanExamples, forgetRemovedExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
@@ -107,6 +107,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
   // Each piece approved in this save keeps its AI original beside the approved copy (CONTENT_AI_ORIGINALS_ENABLED).
   await recordApprovals(ctx, { before: plan, after: updated });
+  // An approved article whose words changed queues its versions in other languages (PAGE_LANGUAGES_ENABLED).
+  await queuePlanArticles(ctx, { workspaceId, plan: updated });
   // Each workflow email and hub piece approved in this save becomes an example its writer follows (CONTENT_APPROVED_EXAMPLES_ENABLED).
   await keepApprovedExamples(ctx, { workspaceId, before: plan, after: updated });
   // A piece this save took off the canvas takes its example with it, even one kept before the switch went off.

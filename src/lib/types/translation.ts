@@ -115,6 +115,10 @@ export const ArticleTranslationSchema = z.object({
   address: z.string().max(2000).nullable(),
   /** Set by Found live once this version is seen at its address. */
   live: VersionLiveSchema.nullable(),
+  /** The byline on the source's date line, written again in the target language. */
+  author: z.object({ name: z.string().max(120), role: z.string().max(120).nullable() }).nullable().optional(),
+  /** Names that must not change: the brand, its products. */
+  glossary: z.array(z.string().max(120)).max(20).optional(),
 });
 export type ArticleTranslation = z.infer<typeof ArticleTranslationSchema>;
 

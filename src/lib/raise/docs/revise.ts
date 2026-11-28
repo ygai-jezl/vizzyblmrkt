@@ -138,27 +138,75 @@ function digitValue(cp: number): number {
   return (cp - start) % 10;
 }
 
-/** The quote with plain marks: full-width forms as ASCII, any script's digits as 0 to 9, Arabic marks as "." and ",", every space as " ". */
+/**
+ * The quote with plain marks: full-width forms as ASCII, any script's digits as 0 to 9, Arabic marks
+ * as "." and ",", an acute accent or prime between thousands as an apostrophe, every space as " ".
+ */
 function plainMarks(quote: string): string {
   return quote
     .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
     .replace(/\p{Nd}/gu, (ch) => String(digitValue(ch.codePointAt(0)!)))
     .replace(/٫/g, ".")
-    .replace(/٬/g, ",")
+    .replace(/[٬،]/g, ",")
+    .replace(/[´′ʼ]/g, "'")
     .replace(/\p{Zs}/gu, " ");
 }
 
 /** Scripts written without spaces between words, where a letter can sit right before a number ("月商12,500円"). */
 const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 
-/** A word for thousands or millions right after a number: "6.2k" and "1.2 million" never hold 6.2 or 1.2. */
-const SCALE_AFTER =
-  /^ ?(?:(?:k|m|mm|mn|b|bn|tn|thousands?|millions?|billions?|trillions?|lakhs?|lacs?|crores?|mio|mrd|tsd|md|mds|mln|mld|tys|mil|mille|milliers?|milliards?|millones?|mila|milioni|miliardi|miljoen|miljard)(?!\p{L})|[万萬億亿千만억천])/iu;
+/** The languages whose words for thousand, million and the like (from the runtime's compact numbers) a number is never read before. */
+const SCALE_LOCALES = [
+  "en", "en-IN", "de", "fr", "es", "it", "pt", "pt-BR", "nl", "sv", "nb", "da", "fi", "pl", "cs", "ro", "hu", "tr", "ru", "uk", "el",
+  "ar", "he", "fa", "hi", "bn", "mr", "ta", "te", "id", "ms", "vi", "th", "ja", "zh", "zh-Hant", "ko",
+];
+/** Scale words people write that the runtime's compact numbers don't. */
+const MORE_SCALE_WORDS = ["grand", "mill", "bil", "bln", "cr", "crs", "lac", "lacs", "lakhs", "crores", "thousands", "trillions", "mm", "teur", "keur", "tsd", "千", "百", "仟", "佰", "백"];
+
+let scaleWords: RegExp | null = null;
+
+/**
+ * Whether a word for thousands or millions comes right after a number, after at most a few spaces or
+ * a hyphen: "6.2k", "1.2 million", "$1.2-million", "1,2 Mio.", "1,2 миллиона", "₹2.5 करोड़", "1万".
+ * Never inside a code or unit: "B2B", "K-12", "k8s", "M&A", "m²".
+ */
+function scaleAfter(rest: string): boolean {
+  if (!scaleWords) {
+    const words = new Set(MORE_SCALE_WORDS);
+    for (const l of SCALE_LOCALES) {
+      for (const compactDisplay of ["short", "long"] as const) {
+        let nf: Intl.NumberFormat;
+        try {
+          nf = new Intl.NumberFormat(l, { notation: "compact", compactDisplay });
+        } catch {
+          continue;
+        }
+        for (let e = 3; e <= 13; e++) {
+          // 1, 2, 5, 1.5 and 21 reach each plural form: "1 milion", "2 miliony", "5 milionów", "1,5 miliona".
+          for (const v of [1, 2, 5, 1.5, 21]) {
+            const word = nf.formatToParts(v * 10 ** e).filter((p) => p.type === "compact").map((p) => p.value).join("").trim().replace(/\.+$/, "");
+            if (word) words.add(word);
+          }
+        }
+      }
+    }
+    const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const sorted = [...words].sort((a, b) => b.length - a.length);
+    const spaced = sorted.filter((w) => !UNSPACED.test(w[0]!)).map(esc);
+    const unspaced = sorted.filter((w) => UNSPACED.test(w[0]!)).map(esc);
+    scaleWords = new RegExp(`^[\\s\\p{Pd}]{0,3}(?:(?:${spaced.join("|")})\\.?(?![\\p{L}\\p{M}\\p{N}&]|\\p{Pd}\\p{N})|(?:${unspaced.join("|")}))`, "iu");
+  }
+  return scaleWords.test(rest);
+}
+
+/** What sits between the two ends of a range: a dash, a tilde or one short word ("to", "or", "bis", "à", "至"). */
+const RANGE_GAP = /^[\s\p{Sc}]*(?:\p{Pd}|~|\p{L}{1,5})[\s\p{Sc}]*$/u;
 
 /**
  * Whether what comes right before a run ties its first digits to something that isn't a number of its
- * own: the minutes of "12:30", "14h30" or "14時30", the "11" of "27/11", the "5" of ".5", the rest of
- * "1万2000", or a label's digits ("Q3", "FY24", "Web3"). "Rs.6,200" and "c.500" are numbers.
+ * own: the minutes of "12:30", "14h30" or "14時30", the "11" of "27/11" or "2025-11-27", the "12" of
+ * "K-12", the "5" of ".5", the rest of "1万2000", or a label's digits ("Q3", "FY24", "Web3").
+ * "Rs.6,200" and "c.500" are numbers, and so is the count in "in 24h 1,200 people".
  */
 function tiedBefore(text: string, at: number): boolean {
   const c = text[at - 1];
@@ -166,9 +214,12 @@ function tiedBefore(text: string, at: number): boolean {
   const c2 = text[at - 2] ?? "";
   if (c === ":" || c === "/") return /\d/.test(c2);
   if (c === "." || c === ",") return !/\p{L}/u.test(c2);
+  if (/\p{Pd}/u.test(c)) return /[\p{L}\d]/u.test(c2);
   if (/\p{L}/u.test(c) && !UNSPACED.test(c)) return true;
-  return /(?:\d ?[hH時点시]|[万萬億亿千만억천]) ?$/.test(text.slice(Math.max(0, at - 4), at));
+  return /\d ?[時点시]$|[万萬億亿兆千百만억천조] ?$/.test(text.slice(Math.max(0, at - 3), at));
 }
+
+type Found = { value: number; start: number; end: number };
 
 /**
  * Every number in someone's words, read in one pass with the brand language's marks. A number is
@@ -178,10 +229,12 @@ function tiedBefore(text: string, at: number): boolean {
  * digits when nothing or only apostrophes and spaces come before it ("1,5" in English, "CHF 1'234.50"
  * in German). Read nothing rather than a number the words don't mean: never a run glued to another
  * by a mark ("27.11.2026", "1,234,5"), a time's minutes, a label's digits ("Q3 250" holds 250, never
- * 3250), a number before k, m, million or the like ("$6.2k"), a leading zero ("007") or, in a
- * language that doesn't put a space between thousands, a short group then three digits ("3 250").
- * A mark then a space ("2025, 1 200"), a line break and a space between numbers that can't be one
- * ("in 2025 250 brands") all separate numbers. Any script's digits and full-width forms are read. Pure.
+ * 3250), a number before a word for thousands or millions in any of SCALE_LOCALES ("$6.2k", "1,2
+ * Millionen") or the number before it in a range ("$5-6k" holds neither 5 nor 6), a leading zero
+ * ("007") or, in a language that doesn't put a space between thousands, a short group then three
+ * digits ("3 250"). A mark then a space ("2025, 1 200"), a line break and a space between numbers that
+ * can't be one ("in 2025 250 brands") all separate numbers. Any script's digits and full-width forms
+ * are read. Pure.
  */
 export function numbersIn(quote: string, locale = "en"): number[] {
   const text = plainMarks(quote);
@@ -190,7 +243,7 @@ export function numbersIn(quote: string, locale = "en"): number[] {
   const marks = new Set([other, " ", "'", "’"]);
   const spaced = groupsWithSpace(locale);
   const read = (raw: string) => readNumber(raw, dec, other, marks);
-  const out: number[] = [];
+  const found: Found[] = [];
 
   // One stretch of digits and marks that a mark then a space hasn't cut, starting at `at`.
   const segment = (at: number, raw: string): void => {
@@ -202,16 +255,31 @@ export function numbersIn(quote: string, locale = "en"): number[] {
       if (lead.endsWith(" ")) segment(at + lead.length, seg.slice(lead.length));
       return;
     }
-    const pieces = seg.split(/ +/);
-    let values: (number | null)[];
-    if (pieces.length === 1) values = [read(seg)];
-    else if (spaced) values = longestFirst(pieces, read);
+    const pieces = [...seg.matchAll(/[^ ]+/g)].map((p) => ({ raw: p[0], start: at + (p.index ?? 0) }));
+    const keep = (i: number, j: number, value: number | null) => {
+      if (value !== null) found.push({ value, start: pieces[i]!.start, end: pieces[j]!.start + pieces[j]!.raw.length });
+    };
+    if (pieces.length === 1) keep(0, 0, read(seg));
+    else if (spaced) {
+      // A language that writes a space between thousands: the longest stretch that reads as one number first.
+      for (let i = 0; i < pieces.length; ) {
+        let j = pieces.length;
+        let value: number | null = null;
+        for (; j > i; j--) {
+          value = read(pieces.slice(i, j).map((p) => p.raw).join(" "));
+          if (value !== null) break;
+        }
+        if (value === null) i++;
+        else {
+          keep(i, j - 1, value);
+          i = j;
+        }
+      }
+    }
     // "3 250" could be one number in a language that doesn't write it so: read neither.
-    else if (pieces.some((p, i) => /^\d{1,3}$/.test(p) && /^\d{3}(?!\d)/.test(pieces[i + 1] ?? ""))) values = [];
-    else values = pieces.map(read);
-    const end = at + seg.length;
-    if (SCALE_AFTER.test(text.slice(end, end + 12))) values.pop();
-    for (const v of values) if (v !== null) out.push(v);
+    else if (!pieces.some((p, i) => /^\d{1,3}$/.test(p.raw) && /^\d{3}(?!\d)/.test(pieces[i + 1]?.raw ?? ""))) {
+      pieces.forEach((p, i) => keep(i, i, read(p.raw)));
+    }
   };
 
   for (const m of text.matchAll(/\d[\d.,'’ ]*/g)) {
@@ -223,24 +291,22 @@ export function numbersIn(quote: string, locale = "en"): number[] {
       from = (cut.index ?? 0) + cut[0].length;
     }
     segment(start + from, run.slice(from));
-  }
-  return out;
-}
-
-/** Numbers a space apart in a language that writes a space between thousands: the longest that reads as one number first. */
-function longestFirst(pieces: string[], read: (raw: string) => number | null): (number | null)[] {
-  const out: (number | null)[] = [];
-  for (let i = 0; i < pieces.length; ) {
-    let j = pieces.length;
-    let value: number | null = null;
-    for (; j > i; j--) {
-      value = read(pieces.slice(i, j).join(" "));
-      if (value !== null) break;
+    const end = start + run.replace(/[.,'’ ]+$/, "").length;
+    if (!scaleAfter(text.slice(end, end + 32))) continue;
+    // Leave out the number before the scale word, and the number before that when the two make a range.
+    const last = found[found.length - 1];
+    let numberStart = end - (/\d[\d.,'’]*$/.exec(text.slice(start, end))?.[0].length ?? 0);
+    if (last && last.end === end) {
+      found.pop();
+      numberStart = last.start;
+    } else if (!/[\p{Pd}~]/u.test(text[numberStart - 1] ?? "")) {
+      // A label's digits before the word ("B2B", "K8s"): no number of its own, and no range.
+      continue;
     }
-    out.push(value);
-    i = value === null ? i + 1 : j;
+    const before = found[found.length - 1];
+    if (before && RANGE_GAP.test(text.slice(before.end, numberStart))) found.pop();
   }
-  return out;
+  return found.map((f) => f.value);
 }
 
 /** One run of digits and marks as a number, or null when it isn't one number. */

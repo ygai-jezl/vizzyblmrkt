@@ -4,10 +4,11 @@ import type { LogDayView } from "./log";
 import type { WorkTaskPage, WorkTaskView } from "./service";
 import { typedLinkWords } from "./form";
 import { READ_LABEL } from "./reviewCards";
-import { changeWords, checkSideLine, dayNWords, dayTitle, ENTRY_STATE_LABEL, MEASURE_KIND_LABEL, originParts, partLine, proposedLine, whenWords, whoWords, winLine } from "./screenWords";
+import { carryOverLabel, changeWords, checkSideLine, dayNWords, dayTitle, ENTRY_STATE_LABEL, MEASURE_KIND_LABEL, originParts, partLine, plural, proposedLine, whenWords, whoWords, winLine } from "./screenWords";
+import { carryOffer } from "./day";
 import { stageLabel } from "./stages";
 import type { TypedLink, WorkLogRow, WorkLogRowOf, WorkTask } from "./types";
-import { dayOf, PLAN_STATE_LABEL, timeOf, WORK_STATUS_LABEL, type PlanState } from "./words";
+import { CARRY_TOOL, dayOf, PLAN_STATE_LABEL, timeOf, WORK_STATUS_LABEL, type PlanState } from "./words";
 
 /**
  * Work as Vizzy's get_work reads it (ADR-0020, plan group 5): tasks, one task in full, the Log
@@ -184,6 +185,11 @@ function movedLine(rows: ReadonlyArray<WorkLogRowOf<"change"> | WorkLogRowOf<"ch
     .join("; ");
 }
 
+/** Today before anyone has logged, for get_work: what a person can carry over, in words. */
+export function carryOverLine(n: number): string {
+  return `Nothing is logged today yet. ${plural(n, "workstream is", "workstreams are")} still open from yesterday: a person presses ${carryOverLabel(n)} on Today to log ${n === 1 ? "it" : "them"} for today.`;
+}
+
 /** The Log day in words: in flight, entries, tasks that moved, decisions and, today, the checks due. */
 export function logWords(day: LogDayView, o: { names: Readonly<Record<string, string>>; brandName: (id: string) => string | undefined; multiBrand: boolean; checks: ReadonlyArray<{ task: string; line: string }>; ideaWords?: boolean }) {
   const who = (row: Pick<WorkLogRow, "source">) => whoWords(row.source.who, NOBODY, o.names);
@@ -202,7 +208,20 @@ export function logWords(day: LogDayView, o: { names: Readonly<Record<string, st
       task: rowTask(day, f.taskId),
       ...brand(f.brandId),
     })),
-    entries: day.entries.map((e) => ({ id: e.id, workstream: e.workstream, state: ENTRY_STATE_LABEL[e.state], note: e.note, by: who(e), at: timeOf(e.at, day.timeZone), task: rowTask(day, e.taskId), drafted: e.source.tool === "draft_work_log" })),
+    // A carried entry is an ordinary one that Carry over logged on Today, by the person who pressed it.
+    entries: day.entries.map((e) => ({
+      id: e.id,
+      workstream: e.workstream,
+      state: ENTRY_STATE_LABEL[e.state],
+      note: e.note,
+      by: who(e),
+      at: timeOf(e.at, day.timeZone),
+      task: rowTask(day, e.taskId),
+      drafted: e.source.tool === "draft_work_log",
+      carried: e.source.tool === CARRY_TOOL,
+    })),
+    // Nothing logged yet on Today: what Carry over would log, as the screen offers it.
+    ...(carryOffer(day) ? { carryOver: carryOverLine(carryOffer(day)) } : {}),
     moved: day.moved.map((m) => ({ task: rowTask(day, m.taskId) ?? "a task you can't see", what: movedLine(m.rows, o.names, o.ideaWords === true) })),
     decisions: day.decisions.map((d) => ({
       id: d.id,

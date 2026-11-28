@@ -1,13 +1,14 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { AddScreen } from "@/lib/work/screens";
+import type { AddScreen, LogScreen } from "@/lib/work/screens";
 import type { WorkRow } from "@/lib/work/list";
 import type { ImportPreview } from "@/lib/work/service";
 import { blankMeasure, blankPart, typedLinkWords } from "@/lib/work/form";
 import { changeWords, checkSaidLine, noLinksText, regionsFullText } from "@/lib/work/screenWords";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
 import type { WorkLogRowOf } from "@/lib/work/types";
+import { carryOffer } from "@/lib/work/day";
 
 // Work's screens as they draw. Made-up Lumen Notes and Fernhill Plants.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }), usePathname: () => "/admin/work" }));
@@ -18,7 +19,7 @@ const { onEnter, typedKinds, TypedLinksEditor } = await import("./TaskFields");
 const { checkButtons, checkNoticeOf } = await import("./CheckActions");
 const { focusTarget } = await import("./useFocusSwap");
 const { decisionView } = await import("./Decisions");
-const { movedWords, decisionWords } = await import("./WorkLog");
+const { movedWords, decisionWords, WorkLog, CarriedNotice } = await import("./WorkLog");
 const { historyLine, textEdits } = await import("./TaskPage");
 const { TaskForm } = await import("./TaskForm");
 const { MeasurePicker } = await import("./MeasurePicker");
@@ -397,5 +398,85 @@ describe("the import preview", () => {
     expect(html).toContain("Row 4: Its ref is taken already.");
     expect(html).toContain("Your sheet has no Stage, Brand or Check, so you set those on each task after.");
     expect(html).toContain("All 2 rows.");
+  });
+});
+
+describe("the Log's Today before anyone has logged", () => {
+  // Fernhill Plants [made up]: three workstreams still open from Tuesday, nothing logged on Wednesday yet.
+  const entry = (workstream: string, state: "doing" | "waiting", at: string, n: number): WorkLogRowOf<"entry"> => ({
+    id: `wl_${String(n).repeat(24)}`,
+    organisationId: "org_ten_fernhill",
+    brandId: "ten_fernhill",
+    region: "eu",
+    day: at.slice(0, 10),
+    at,
+    source: { who: { kind: "person", id: "uid_rosa" }, tool: "work_log", session: null },
+    kind: "entry",
+    taskId: null,
+    workstream,
+    state,
+    note: "",
+    links: [],
+  });
+  const open = [entry("Christmas gift guide", "doing", "2026-11-24T16:30:00.000Z", 1), entry("Plant health certificate", "waiting", "2026-11-24T10:05:00.000Z", 2), entry("Workshop dates", "doing", "2026-11-24T14:45:00.000Z", 3)];
+  const inFlight = open.map((e) => ({ id: e.id, workstream: e.workstream, brandId: e.brandId, state: e.state as "doing" | "waiting", note: e.note, links: [], by: e.source.who, at: e.at, taskId: null, since: "2026-11-24", dayN: 2, longer: false }));
+  const screenOf = (over: Partial<LogScreen["day"]>): LogScreen => ({
+    name: "Fernhill Plants",
+    view: "organisation",
+    owner: false,
+    oneBrand: true,
+    multiBrand: false,
+    member: true,
+    sessionBrand: { id: "ten_fernhill", name: "Fernhill Plants" },
+    canImport: false,
+    canDelete: false,
+    workVizzy: false,
+    ideaWords: false,
+    me: "uid_priya",
+    day: { day: "2026-11-25", entries: [], inFlight, moved: [], decisions: [], rail: [], today: true, timeZone: "Europe/London", tasks: {}, planTitles: {}, regionsDown: [], capped: false, carry: 3, ...over },
+    openCount: 0,
+    checks: [],
+    names: { uid_rosa: "Rosa" },
+    brandNames: { ten_fernhill: "Fernhill Plants" },
+    openTasks: [],
+    logBrands: [{ id: "ten_fernhill", name: "Fernhill Plants" }],
+    wholeBusiness: false,
+    draft: null,
+  });
+  const NOTHING = "Nothing logged today yet. Type what you&#x27;re on, or carry over what was still open yesterday.";
+
+  it("says Nothing logged yet and offers Carry over with the count it will log, beside the log box and what is in flight", () => {
+    const html = renderToStaticMarkup(createElement(WorkLog, { screen: screenOf({}) }));
+    expect(html).toContain(NOTHING);
+    expect(html).toContain(">Carry over 3 open from yesterday<");
+    expect(html).toContain("Log what you&#x27;re working on");
+    // In flight is worked out from the rows, so what is still going stays in view.
+    for (const w of ["Christmas gift guide", "Plant health certificate", "Workshop dates"]) expect(html).toContain(w);
+  });
+
+  it("offers nothing once anyone has logged today, when nothing is open, or on a past day, which stays read only", () => {
+    const logged = screenOf({ entries: [entry("Window display", "doing", "2026-11-25T09:00:00.000Z", 4)], carry: 3 });
+    expect(carryOffer(logged.day)).toBe(0);
+    expect(renderToStaticMarkup(createElement(WorkLog, { screen: logged }))).not.toContain("Carry over");
+    const none = screenOf({ inFlight: [], carry: 0 });
+    expect(carryOffer(none.day)).toBe(0);
+    expect(renderToStaticMarkup(createElement(WorkLog, { screen: none }))).toContain("Nothing in flight. Type what you&#x27;re on, one line per workstream.");
+    const past = screenOf({ day: "2026-11-24", today: false, carry: 0 });
+    const html = renderToStaticMarkup(createElement(WorkLog, { screen: past }));
+    expect(html).not.toContain("Carry over");
+    expect(html).not.toContain(NOTHING);
+    expect(html).not.toContain("Log what you&#x27;re working on");
+    expect(html).toContain("Read only. Newest first.");
+    // Even a day that says it could carry: only Today offers it.
+    expect(carryOffer({ ...past.day, carry: 3 })).toBe(0);
+  });
+
+  it("says what the tap carried on a line that takes focus, since the button leaves when the page reads itself again", () => {
+    const html = renderToStaticMarkup(createElement(CarriedNotice, { n: 3 }));
+    expect(html).toContain('role="status"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain(">Carried over 3 workstreams from yesterday.<");
+    expect(renderToStaticMarkup(createElement(CarriedNotice, { n: 1 }))).toContain(">Carried over 1 workstream from yesterday.<");
+    expect(renderToStaticMarkup(createElement(CarriedNotice, { n: 0 }))).toContain(">Someone else carried these over first, so nothing more was logged.<");
   });
 });

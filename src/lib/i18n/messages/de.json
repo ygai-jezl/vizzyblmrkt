@@ -128,5 +128,7 @@
   "email.footer.unsubscribe": "Abmelden",
   "email.footer.privacy": "Datenschutzerklärung",
   "email.steps.done": "{done} von {total} Schritten erledigt",
-  "email.steps.more": "und {n} weitere"
+  "email.steps.more": "und {n} weitere",
+  "article.translatedNote": "Aus dem Original übersetzt und von unserem Team geprüft.",
+  "widget.language.viewIn": "Diese Seite auf Deutsch ansehen"
 }

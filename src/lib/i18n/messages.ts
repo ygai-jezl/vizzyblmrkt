@@ -32,6 +32,11 @@ const EN: MessageCatalog = en;
 // locale by generating its file and registering it here.
 const CATALOGS: Record<string, MessageCatalog> = { en: EN, fr, es, de, ja, ar };
 
+/** The languages with a catalog file (src/lib/i18n/widgetLocales.ts lists the same, for the browser). */
+export function catalogLocales(): string[] {
+  return Object.keys(CATALOGS);
+}
+
 /**
  * Interpolate single-brace `{placeholders}` only. The negative look-behind/ahead
  * skip `{{merge_tokens}}` so they pass through untouched. Unknown placeholders are

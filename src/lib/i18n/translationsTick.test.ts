@@ -7,6 +7,7 @@ import { publishLifecycleJourney, saveLifecycleDraft } from "@/lib/lifecycle/ser
 import { T0, TENANT_ID, ctx, publishOnboarding, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import type { TranslateInput, TranslateResult } from "./translate";
 import { runTranslations } from "./translationsTick";
+import { isJourneyEmailTranslation } from "@/lib/types/translation";
 
 /**
  * The translations lane (ASSET_TRANSLATIONS_ENABLED): a publish marks the journey and the brand,
@@ -71,7 +72,7 @@ async function world(frReaders = 3) {
     drain,
     tenant: async () => db.raw("tenants", TENANT_ID)!,
     setNow: (ms: number) => (now = ms),
-    all: () => repo.translations.find({ where: [["journeyId", "==", journey.id]] }),
+    all: () => repo.translations.find({ where: [["journeyId", "==", journey.id]] }).then((rows) => rows.filter(isJourneyEmailTranslation)),
   };
 }
 

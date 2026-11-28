@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarClock, GitCommitHorizontal, ListChecks, Scale, Sparkles } from "lucide-react";
@@ -8,6 +8,8 @@ import { Button, inputClass } from "@/components/admin/connect/ui";
 import { Chip } from "@/components/admin/people/Chip";
 import { logLineOf } from "@/lib/work/form";
 import {
+  carriedLine,
+  carryOverLabel,
   changeWords,
   checkSaidLine,
   dayNWords,
@@ -28,7 +30,7 @@ import { ENTRY_STATES, WORK_LIMITS, type EntryState, type WorkLogRowOf } from "@
 import { timeOf } from "@/lib/work/words";
 import type { DraftedNote, LogScreen } from "@/lib/work/screens";
 import { DRAFT_COPY } from "@/lib/work/draft";
-import type { MovedTask } from "@/lib/work/day";
+import { carryOffer, type MovedTask } from "@/lib/work/day";
 import { workCall, workErrorText } from "./api";
 import { CheckActions } from "./CheckActions";
 
@@ -60,12 +62,15 @@ export function decisionWords(d: WorkLogRowOf<"decision">, o: { me: string; name
 /**
  * The Log (/admin/work/log): it opens on Today. A day rail, the workstreams still in flight (each
  * carries over until someone logs it Done, never retyped), the box to log one, today's checks due
- * with their buttons, the tasks that moved and the decisions made. A past day is read only.
+ * with their buttons, the tasks that moved and the decisions made. Before anyone has logged today,
+ * Nothing logged yet offers Carry over. A past day is read only.
  */
 export function WorkLog({ screen }: { screen: LogScreen }) {
   const { day, me, names } = screen;
   // A check's answer on Today: kept here, since the answered check leaves the list when the page reads itself again.
   const [checkSaid, setCheckSaid] = useState<{ ref: number; notice: string } | null>(null);
+  // What Carry over did: kept here, since its box and button leave Today when the page reads itself again.
+  const [carried, setCarried] = useState<number | null>(null);
   const tz = day.timeZone;
   const brandName = (id: string) => screen.brandNames[id];
   const today = day.today;
@@ -134,7 +139,9 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
               {screen.draft.gone}
             </p>
           ) : null}
+          {today && carried !== null ? <CarriedNotice n={carried} /> : null}
           {today ? <LogBox key={screen.draft && "id" in screen.draft ? screen.draft.id : "box"} screen={screen} draft={screen.draft && "id" in screen.draft ? screen.draft : null} /> : null}
+          {carryOffer(day) ? <NothingLoggedYet day={day.day} count={carryOffer(day)} onCarried={setCarried} /> : null}
           {day.inFlight.length ? (
             <ul className="space-y-2">
               {day.inFlight.map((f) => {
@@ -287,6 +294,60 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
           {screen.workVizzy ? ` ${WORK_COPY.logVizzyFoot}` : ""}
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What Carry over did, on Today. The button that had focus leaves when the page reads itself
+ * again, so focus moves here and a screen reader says the line, rather than focus falling to the
+ * top of the page.
+ */
+export function CarriedNotice({ n }: { n: number }) {
+  const line = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    line.current?.focus();
+  }, [n]);
+  return (
+    <p ref={line} tabIndex={-1} role="status" className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 outline-none focus-visible:ring-2 focus-visible:ring-green-400 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
+      {carriedLine(n)}
+    </p>
+  );
+}
+
+/**
+ * Nothing logged yet, on Today: what the canvas draws before anyone has logged, with Carry over,
+ * which logs today's entry for each workstream still open from yesterday, by the person who taps.
+ * The count is the server's, worked out as the carry works it out; the page reads itself again
+ * after, and `onCarried` keeps how many it logged on Today (CarriedNotice).
+ */
+export function NothingLoggedYet({ day, count, onCarried }: { day: string; count: number; onCarried: (n: number) => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function carry() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const r = await workCall<{ carried?: unknown[] }>("/log/carry", "POST", { day });
+    setBusy(false);
+    if (!r.ok) return setError(workErrorText(r.data));
+    onCarried(Array.isArray(r.data.carried) ? r.data.carried.length : 0);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2.5 px-4 py-6 text-center">
+      <p className="max-w-md text-sm text-neutral-500 dark:text-neutral-400">{WORK_COPY.nothingLoggedToday}</p>
+      <Button type="button" tone="primary" onClick={carry} disabled={busy}>
+        {busy ? WORK_COPY.carrying : carryOverLabel(count)}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

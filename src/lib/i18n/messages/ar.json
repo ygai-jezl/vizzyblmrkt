@@ -128,5 +128,7 @@
   "email.footer.unsubscribe": "إلغاء الاشتراك",
   "email.footer.privacy": "سياسة الخصوصية",
   "email.steps.done": "اكتمل {done} من أصل {total} خطوات",
-  "email.steps.more": "و{n} أخرى"
+  "email.steps.more": "و{n} أخرى",
+  "article.translatedNote": "تُرجم من النص الأصلي وراجعه فريقنا.",
+  "widget.language.viewIn": "عرض هذه الصفحة بالعربية"
 }

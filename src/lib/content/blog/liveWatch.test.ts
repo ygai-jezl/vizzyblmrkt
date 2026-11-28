@@ -207,16 +207,17 @@ describe("the live watch lane", () => {
     expect(readAddress).toHaveBeenCalledTimes(1);
   });
 
-  it("approves an article marked live before, with no page opened", async () => {
+  it("leaves an article marked live before and not approved for a person, with no page opened", async () => {
+    // Its words may have changed since the mark (a refresh): only a person or a new live check approves them.
     const db = new FakeFirestore();
     const url = `${SITE}/blog/visibility`;
     const live = { url, at: "2026-11-20T10:00:00.000Z", by: "operator" as const, titleMatched: false };
     seed(db, draft({ strategy: { objective: "brand_visibility", hubUrl: url, subscriberCount: null, sequenceType: null } }, sampleHub({ blog: hubMeta({ live }) })));
     const readAddress = vi.fn();
     const r = await run(db, { readAddress });
-    expect(r).toMatchObject({ approved: 1, opened: 0 });
+    expect(r).toMatchObject({ approved: 0, opened: 0 });
     expect(readAddress).not.toHaveBeenCalled();
-    expect(await hub(db)).toMatchObject({ status: "approved", blog: { live: { by: "operator", approvedOnLive: true } } });
+    expect(await hub(db)).toMatchObject({ status: "generated" });
   });
 
   it("a brand not due is passed over; a save wakes it for the next look", async () => {

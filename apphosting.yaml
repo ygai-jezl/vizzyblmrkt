@@ -1216,6 +1216,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Articles and launch pages in each language at their own addresses, with Google's language
+  # tags, a site folder per language, and a launch's own words translated (needs
+  # ASSET_TRANSLATIONS_ENABLED).
+  - variable: PAGE_LANGUAGES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Researched blog hubs, cite sources, articles written from the brand map, the
   # editorial writer (each needs the first), and Suggest an angle.
   - variable: CREATE_BLOG_CITABLE_ENABLED

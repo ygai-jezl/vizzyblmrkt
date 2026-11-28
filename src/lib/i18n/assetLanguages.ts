@@ -9,7 +9,7 @@ import { versionReadiness } from "./readerRules";
  * address) and posts (by account language) come with their own pieces.
  */
 
-export type AssetKind = "journey_email";
+export type AssetKind = "journey_email" | "article";
 
 export interface LanguagePlan {
   base: string;
@@ -39,4 +39,28 @@ export function languagesFor(args: {
     else plan.skipped.push({ code, readers, more });
   }
   return plan;
+}
+
+/**
+ * An article's languages (PAGE_LANGUAGES_ENABLED). The plan's own choice from Create when it made
+ * one (`chosen`, `[]` for none). Otherwise each language with enough readers and a site folder: a
+ * version needs an address on the brand's site. `extra` adds a language a person asked for (Make
+ * anyway). Pure.
+ */
+export function articleLanguages(args: {
+  base: string;
+  list: readonly string[];
+  minReaders: number;
+  readers: Record<string, number> | null;
+  sites: Record<string, string>;
+  chosen?: readonly string[] | null;
+  extra?: readonly string[];
+}): string[] {
+  const others = args.list.filter((c) => c !== args.base);
+  const wanted = args.chosen
+    ? others.filter((c) => args.chosen!.includes(c))
+    : args.readers && args.list.length > 1
+      ? others.filter((c) => Boolean(args.sites[c]) && versionReadiness(args.readers![c] ?? 0, args.minReaders).ready)
+      : [];
+  return [...new Set([...wanted, ...(args.extra ?? []).filter((c) => others.includes(c))])];
 }

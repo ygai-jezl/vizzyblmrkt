@@ -92,6 +92,7 @@ vi.hoisted(() => {
   process.env.CONTENT_LANGUAGE_ENABLED = "true";
   process.env.LANGUAGE_READERS_ENABLED = "true";
   process.env.ASSET_TRANSLATIONS_ENABLED = "true";
+  process.env.PAGE_LANGUAGES_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
@@ -1720,5 +1721,31 @@ describe("Languages with translated journey emails", () => {
   it("gets the switch in the How to drawer from the admin shell", () => {
     expect(drawerBodyProps({ assetTranslations: true } as never).assetTranslations).toBe(true);
     expect(drawerBodyProps(null as never).assetTranslations).toBe(false);
+  });
+});
+
+describe("Languages with articles and sign-up pages in each language", () => {
+  const md = (pageLanguages: boolean, ideaWords = false) =>
+    docToMarkdown(HELP_BODIES["languages"]!({ languageReaders: true, assetTranslations: true, pageLanguages, ideaWords }), "https://app.example.com");
+
+  it("covers them only while the switch is on, in house style, with ideas in the words too", () => {
+    for (const heading of ["## Where each language goes", "## Articles in other languages", "## Sign-up pages in other languages"]) {
+      expect(md(true)).toContain(heading);
+      expect(md(false)).not.toContain(heading);
+    }
+    for (const text of [md(true), md(true, true)]) {
+      for (const line of text.split("\n")) {
+        expect(dashesIn(line), line).toEqual([]);
+        expect(aiTellsIn(line), line).toEqual([]);
+      }
+    }
+    expect(md(true, true)).toContain("Each language your idea offers");
+  });
+
+  it("names the Review section by its own title, and the drawer gets the switch", () => {
+    const review = docToMarkdown(HELP_BODIES["review-and-approvals"]!({ pageLanguages: true }), "https://app.example.com");
+    expect(review).toContain(`**${REVIEW_SECTIONS.page_translation.title}**`);
+    expect(drawerBodyProps({ pageLanguages: true } as never).pageLanguages).toBe(true);
+    expect(drawerBodyProps(null as never).pageLanguages).toBe(false);
   });
 });

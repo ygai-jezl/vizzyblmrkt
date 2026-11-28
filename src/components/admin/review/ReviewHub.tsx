@@ -109,7 +109,7 @@ export async function ReviewHub() {
                       {item.dismissCheck && ctx.role === "admin" ? <DismissCheckButton /> : null}
                       {item.notNow && ctx.role === "admin" ? <SuggestNotNow suggestionKey={item.notNow.key} /> : null}
                       {item.followUp && ctx.role === "admin" ? <FollowUpButtons id={item.followUp.id} rev={item.followUp.rev} quiet={item.followUp.quiet} /> : null}
-                      {item.approveLanguages && ctx.role === "admin" ? <ApproveLanguagesButton journeyId={item.approveLanguages.journeyId} revs={item.approveLanguages.revs} /> : null}
+                      {item.approveLanguages && ctx.role === "admin" ? <ApproveLanguagesButton endpoint={item.approveLanguages.endpoint} revs={item.approveLanguages.revs} /> : null}
                       <Link
                         href={item.href}
                         className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"

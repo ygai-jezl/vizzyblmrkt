@@ -289,6 +289,7 @@ export {
   changeWorkTask,
   deleteWorkTask,
   appendWorkLog,
+  appendWorkLogOnce,
   getWorkTask,
   findWorkTask,
   findWorkTaskByRef,

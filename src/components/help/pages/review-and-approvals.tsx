@@ -7,7 +7,7 @@ import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
-import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
+import { isAssetTranslationsEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
 import { isPasteEnabled } from "@/lib/crm/paste/flags";
 import { SUGGEST_WORDS } from "@/lib/brandStrategy/suggestRules";
@@ -48,6 +48,7 @@ export default function ReviewAndApprovalsHelp({
   raiseKit = isRaiseKitEnabled(),
   paste = isPasteEnabled(),
   assetTranslations = isAssetTranslationsEnabled(),
+  pageLanguages = isPageLanguagesEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -136,6 +137,13 @@ export default function ReviewAndApprovalsHelp({
             <strong>Emails in other languages</strong>: translations of your journey emails, one row per journey. Open shows each
             email&apos;s language tabs, and admins can press <strong>Approve all languages</strong> here (
             <Open href="/help/languages#translations">Journey emails in other languages</Open>).
+          </li>
+        ) : null}
+        {pageLanguages ? (
+          <li>
+            <strong>Pages in other languages</strong>: articles and sign-up pages in other languages, one row each. Open goes to where
+            it lives, and admins can press <strong>Approve all languages</strong> here (
+            <Open href="/help/languages#articles">Articles in other languages</Open>).
           </li>
         ) : null}
         {vizzyFields ? (

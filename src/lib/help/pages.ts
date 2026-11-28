@@ -117,6 +117,8 @@ export interface HelpBodyProps {
   vizzyPaste?: boolean;
   /** Journey emails in each reader's language (isAssetTranslationsEnabled(), a server switch: the drawer gets it from the admin shell). */
   assetTranslations?: boolean;
+  /** Articles and launch pages at their own address per language (isPageLanguagesEnabled(), a server switch: the drawer gets it from the admin shell). */
+  pageLanguages?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

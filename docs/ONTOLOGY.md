@@ -21,6 +21,7 @@ A business idea being tested: a hypothesis with its waitlist, its questions and 
 - Personal: no
 - Stores:
   - `campaigns`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `translations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Its launch page's words in other languages.
 - Links: `signup` through signups.campaignId (many); `site_key` through launch_site_keys, by launch id; `launch_journey` through journeys.campaignId; `broadcast` through broadcasts.campaignId (many); `invite` through invites.campaignId (many); `knowledge` through campaigns/{campaignId}/knowledge_bases (many); `product` through idea.productConnectionId, once handed off; `ontology_event` through subjectKey idea:<campaignId> (many)
 - Events: `record.field_changed`
 - States: `exploring`, `testing`, `validated`, `launched`, `parked`, `killed`
@@ -29,6 +30,7 @@ A business idea being tested: a hypothesis with its waitlist, its questions and 
 - Export: none. The brand's own settings, with no one's personal data.
 - Search: none. Found by name on the Launches screen; what it sends is searched as broadcasts and journey emails. Its hypothesis and outcome are not searched and have no agent path until piece C puts ideas on the brand index.
 - Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`); the funnel the compare screen shows for each idea has no agent tool.
+- Made by: `translation` (see Learning)
 
 ### Site key (`site_key`)
 
@@ -935,6 +937,7 @@ An article, newsletter, ebook, post or journey email: its plan, drafts and the f
 - Personal: no
 - Stores:
   - `content_plans` at `workspaces/{workspaceId}/content_plans`, the brand's regional Firestore, in `src/lib/tenant/workspaceContent.ts`
+  - `translations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. An article in other languages, with its draft, approved words, address and live check.
 - Links: `workspace` through workspaceId
 - Erase:
   - `deleteContentPlan` in `src/lib/tenant/workspaceContent.ts`, on removing the record
@@ -942,7 +945,7 @@ An article, newsletter, ebook, post or journey email: its plan, drafts and the f
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `article`, `newsletter`, `ebook`, `post`, `journey_email`
 - Numbers: none. A post's numbers are post results.
-- Made by: `blog_research`, `autopilot_research`, `blog_write`, `fact_check`, `seen_notes`, `architect`, `content_write`, `content_email`, `content_hub`, `content_brief`, `content_angle`, `ebook`, `email_layout`, `edit_mode`, `canvas.content_plan`, `blog_refresh`, `autopilot`, `pattern_holdout`, `freshness_clock`, `refresh_due`, `found_live` (see Learning)
+- Made by: `blog_research`, `autopilot_research`, `blog_write`, `fact_check`, `seen_notes`, `architect`, `content_write`, `content_email`, `content_hub`, `content_brief`, `content_angle`, `ebook`, `email_layout`, `edit_mode`, `canvas.content_plan`, `blog_refresh`, `autopilot`, `pattern_holdout`, `freshness_clock`, `refresh_due`, `found_live`, `translation` (see Learning)
 
 ### Scrapbook clipping (`content_idea`)
 
@@ -1439,7 +1442,7 @@ One task on an organisation's Work list (ADR-0020): anything the business has to
 
 ### Work log (`work_log`)
 
-The organisation's daily log on Work (ADR-0020): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.
+The organisation's daily log on Work (ADR-0020): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, an entry Carry over logged on Today for a workstream still open from yesterday says work_carry, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.
 
 - Status: built
 - Home: the region of the brand it was connected or added from (or that it names), serving the organisation's brands in any region
@@ -2294,7 +2297,7 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
-- `translation` (AI purpose, Email translations), look again by 2027-05-01. A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.
+- `translation` (AI purpose, Translations), look again by 2027-05-01. A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.
   - `src/lib/i18n/translate.ts`
 - `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.
   - `src/app/api/admin/agent/chat/route.ts`

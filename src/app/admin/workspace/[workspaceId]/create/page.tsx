@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
@@ -74,6 +75,7 @@ export default async function CreatePage({
       prefill={prefill}
       prefillAsks={prefillAsks}
       situations={situations && Boolean(map?.atScale)}
+      pageLanguages={isPageLanguagesEnabled()}
       prefillSituation={prefill && map?.situation ? { id: map.situation.id, text: map.situation.text } : null}
       prefillNumbers={prefill ? null : numbersPrefill(numbers, text, hub)}
       suggestAngle={isSuggestAngleEnabled()}

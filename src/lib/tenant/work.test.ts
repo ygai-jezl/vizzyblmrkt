@@ -5,6 +5,7 @@ import { shapeRecordingFirestore } from "./testing/queryShape";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import {
   appendWorkLog,
+  appendWorkLogOnce,
   changeWorkTask,
   countBrandWork,
   countWorkLog,
@@ -225,6 +226,30 @@ describe("the log", () => {
     const id = rows[0]!.id;
     await expect(appendWorkLog([{ ...entry({ workstream: "Rewritten" }), id }], stores)).rejects.toThrow(TenantIsolationError);
     expect(us.raw(WORK_LOG, id)).toMatchObject({ workstream: "Onboarding emails" });
+  });
+
+  it("appends entries under worked out ids once: kept ids are left as they are, twice or at once", async () => {
+    const a = { ...(entry() as Omit<NewWorkLogRow, "kind">), kind: "entry" as const, id: `wl_${"a".repeat(24)}`, taskId: null, workstream: "Window display", state: "doing" as const, note: "", links: [] };
+    const b = { ...a, id: `wl_${"b".repeat(24)}`, region: "eu" as const, brandId: LUMEN_EU, workstream: "Cookie notice" };
+    expect((await appendWorkLogOnce([a, b], stores)).map((r) => r.id)).toEqual([a.id, b.id]);
+    // Again, with a changed note: nothing is written and the kept row stays as it was.
+    expect(await appendWorkLogOnce([{ ...a, note: "Rewritten" }, b], stores)).toEqual([]);
+    expect(us.raw(WORK_LOG, a.id)).toMatchObject({ note: "", workstream: "Window display" });
+    // Two at once: the second sees the first's row when its transaction runs again.
+    const c = { ...a, id: `wl_${"c".repeat(24)}`, workstream: "Stock count" };
+    us.onBeforeCommit = async () => {
+      await appendWorkLogOnce([c], { ...stores, regionDb: by(eu, us, asia) });
+    };
+    expect(await appendWorkLogOnce([c], stores)).toEqual([]);
+    expect(us.writeCountFor(WORK_LOG, c.id)).toBe(1);
+    expect(rowsOf(us)).toHaveLength(2);
+    expect(rowsOf(eu)).toHaveLength(1);
+    // Another organisation's id is never taken as kept, and only entries go this way.
+    us.seed(WORK_LOG, `wl_${"d".repeat(24)}`, { organisationId: OTHER_ORG, kind: "entry" });
+    await expect(appendWorkLogOnce([{ ...a, id: `wl_${"d".repeat(24)}` }], stores)).rejects.toThrow(TenantIsolationError);
+    await expect(appendWorkLogOnce([{ ...a, id: "wl_short" }], stores)).rejects.toThrow(TenantValidationError);
+    await expect(appendWorkLogOnce([a, a], stores)).rejects.toThrow(TenantValidationError);
+    await expect(appendWorkLogOnce([{ ...a, kind: "decision" } as never], stores)).rejects.toThrow(TenantValidationError);
   });
 
   it("reads a day across regions, newest first, through (organisationId, at)", async () => {

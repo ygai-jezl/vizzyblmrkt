@@ -4,11 +4,11 @@ import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
 import { isWorkVizzyEnabled } from "@/lib/work/flags";
 import { DRAFT_COPY } from "@/lib/work/draft";
-import { IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
+import { carriedLine, carryOverLabel, IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { DECLINE_WHY_CHOICES } from "@/lib/work/suggestion";
 import { WORK_REVIEW_COPY } from "@/lib/work/reviewCards";
-import { countedLine, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
+import { CARRIED_NOTE, countedLine, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -387,11 +387,18 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           drops off.
         </li>
         <li>
+          Before anyone has logged today, if something was still open yesterday, In flight says &quot;
+          {WORK_COPY.nothingLoggedToday}&quot; Press <strong>{carryOverLabel(4)}</strong> to log today&apos;s line for each
+          workstream still open yesterday, with its state and task, in your name and with the note {CARRIED_NOTE} The number
+          is how many it logs, and afterwards In flight says &quot;{carriedLine(4)}&quot; Press it twice, or two of you at
+          once, and each one is still logged once. If someone got there first, it says &quot;{carriedLine(0)}&quot;
+        </li>
+        <li>
           <strong>Checks due</strong>, <strong>Tasks that moved</strong> and <strong>Decisions made</strong> fill in from the
           tasks as people work on them.
         </li>
         <li>
-          <strong>Days</strong>, on the left, opens a past day. It is read only.
+          <strong>Days</strong>, on the left, opens a past day. It is read only, and nothing is carried over into it.
         </li>
         <li>
           A day is the brand&apos;s own day, in its time zone. The team logs up to 500 entries a day, and the Log is kept for as
@@ -498,6 +505,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <Checks>
         <li>The task is on the list with its number, and its page&apos;s History says who added it.</li>
         <li>On Today, Tasks that moved lists what changed, and In flight what you logged.</li>
+        <li>The next morning, Carry over logs what was still open, and In flight shows each with {CARRIED_NOTE}</li>
         <li>On the day a check falls due, the count next to Review in the sidebar goes up.</li>
       </Checks>
 
@@ -538,6 +546,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           [WORK_MESSAGES.import_busy, "Import the sheet again. A row whose ref was taken meanwhile is left out, with why."],
           [WORK_MESSAGES.tasks_full, "Delete done or dropped tasks you no longer need, then add it again."],
           [WORK_MESSAGES.entries_full, "Log the rest tomorrow. Tasks and decisions still save."],
+          [WORK_MESSAGES.carry_day_over, "Open the Log tab again, which opens on Today, then press Carry over there."],
+          [WORK_MESSAGES.carry_regions_down, "Press Carry over again in a minute. Nothing was logged, so nothing is logged twice."],
           [WORK_MESSAGES.changed, "Someone else changed the task meanwhile. Refresh the page and make your change again."],
           ...(workVizzy
             ? ([

@@ -413,6 +413,44 @@ export async function appendWorkLog(rows: ReadonlyArray<NewWorkLogRow & { id?: s
   return parsed;
 }
 
+/**
+ * Append entries under ids the caller worked out from what each entry is (Carry over on Today: the
+ * organisation and the entry it carries), writing each only if no row has its id yet. One
+ * transaction per region reads every id first, then creates the ones not kept, so a second run,
+ * or two at once, writes each entry once. A kept id that is another organisation's is refused
+ * (TenantIsolationError). Answers the rows it wrote.
+ */
+export async function appendWorkLogOnce(rows: ReadonlyArray<Omit<WorkLogRowOf<"entry">, "id"> & { id: string }>, stores: WorkStores = {}): Promise<WorkLogRow[]> {
+  const parsed = rows.map((r) => {
+    if ((r as { kind: string }).kind !== "entry") invalid("log:only entries are appended once");
+    if (!WORK_LOG_ID.test(r.id)) invalid("log:id");
+    checkSource(r.source);
+    return parsedRow({ ...r });
+  });
+  if (new Set(parsed.map((r) => r.id)).size !== parsed.length) invalid("log:each id once");
+  const byRegion = new Map<Region, WorkLogRow[]>();
+  for (const r of parsed) byRegion.set(r.region, [...(byRegion.get(r.region) ?? []), r]);
+  const written: WorkLogRow[] = [];
+  for (const [region, list] of byRegion) {
+    const store = regionStore(region, stores);
+    const wrote = await retryOnceOnExists(() =>
+      store.runTransaction(async (txn) => {
+        const kept = await Promise.all(list.map((r) => txn.get(store.collection(WORK_LOG).doc(r.id))));
+        const fresh: WorkLogRow[] = [];
+        list.forEach((r, i) => {
+          const snap = kept[i]!;
+          if (!snap.exists) return void fresh.push(r);
+          if (snap.data()?.[ORG_FIELD] !== r.organisationId) throw new TenantIsolationError(`${WORK_LOG}/${r.id} belongs to another organisation`);
+        });
+        for (const r of fresh) stageRow(txn, store, r);
+        return fresh;
+      }),
+    );
+    written.push(...wrote);
+  }
+  return written;
+}
+
 /** How a person's save of a note or decision Vizzy drafted moves the draft, written with the row. */
 export interface DraftAccept {
   id: AgentActionId;

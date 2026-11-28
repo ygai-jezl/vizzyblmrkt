@@ -5,6 +5,8 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import {
   addedLine,
   afterTaskDueLine,
+  carriedLine,
+  carryOverLabel,
   logRegionsDownText,
   brandHint,
   changeWords,
@@ -103,6 +105,10 @@ describe("Work's screen words", () => {
       previewHint(40),
       suggestionFromLine("from today's log"),
       vizzyWroteLine("Invites for shared notebooks"),
+      carryOverLabel(4),
+      carriedLine(1),
+      carriedLine(4),
+      carriedLine(0),
     ];
     for (const s of all) {
       expect(dashesIn(s), s).toEqual([]);

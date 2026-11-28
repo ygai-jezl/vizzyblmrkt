@@ -1171,7 +1171,7 @@ A research file the brand brought in, read into findings for the brand map.
 
 ### Brand strategy (`brand_strategy`)
 
-The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, the weekly check that sets the approved strategy against what the watched competitors publish, and How it went: the last 12 months added up for each focus situation and the rest of the map, each with where its numbers came from.
+The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, the weekly check that sets the approved strategy against what the watched competitors publish, How it went: the last 12 months added up for each focus situation and the rest of the map, each with where its numbers came from, and the month's one suggestion with the ones put off with Not now and why.
 
 - Status: built
 - Home: the brand's region
@@ -1183,8 +1183,8 @@ The brand's strategy, one record per brand, approved by a person: who it's for (
   - `deleteBrandStrategy` in `src/lib/brandStrategy/store.ts`, on removing the record (an admin presses Start over on the Strategy tab)
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. One short record per brand, read whole by the writer, research, Next up and Vizzy.
-- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, `theirArticles`, `theirNewArticles`, `competitorArticles`, `namingArticles`, `focusArticlesLive`, `focusArticlesNew`, `focusTheirArticles`, `focusSearchClicks`, `focusSearchImpressions`, `focusVisits`, `focusKeyActions`, `focusAiCitations`, `siteVisits`, `roadmapDue`, `roadmapDone`, `starsKept`, `starsRemoved`, `claimsEdited`, `picksSkipped`, `checksActed`, `checksDismissed`, through `get_brand_strategy`
-- Made by: `brand_strategy`, `competitor_find`, `competitor_claim_match`, `strategy_check`, `strategy_month` (see Learning)
+- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, `theirArticles`, `theirNewArticles`, `competitorArticles`, `namingArticles`, `focusArticlesLive`, `focusArticlesNew`, `focusTheirArticles`, `focusSearchClicks`, `focusSearchImpressions`, `focusVisits`, `focusKeyActions`, `focusAiCitations`, `siteVisits`, `roadmapDue`, `roadmapDone`, `starsKept`, `starsRemoved`, `claimsEdited`, `picksSkipped`, `checksActed`, `checksDismissed`, `roadmapBehind`, `monthsStalled`, `swapTheirArticles`, `swapResult`, `swapOpenQuestions`, `monthsWithoutProof`, `focusResultNow`, `focusResultBefore`, `restResultNow`, `restResultBefore`, through `get_brand_strategy`
+- Made by: `brand_strategy`, `competitor_find`, `competitor_claim_match`, `strategy_check`, `strategy_month`, `strategy_suggest` (see Learning)
 
 ### Content strategy (`content_strategy`)
 
@@ -2134,11 +2134,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-105 kinds: 0 learn, 0 fleet only, 26 own, 36 gap and 43 none.
+106 kinds: 0 learn, 0 fleet only, 27 own, 36 gap and 43 none.
 
-126 call sites: 0 learn, 0 fleet only, 36 own, 42 gap and 48 none.
+127 call sites: 0 learn, 0 fleet only, 37 own, 42 gap and 48 none.
 
-Not learning: 90 of 126 call sites, under gap and none lines.
+Not learning: 90 of 127 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2153,7 +2153,7 @@ Not learning: 90 of 126 call sites, under gap and none lines.
 - `broadcast`: Each one off launch email keeps its open and click rates once its report is read.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
 - `next_action_card`: The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.
-- `brand_strategy`: The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.
+- `brand_strategy`: The brand strategy keeps the newest 50 names a person marked Not a competitor, and the monthly suggestions a person put off with Not now with their reasons, beside the stars, ticks, groups and edits people made.
 - `lifecycle_journey`: A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.
 
 ### Learns
@@ -2228,6 +2228,8 @@ No line says this yet.
   - `src/lib/content/blog/freshness.ts`
 - `competitor_topics` (rule, Competitor topics to add), kept in `brand_map`. A topic a person dismissed from the brand map is marked dismissed and left out of what Next up suggests from competitor articles.
   - `src/lib/competitors/coverage.ts`
+- `strategy_suggest` (rule, The strategy's suggestion each month), kept in `brand_strategy`. A suggestion your team put off with Not now stays away 60 days, or 90 for one about connecting a tool, and the reason they gave is kept with the strategy.
+  - `src/lib/brandStrategy/suggestRules.ts`
 
 ### Gap
 

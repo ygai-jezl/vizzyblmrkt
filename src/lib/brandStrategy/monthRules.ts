@@ -153,6 +153,11 @@ export interface MonthInput {
   /** Their articles (watched competitors, read), or null when the brand doesn't read them. */
   theirs: ReadonlyArray<{ publishedAt: string | null; situationIds: readonly string[] }> | null;
   roadmap: { due: number; done: number } | null;
+  /**
+   * The approved plan's entries to write due by the end of the month that no live article answers
+   * now, earliest first (STRATEGY_SUGGEST_ENABLED: for the month's suggestion; absent while it is off).
+   */
+  behind?: ReadonlyArray<{ slotId: string; title: string }> | null;
   decisions: readonly StrategyDecision[];
   /** The content plan's decisions, or null without a plan. */
   planDecisions: readonly PlanDecision[] | null;

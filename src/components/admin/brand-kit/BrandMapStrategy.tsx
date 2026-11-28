@@ -26,6 +26,8 @@ import { useBrandMapTabs } from "./BrandMapTabs";
 import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, TRUNCATED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 import { BrandMapContentPlan } from "./BrandMapContentPlan";
 import { BrandMapHowItWent } from "./BrandMapHowItWent";
+import { SuggestNotNow } from "@/components/admin/review/SuggestNotNow";
+import { SUGGEST_WORDS } from "@/lib/brandStrategy/suggestRules";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
 import { FLAG_TEXT } from "./CompetitorCoverage";
 
@@ -575,6 +577,25 @@ export function BrandMapStrategy({
       </Section>
 
       {howItWent && view.approved ? <BrandMapHowItWent /> : null}
+
+      {view.suggestion ? (
+        // The month's suggestion (STRATEGY_SUGGEST_ENABLED), above Propose: Propose takes it as a note.
+        <Section title={SUGGEST_WORDS.onTab} aside={canEdit ? <SuggestNotNow suggestionKey={view.suggestion.key} onDone={() => void load()} /> : null}>
+          <div className="space-y-0.5 text-sm">
+            {view.suggestion.lines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+          {view.suggestion.sources ? <p className="text-[11px] text-neutral-500">{view.suggestion.sources}</p> : null}
+          {view.suggestion.action ? (
+            <Link href={view.suggestion.action.href} className="inline-block rounded-md border border-neutral-300 px-3 py-1 text-sm font-medium hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800">
+              {view.suggestion.action.label}
+            </Link>
+          ) : canEdit ? (
+            <p className="text-[11px] text-neutral-500">{view.suggestion.proposedWith ? SUGGEST_WORDS.proposedWith : SUGGEST_WORDS.takesNote}</p>
+          ) : null}
+        </Section>
+      ) : null}
 
       {draft?.sources.length ? <p className="text-[11px] text-neutral-500">Made from: {draft.sources.map((s) => STRATEGY_SOURCE_LABEL[s]).join(", ")}.</p> : null}
 

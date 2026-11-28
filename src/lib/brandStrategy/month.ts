@@ -16,9 +16,10 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { brandStrategyDocId, StrategyMonthSchema, type BrandStrategyDoc, type StrategyMonth } from "@/lib/types/brandStrategy";
 import type { ContentPlan, ContentStrategyDoc } from "@/lib/types/contentStrategy";
 import type { Tenant } from "@/lib/types/tenant";
-import { isStrategyResultsEnabled } from "./flags";
+import { isStrategyResultsEnabled, isStrategySuggestEnabled } from "./flags";
 import { mondayOfWeek, monthBounds, monthCounts, monthDue, monthLook, previousMonth, weeksIn, withMonth, type MonthArticle, type MonthInput } from "./monthRules";
 import { parseBrandStrategy } from "./store";
+import { suggestAfterLook } from "./suggestRules";
 
 /**
  * How it went's scheduled side (STRATEGY_RESULTS_ENABLED). It rides the lifecycle tick (every 2
@@ -32,6 +33,11 @@ import { parseBrandStrategy } from "./store";
  * third look keeps it with that kind marked failed. A month is written once and never changed, on
  * the strategy record without moving its revision. A brand's look starts only with time left for
  * the slowest connector's read (its manifest's timeout, plus a second).
+ *
+ * With STRATEGY_SUGGEST_ENABLED on, keeping a month also works out the month's one suggestion
+ * (suggestRules.ts) from the kept months, the approved strategy, the plan, coverage and the holds, in
+ * the same write: a new one replaces the one before, and none applying clears it. Off, nothing but
+ * the month is written, exactly as before.
  */
 
 const TICK_MS = 120_000;
@@ -108,6 +114,26 @@ async function roadmapIn(ctx: TenantContext, plan: ContentPlan, month: string, d
 }
 
 /**
+ * The roadmap's entries to write due by the end of the month (their week began by then) that no live
+ * article answers now, each slot once, earliest first: what Behind plan names.
+ */
+async function behindBy(ctx: TenantContext, plan: ContentPlan, month: string, deps: MonthDeps): Promise<Array<{ slotId: string; title: string }>> {
+  const end = monthBounds(month).to;
+  const slots = new Map(plan.slots.map((s) => [s.id, s] as const));
+  const due = [
+    ...new Map(
+      plan.roadmap
+        .filter((e) => e.action === "write" && slots.has(e.slotId) && mondayOfWeek(e.week) <= end)
+        .sort((a, b) => a.week.localeCompare(b.week))
+        .map((e) => [e.slotId, slots.get(e.slotId)!] as const),
+    ).values(),
+  ];
+  if (!due.length) return [];
+  const now = await questionsNow(ctx, due.flatMap((s) => s.questionIds), { db: deps.db });
+  return due.filter((s) => !s.questionIds.some((q) => now.get(q)?.state === "answered")).map((s) => ({ slotId: s.id, title: s.title }));
+}
+
+/**
  * What a month's look reads for one brand. A read of the brand's own data that fails throws (an
  * empty list would read as "nothing happened"); a connector's read that fails only leaves its kind
  * out.
@@ -155,6 +181,8 @@ export async function monthInput(ctx: TenantContext, tenant: Tenant | null, doc:
     outcomes,
     theirs,
     roadmap: plan ? await roadmapIn(ctx, plan, month, deps, opts.soFar ? now : undefined) : null,
+    // For the month's suggestion only, while its switch is on.
+    ...(isStrategySuggestEnabled() && !opts.soFar ? { behind: plan ? await behindBy(ctx, plan, month, deps) : null } : {}),
     decisions: doc.decisions,
     planDecisions: planDoc ? planDoc.decisions : null,
   };
@@ -174,7 +202,9 @@ export async function lookAtMonth(ctx: TenantContext, tenant: Tenant | null, dep
   if (!doc?.approved) return null;
   const month = opts.month ?? previousMonth(now.getTime());
   if (!monthCounts(doc, month)) return null;
-  const look = monthLook(await monthInput(ctx, tenant, doc, month, deps, now));
+  const input = await monthInput(ctx, tenant, doc, month, deps, now);
+  const look = monthLook(input);
+  const suggestOn = isStrategySuggestEnabled();
   const failedKinds = look.missing.filter((x) => x.why === "failed").map((x) => x.kind);
   let held: { retryAt: string; kinds: string[] } | null = null;
   const kept = await repo.claim(brandStrategyDocId(ctx.tenantId), (current) => {
@@ -185,7 +215,13 @@ export async function lookAtMonth(ctx: TenantContext, tenant: Tenant | null, dep
       held = { retryAt: new Date(now.getTime() + RETRY_MS).toISOString(), kinds: failedKinds };
       return { monthsRetryAt: held.retryAt, monthsRetries: fresh.monthsRetries + 1 };
     }
-    return { months: withMonth(fresh.months, look), monthsRetryAt: null, monthsRetries: 0 };
+    return {
+      months: withMonth(fresh.months, look),
+      monthsRetryAt: null,
+      monthsRetries: 0,
+      // The month's suggestion, worked out from the record as it is at the write (a Not now that lands meanwhile counts).
+      ...(suggestOn ? suggestAfterLook(fresh, look, input, now.toISOString()) : {}),
+    };
   });
   if (!kept) return null;
   if (held) return { held };

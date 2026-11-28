@@ -62,6 +62,28 @@ describe("How it went as the tab reads it", () => {
     expect((await strategyMonthsView(A, { db: db2, now: () => new Date("2026-12-02T08:00:00.000Z"), catalog: allConnectors })).nextLookOn).toBe("2026-12-02");
   });
 
+  it("adds the Working line under the latest month only while the month's suggestion is Working (STRATEGY_SUGGEST_ENABLED)", async () => {
+    const db = new FakeFirestore();
+    await seed(db, A, "2026-10-20T09:00:00.000Z", [month("2026-11", [{ id: "sit_aaaaaa01" }, { id: "rest" }])]);
+    const working = {
+      key: "sug_work1",
+      about: "search",
+      month: "2026-11",
+      raisedAt: "2026-12-02T00:10:00.000Z",
+      detail: { kind: "working", outcome: "search", measure: "searchClicks", focusNow: 40, focusBefore: 23, restNow: 44, restBefore: 40 },
+    };
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ suggestion: working }));
+    expect((await strategyMonthsView(A, { db, now: () => NOW, catalog: allConnectors })).working).toBeNull();
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    const line = (await strategyMonthsView(A, { db, now: () => NOW, catalog: allConnectors })).working;
+    expect(line).toBe("Your focus situations are working: their search clicks went from 23 to 40, ahead of the rest of your map (40 to 44).");
+    expect(dashesIn(line!)).toEqual([]);
+    expect(aiTellsIn(line!)).toEqual([]);
+    // Another kind of suggestion adds no line.
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ suggestion: { ...working, detail: { kind: "claim_no_proof", id: "cl_aaaaaa01", text: "Same week appointments", months: 2 } } }));
+    expect((await strategyMonthsView(A, { db, now: () => NOW, catalog: allConnectors })).working).toBeNull();
+  });
+
   it("never shows a partial first month, even one stored by an older build", async () => {
     const db = new FakeFirestore();
     await seed(db, A, "2026-10-20T09:00:00.000Z", [month("2026-11", [{ id: "rest" }]), month("2026-10", [{ id: "rest" }])]);

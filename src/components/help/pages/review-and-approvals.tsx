@@ -9,6 +9,7 @@ import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
 import { isPasteEnabled } from "@/lib/crm/paste/flags";
+import { SUGGEST_WORDS } from "@/lib/brandStrategy/suggestRules";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
@@ -178,6 +179,13 @@ export default function ReviewAndApprovalsHelp({
           week, one row when your competitors moved on it, with each reason in full. <strong>Review the strategy</strong> opens
           the Strategy tab, and an admin can <strong>Dismiss</strong> it for 30 days (
           <Open href="/help/brand-map">Brand map</Open>).
+        </li>
+        <li>
+          <strong>{SUGGEST_WORDS.title}</strong>: where your copy of YouGrow suggests one change to your strategy a month,
+          one row with the suggestion, what it was based on and what it couldn&apos;t see. Everyone on the team sees it.{" "}
+          <strong>{SUGGEST_WORDS.review}</strong> opens the Strategy tab, or a tool&apos;s Connect page when it suggests
+          connecting one, and an admin can press <strong>{SUGGEST_WORDS.notNow}</strong> and say why (
+          <Open href="/help/brand-map#strategy">Approve your strategy</Open>).
         </li>
         {isAutopilotEnabled() ? (
           <li>

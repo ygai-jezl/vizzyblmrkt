@@ -44,5 +44,16 @@ def get_brand_strategy(tool_context: ToolContext) -> dict:
     `month: null` with `tooEarly: true` means a month hasn't passed since approval. `measuring`
     says what each kind can be measured from now; for one with `measuredBy: null`, give its
     `whatToSay` line (what to connect or share, and what it would tell) with its `link`.
+
+    Where the monthly suggestion is on, `suggestion` is the one change worth a look that code
+    worked out when the month was added up (no AI): the plan falling behind, a focus situation
+    that stalled (with one to swap it for), a claim still without proof, or a kind of result to
+    connect or share. Say its `whatToSay` lines as they are, then what it was `basedOn` and what it
+    `cantSee` (each with `whatToDo` and its `link`); `facts` holds its numbers. A person decides:
+    in Review they press Review the strategy (Propose with Vizzy then takes it as a note to the
+    draft, approved as always) or Not now. Never change the strategy or plan yourself.
+    `inReview: false` with `state: "open"` means the focus is working: a line on How it went, with
+    no Review row. `putOff` lists what an admin said Not now to, why, and until when.
+    `month: null` means no suggestion this month.
     """
     return client.get_brand_strategy(_state(tool_context))

@@ -60,3 +60,16 @@ export function isStrategyCheckEnabled(): boolean {
 export function isStrategyResultsEnabled(): boolean {
   return isBrandStrategyEnabled() && process.env.STRATEGY_RESULTS_ENABLED === "true";
 }
+
+/**
+ * One suggestion a month (STRATEGY_SUGGEST_ENABLED): when the monthly look keeps a month, pure rules
+ * (src/lib/brandStrategy/suggestRules.ts, no model call) pick at most one change worth a look (behind
+ * the plan, a stalled focus situation, a claim still without proof, or a kind of result to connect),
+ * kept on the strategy record. It shows as one Review row and above Propose on the Strategy tab, and
+ * Vizzy reads it. Propose takes it as a note; nothing changes until a person approves. Not now keeps
+ * it away 60 days (90 for connecting a tool), with the reason kept. Needs STRATEGY_RESULTS_ENABLED.
+ * Off: no suggestion is worked out or shown, and Propose, Review and Vizzy are as before.
+ */
+export function isStrategySuggestEnabled(): boolean {
+  return isStrategyResultsEnabled() && process.env.STRATEGY_SUGGEST_ENABLED === "true";
+}

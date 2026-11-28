@@ -11,6 +11,7 @@ export const STRATEGY_ERRORS: Record<string, string> = {
   strategy_competitors_disabled: "The strategy isn't joined to Competitors in this environment.",
   strategy_check_disabled: "The weekly strategy check isn't switched on in this environment.",
   strategy_results_disabled: "How it went isn't switched on in this environment.",
+  strategy_suggest_disabled: "The strategy's monthly suggestion isn't switched on in this environment.",
   no_month: "There's no approved strategy to add up yet.",
   no_month_due: "No month is due to be added up now. Each month is added up once, on the 2nd of the next.",
   month_held: "A connected tool couldn't be read, so last month waits. It is tried again tomorrow.",

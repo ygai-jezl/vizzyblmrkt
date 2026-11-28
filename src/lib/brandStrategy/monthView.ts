@@ -11,6 +11,8 @@ import type { Tenant } from "@/lib/types/tenant";
 import { lookAtMonth, previewMonth, type MonthDeps } from "./month";
 import { GONE_TEXT, REST_TEXT, firstApprovedAt, firstMonth, lookDayOf, monthCounts, monthDue, tooEarly, type MonthRecord } from "./monthRules";
 import { readBrandStrategyDoc } from "./store";
+import { isStrategySuggestEnabled } from "./flags";
+import { suggestionLines } from "./suggestRules";
 
 /**
  * How it went on the Strategy tab (STRATEGY_RESULTS_ENABLED): the months kept on the strategy
@@ -34,6 +36,11 @@ export interface StrategyMonthsView {
   nextLookOn: string;
   months: ShownMonth[];
   measuring: KindCoverage[];
+  /**
+   * The month's suggestion when it was Working (STRATEGY_SUGGEST_ENABLED): the line How it went adds
+   * under the latest month. Null when it was another suggestion, none, or the switch is off.
+   */
+  working: string | null;
 }
 
 export interface MonthViewDeps {
@@ -82,6 +89,7 @@ export async function strategyMonthsView(ctx: TenantContext, deps: MonthViewDeps
     nextLookOn: nextLookOn(record, now),
     months: shownMonths(months, situations),
     measuring,
+    working: isStrategySuggestEnabled() && doc?.suggestion?.detail.kind === "working" && doc.suggestion.month === months[0]?.month ? (suggestionLines(doc.suggestion)[0] ?? null) : null,
   };
 }
 

@@ -7,7 +7,7 @@ vi.mock("@/lib/plans/meter", async (importOriginal) => {
   return { ...real, aiUsage: (ctx: never, purpose: string, opts: never) => (meter.purposes.push(purpose), real.aiUsage(ctx, purpose as never, opts)) };
 });
 
-const { mergeLines, numbersIn, parseOps, quoteHas, reviseDeck, reviseSchema, settledNeeds } = await import("./revise");
+const { mergeLines, numbersIn, parseOps, quoteHas, readQuote, reviseDeck, reviseSchema, settledNeeds } = await import("./revise");
 const { createRaiseDoc, readRaiseDoc } = await import("./store");
 const { renderText } = await import("./text");
 const { ACME, NOW, block, preSeedSlides, weeksOf } = await import("./testing/fixtures");
@@ -156,6 +156,10 @@ describe("changes made in code", () => {
     const typed = { change: "typed_number", slide: 10, name: "Raising", value: 250000, unit: "money", currency: "GBP" } as const;
     expect(await revise(doc, [{ ...typed, quote: "we want about a quarter of a million" }])).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
     expect(await revise(doc, [{ ...typed, quote: "we're raising £2,500,000" }])).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
+    // Words that also name a figure in millions hold no figure: Vizzy is told to quote only this one's words.
+    const scaled = await revise(doc, [{ ...typed, quote: "We're raising £250,000 now and £1.5M next year" }]);
+    expect(scaled).toMatchObject({ ok: false, status: 422, error: "quote_mismatch" });
+    expect(JSON.stringify(scaled)).toContain("quote only the words with 250000");
     const r = await revise(doc, [{ ...typed, quote: "We're raising £250,000 to open two more shops" }]);
     if (!r.ok) throw new Error(r.error);
     const ask = r.value.doc.current.slides[9]!;
@@ -390,7 +394,7 @@ describe("helpers", () => {
     expect(numbersIn("En 2025, 1 200 clients nous ont rejoints.", "fr")).toEqual([2025, 1200]);
   });
 
-  it("never reads a number before a word for thousands or millions in any language, or the start of its range", () => {
+  it("never reads a number before a word for thousands or millions, or any figure beside it", () => {
     for (const [quote, locale, value] of [
       ["we raised a $1.2-million seed round", "en", 1.2],
       ["ARR is $1.2  million", "en", 1.2],
@@ -417,10 +421,57 @@ describe("helpers", () => {
     }
     expect(numbersIn("MRR ist 5 bis 6 Tsd. €", "de")).toEqual([]);
     expect(numbersIn("5至6万", "zh")).toEqual([]);
-    // A count beside other words keeps its number.
-    expect(numbersIn("we had 40 customers and 6k MRR")).toEqual([40]);
-    expect(numbersIn("Q1 120, Q2 180k")).toEqual([120]);
+    // Words that name a figure in thousands or millions hold no figure at all: Vizzy quotes each figure's own words.
+    expect(readQuote("we had 40 customers and 6k MRR")).toEqual({ numbers: [], scaled: true });
+    expect(numbersIn("we had 40 customers")).toEqual([40]);
+    expect(numbersIn("Q1 120, Q2 180k")).toEqual([]);
     expect(numbersIn("हमारी आय ₹६,२०० है", "hi")).toEqual([6200]);
+  });
+
+  it("knows a scale word only in the brand's language or English, glued, after a space or as a capital", () => {
+    // Glued to the digits, whatever follows.
+    for (const quote of ["We have a 10k-strong waitlist.", "We're at $2M-ish ARR.", "We pay engineers $120k-a-year", "a $1.2M-dollar raise"]) {
+      expect(readQuote(quote).scaled, quote).toBe(true);
+    }
+    expect(readQuote("Wir schließen eine 500k-Runde ab.", "de").scaled).toBe(true);
+    expect(readQuote("On lève 2M5 cette année.", "fr").scaled).toBe(true);
+    expect(readQuote("Выручка 50к рублей в месяц", "ru").scaled).toBe(true);
+    expect(readQuote("月流水6.2w", "zh").scaled).toBe(true);
+    expect(readQuote("1,2 Bio. € Umsatz", "de").scaled).toBe(true);
+    // A word or unit that only looks like one, in the brand's language.
+    for (const [quote, locale, value] of [
+      ["Sprzedaliśmy 300 w listopadzie.", "pl", 300],
+      ["MRR wzrósł do 52 000 w listopadzie.", "pl", 52000],
+      ["Wir rösten 2 t Kaffee im Monat.", "de", 2],
+      ["Wir verkaufen 800 l Olivenöl pro Monat.", "de", 800],
+      ["Wir führen 450 Bio Produkte.", "de", 450],
+      ["1 200 clients cette année contre 800 l'an passé", "fr", 800],
+      ["We deliver within 10 mi of the store.", "en", 10],
+      ["हमने 40 लेख प्रकाशित किए।", "hi", 40],
+      ["Customers: 340\nM/M growth: 11%", "en", 340],
+      ["Shops: 12\nT/O: £480,000", "en", 12],
+      ["a 5Mbps line for 300 shops", "en", 300],
+      ["1,200円の商品を300個", "ja", 1200],
+    ] as const) {
+      expect(quoteHas(value, quote, locale), quote).toBe(true);
+    }
+  });
+
+  it("reads a header's scale for every figure, and never a lettered list or a size as one", () => {
+    expect(numbersIn("MRR ($k): Jan 45, Feb 52, Mar 61")).toEqual([]);
+    expect(numbersIn("figures in thousands: revenue 450")).toEqual([]);
+    expect(quoteHas(3, "Two asks: (a) intros, (b) 3 design partners")).toBe(true);
+    expect(quoteHas(200, "Sizes sold: 120 (S), 200 (M), 80 (L).")).toBe(true);
+    expect(quoteHas(640, "Plan (B) costs $19 a month and has 640 users.")).toBe(true);
+    expect(quoteHas(1200, "We sell to 1,200 teachers in K-12")).toBe(true);
+    // A round Swiss amount is a number, not a "'000" header.
+    expect(quoteHas(100000, "Wir haben CHF 100'000 Umsatz im Jahr", "de")).toBe(true);
+    expect(quoteHas(340, "Wir haben 340 Kunden und CHF 9'000 MRR.", "de-CH")).toBe(true);
+  });
+
+  it("keeps a rating and the count after a time", () => {
+    expect(quoteHas(4.8, "Our app is rated 4.8/5 on the App Store")).toBe(true);
+    expect(numbersIn("Le webinaire de 14 h 30, 1 200 inscrits", "fr")).toEqual([14, 1200]);
   });
 
   it("reads a count beside a code, a unit or a date, and never the code's or date's own digits", () => {

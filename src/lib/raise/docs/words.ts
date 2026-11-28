@@ -407,4 +407,6 @@ export const OP_ISSUES = {
   noLaunch: (name: string) => `no launch called "${name}"`,
   needsLaunch: "say which launch",
   notInQuote: (digits: string) => `the number ${digits} isn't in what the person said`,
+  scaledQuote: (digits: string) =>
+    `these words name a figure in thousands or millions, so they hold no exact figure: quote only the words with ${digits}, or ask for the exact figure`,
 } as const;

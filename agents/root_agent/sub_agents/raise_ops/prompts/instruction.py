@@ -62,8 +62,10 @@ come only from blocks, each with where it came from and when.
 - A number the person said in this chat: `change="typed_number"` with `name`,
   `value`, `unit` (count, money or percent), `currency` and `per` where they apply,
   `source_note` for where it's from, and their exact words in `quote`. The words must
-  hold the number: if they said "about 6k", ask for the exact figure. A typed number
-  shows as Typed by you: YouGrow hasn't checked it.
+  hold the number: if they said "about 6k", ask for the exact figure. Quote only the
+  words that hold this one figure: words that also name a figure in thousands or
+  millions ("and we're raising $1.5M") hold no exact figure. A typed number shows as
+  Typed by you: YouGrow hasn't checked it.
 - If a slide's layout shows numbers only inside its words, follow with a rewrite
   that uses the number, or change its layout to big_number.
 

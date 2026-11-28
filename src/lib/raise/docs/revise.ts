@@ -154,94 +154,89 @@ function plainMarks(quote: string): string {
 
 /** Scripts written without spaces between words, where a letter can sit right before a number ("月商12,500円"). */
 const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
-
-/** The languages whose words for thousand, million and the like (from the runtime's compact numbers) a number is never read before. */
-const SCALE_LOCALES = [
-  "en", "en-IN", "de", "fr", "es", "it", "pt", "pt-BR", "nl", "sv", "nb", "da", "fi", "pl", "cs", "ro", "hu", "tr", "ru", "uk", "el",
-  "ar", "he", "fa", "hi", "bn", "mr", "ta", "te", "id", "ms", "vi", "th", "ja", "zh", "zh-Hant", "ko",
-];
-/** Scale words people write that the runtime's compact numbers don't, and vulgar fractions ("2½" is never 2). */
-const MORE_SCALE_WORDS = [
-  "grand", "mill", "bil", "bln", "trn", "cr", "crs", "lac", "lacs", "lakhs", "crores", "thousands", "trillions", "hundred", "hundreds", "dozen", "dozens",
-  "mm", "teur", "keur", "tsd", "meur", "musd", "kusd", "msek", "ksek", "mnok", "knok", "mdkk", "kdkk", "mchf", "kchf", "mgbp", "kgbp", "mdd", "mdp", "mds", "milliers", "g$",
-  "к", "w", "ngàn", "tỉ", "লক্ষ", "கோடி", "லட்சம்", "లక్ష", "లక్షలు", "కోటి", "కోట్లు", "કરોડ", "લાખ", "ਕਰੋੜ", "ਲੱਖ", "ಕೋಟಿ", "ಲಕ್ಷ", "കോടി", "ലക്ഷം",
-  "千", "百", "仟", "佰", "백", "¼", "½", "¾", "⅓", "⅔", "⅕", "⅖", "⅗", "⅘", "⅙", "⅚", "⅛", "⅜", "⅝", "⅞",
-];
-/** The one letter scale words kept: in any other language a single letter is too often a word ("e" is "and" in Portuguese). */
-const ONE_LETTER_SCALE = new Set(["k", "m", "b", "t", "l", "w", "к"]);
 /** Scripts that add endings to a scale word ("কোটির"), so the word needs no space after it. */
 const SUFFIXED = /[\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Gujarati}\p{Script=Gurmukhi}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Oriya}]/u;
 
-/** Text without accents, vowel signs or other marks, so "milhoes", "करोड" and "الف" match "milhões", "करोड़" and "ألف". */
-const bare = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "");
-
-let scaleWords: RegExp | null = null;
-let scaleHeader: RegExp | null = null;
+/** Accents people often leave out (Latin and Greek accents, Arabic hamza and vowel marks, the Devanagari nukta): "milhoes", "الف", "करोड". */
+const plainLetters = (s: string) => s.normalize("NFD").replace(/[̀-ًͯ-़ٰٟ]/g, "");
 
 /**
- * Whether a word for thousands or millions comes right after a number, after at most a few spaces or
- * a hyphen: "6.2k", "1.2 million", "$1.2-million", "1,2 Mio.", "1,2 миллиона", "₹2.5 करोड़", "1万",
- * "6 and a half million". Never inside a code, a unit or a compound: "B2B", "K-12", "k8s", "M&A",
- * "m²", "Bio-Kisten", "T-Shirts".
+ * Words for thousands or millions that people write in any language, beside the runtime's compact
+ * numbers for the brand's language, English and Indian English: startup shorthand, finance codes
+ * ("MEUR"), lakh and crore in Indian scripts, and the counting characters of Chinese, Japanese and Korean.
  */
-function scaleAfter(rest: string): boolean {
-  buildScaleWords();
-  return scaleWords!.test(bare(rest));
-}
+const SCALE_WORDS_ANY = [
+  "k", "grand", "mill", "mn", "mm", "bn", "bln", "trn", "hundred", "hundreds", "dozen", "dozens", "thousands", "trillions",
+  "lakh", "lakhs", "lac", "lacs", "crore", "crores", "cr", "crs", "tsd", "mio", "mrd", "mln", "mld", "mdd", "mdp", "mds", "milliers",
+  "teur", "keur", "meur", "kusd", "musd", "kgbp", "mgbp", "kchf", "mchf", "ksek", "msek", "knok", "mnok", "kdkk", "mdkk",
+  "ngàn", "tỉ", "लाख", "करोड़", "লাখ", "লক্ষ", "কোটি", "லட்சம்", "கோடி", "లక్ష", "లక్షలు", "కోటి", "కోట్లు", "ಲಕ್ಷ", "ಕೋಟಿ", "ലക്ഷം", "കോടി", "લાખ", "કરોડ", "ਲੱਖ", "ਕਰੋੜ",
+  "十", "百", "千", "万", "萬", "億", "亿", "兆", "백", "천", "만", "억", "조",
+];
+/** Scale letters only when glued to the digits: "50к" is 50 thousand, "6.2w" is 6.2 万, but Polish "300 w listopadzie" is "in November". */
+const GLUED_ONLY = ["к", "w"];
+/** Words that are a scale only with their dot: German "Bio." is a billion, "Bio" is organic. */
+const SCALE_WITH_DOT = new Set(["bio"]);
+/** Vulgar fractions: "2½" is never 2. */
+const FRACTIONS = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
 
-/** Whether the words name a scale for every figure, as a table header does ("MRR ($k):", "(in millions)", "'000"). */
-function scaleForAll(text: string): boolean {
-  buildScaleWords();
-  return scaleHeader!.test(bare(text));
-}
+type Scale = { glued: RegExp; spaced: RegExp; letter: RegExp; header: RegExp };
+const scales = new Map<string, Scale>();
 
-function buildScaleWords(): void {
-  if (!scaleWords) {
-    const words = new Set(MORE_SCALE_WORDS);
-    for (const l of SCALE_LOCALES) {
-      for (const compactDisplay of ["short", "long"] as const) {
-        let nf: Intl.NumberFormat;
-        try {
-          nf = new Intl.NumberFormat(l, { notation: "compact", compactDisplay });
-        } catch {
-          continue;
-        }
-        for (let e = 3; e <= 13; e++) {
-          // 1, 2, 5, 1.5 and 21 reach each plural form: "1 milion", "2 miliony", "5 milionów", "1,5 miliona".
-          for (const v of [1, 2, 5, 1.5, 21]) {
-            const word = nf.formatToParts(v * 10 ** e).filter((p) => p.type === "compact").map((p) => p.value).join("").trim().replace(/\.+$/, "");
-            if (word) words.add(word);
-          }
+/** The scale words of one brand language as patterns, built once from the runtime's compact numbers. */
+function scaleFor(locale: string): Scale {
+  const key = numberLocale(locale);
+  const hit = scales.get(key);
+  if (hit) return hit;
+  const words = new Set(SCALE_WORDS_ANY.map(plainLetters));
+  const letters = new Set(["K", "M", "B", "T", "L"]);
+  for (const l of new Set([key, "en", "en-IN"])) {
+    for (const compactDisplay of ["short", "long"] as const) {
+      const nf = new Intl.NumberFormat(l, { notation: "compact", compactDisplay });
+      for (let e = 3; e <= 15; e++) {
+        // 1, 2, 5, 1.5 and 21 reach each plural form: "1 milion", "2 miliony", "5 milionów", "1,5 miliona".
+        for (const v of [1, 2, 5, 1.5, 21]) {
+          const word = plainLetters(nf.formatToParts(v * 10 ** e).filter((p) => p.type === "compact").map((p) => p.value).join("").trim().replace(/\.+$/, ""));
+          if (!word) continue;
+          // One letter is a scale only as a capital ("1.2 M"), or glued to the digits ("6.2k").
+          if ([...word.replace(/[^\p{L}]/gu, "")].length === 1 && !UNSPACED.test(word)) letters.add(word.toUpperCase());
+          else words.add(word);
         }
       }
     }
-    const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const plain = new Set<string>();
-    for (const w of words) {
-      const b = bare(w);
-      if ([...b.replace(/[^\p{L}]/gu, "")].length === 1 && !ONE_LETTER_SCALE.has(b.toLowerCase()) && !UNSPACED.test(b) && !/\p{No}/u.test(b)) continue;
-      if (b) plain.add(b);
-    }
-    const sorted = [...plain].sort((a, b) => b.length - a.length);
-    const glued = sorted.filter((w) => UNSPACED.test(w[0]!) || SUFFIXED.test(w[0]!) || /\p{No}/u.test(w)).map(esc);
-    const loose = sorted.filter((w) => !(UNSPACED.test(w[0]!) || SUFFIXED.test(w[0]!) || /\p{No}/u.test(w)));
-    // A short word ("Bio", "T", "K") is a scale only on its own; a long one also before a hyphen ("$1.2-million-dollar").
-    const short = loose.filter((w) => [...w].length <= 3).map(esc);
-    const long = loose.filter((w) => [...w].length > 3).map(esc);
-    const all = [...glued, ...short, ...long];
-    scaleWords = new RegExp(
-      `^[\\s\\p{Pd}]{0,3}(?:and an? (?:half|quarter)\\s+)?(?:(?:${short.join("|")})\\.?(?![\\p{L}\\p{N}&]|\\p{Pd}[\\p{L}\\p{N}])|(?:${long.join("|")})\\.?(?![\\p{L}\\p{N}&]|\\p{Pd}\\p{N})|(?:${glued.join("|")}))`,
-      "iu",
-    );
-    scaleHeader = new RegExp(`[(\\[]\\s*\\p{Sc}?\\s*(?:in\\s+)?(?:${all.join("|")})\\.?\\s*\\p{Sc}?\\s*[)\\]]|['\u2019]000|\\(000s?\\)|\\bin\\s+\\p{Sc}?\\s*(?:thousands|millions|billions|k|m|bn|mn)\\b`, "iu");
   }
+  const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sorted = [...words].sort((a, b) => b.length - a.length);
+  const free = sorted.filter((w) => UNSPACED.test(w[0]!) || SUFFIXED.test(w[0]!)).map(esc);
+  const plain = sorted.filter((w) => !(UNSPACED.test(w[0]!) || SUFFIXED.test(w[0]!)));
+  const words2 = plain.filter((w) => !SCALE_WITH_DOT.has(w.toLowerCase())).map(esc);
+  const dotted = plain.filter((w) => SCALE_WITH_DOT.has(w.toLowerCase())).map((w) => `${esc(w)}\\.`);
+  const oneLetter = [...letters].map(esc);
+  const any = [...free, ...words2, ...dotted, ...oneLetter].join("|");
+  const scale: Scale = {
+    // Glued to the digits: "6.2k", "10k-strong", "2M5", "1,2Mio", "1万", "2½". Never "5Mbps" or "12km".
+    glued: new RegExp(`^(?:(?:${[...words2, ...dotted, ...oneLetter, ...GLUED_ONLY].join("|")})\\.?(?![\\p{L}\\p{M}&'’])|(?:${free.join("|")})|[${FRACTIONS}])`, "iu"),
+    // After a space or a hyphen: "1.2 million", "$1.2-million", "1,2 Mio.", "6 and a half million". Never "40 Bio Produkte" or "T-Shirts".
+    spaced: new RegExp(
+      `^(?: {1,2}| ?\\p{Pd} ?)(?:and an? (?:half|quarter) )?(?:(?:${[...words2, ...dotted].join("|")})\\.?(?![\\p{L}\\p{M}\\p{N}&'’]|\\p{Pd}[\\p{L}\\p{N}])|(?:${free.join("|")}))`,
+      "iu",
+    ),
+    // A capital letter on its own after a space: "1.2 M", "₹50 L". Never "2 t Kaffee", "800 l", "4 l'an" or "M/M".
+    letter: new RegExp(`^ {1,2}(?:${oneLetter.join("|")})(?=$|[\\s.,;:!?)\\]%\\p{Sc}])`, "u"),
+    // A scale named for every figure: "MRR ($k):", "(€m)", "(in millions)", "('000)", "in thousands". Never "(b)" or "(M)" alone.
+    header: new RegExp(
+      `[(\\[]\\s*(?:\\p{Sc}\\s*(?:${any})|(?:${any})\\.?\\s*\\p{Sc}|(?:in\\s+)?(?:${[...free, ...words2.filter((w) => w.replace(/\\\\/g, "").length >= 3), ...dotted].join("|")}))\\.?\\s*[)\\]]|(?<![\\d'’])['’]000s?(?!\\d)|\\bin (?:thousands|millions|billions)\\b(?! of\\b)`,
+      "iu",
+    ),
+  };
+  scales.set(key, scale);
+  return scale;
 }
 
-/**
- * What sits between figures that share one scale word: a dash, a tilde, a slash or a comma and at most two
- * short words ("1.2, 1.8 and 2.6 million", "2, maybe 3 million", "5 से 6 करोड़", "5至6万"). Never only a space.
- */
-const SHARED_GAP = /^(?=.*[^\s])[\s\p{Sc}\p{Pd}~,;/]*(?:[\p{L}\p{M}]{1,8}[\s\p{Sc}\p{Pd}~,;/]*){0,2}$/u;
+/** Whether a word for thousands or millions comes right after a number: glued, after a space or after a hyphen. */
+function scaledAfter(scale: Scale, rest: string): boolean {
+  const r = plainLetters(rest);
+  return scale.glued.test(r) || scale.spaced.test(r) || scale.letter.test(r);
+}
 
 /**
  * Whether what comes right before a run ties its first digits to something that isn't a number of its
@@ -255,15 +250,18 @@ function tiedBefore(text: string, at: number): boolean {
   const c2 = text[at - 2] ?? "";
   if (c === ":" || c === "/") return /\d/.test(c2);
   if (c === "." || c === ",") return !/\p{L}/u.test(c2);
-  if (/[-\u2010\u2011]/.test(c)) return /[\p{L}\d]/u.test(c2);
+  if (/[-‐‑]/.test(c)) return /[\p{L}\d]/u.test(c2);
   if (/\p{L}/u.test(c) && !UNSPACED.test(c)) return true;
   const before = text.slice(Math.max(0, at - 4), at);
   if (/\d ?[時点시] ?$|[万萬億亿兆千百만억천조] ?$/.test(before)) return true;
   // "14 h 30": minutes after an hour, never a count ("en 48 h 1 200 inscrits" is 1200).
-  return /\d ?h $/i.test(before) && /^[0-5]\d(?![\d.,'\u2019]| \d{3}(?!\d))/.test(text.slice(at));
+  return /\d ?h $/i.test(before) && /^[0-5]\d(?!\d|[.,'’]\d| \d{3}(?!\d))/.test(text.slice(at));
 }
 
 type Found = { value: number; start: number; end: number };
+
+/** What a quote holds: its numbers, and whether it names a figure in thousands or millions anywhere (then it holds none). */
+export type QuoteNumbers = { numbers: number[]; scaled: boolean };
 
 /**
  * Every number in someone's words, read in one pass with the brand language's marks. A number is
@@ -271,33 +269,41 @@ type Found = { value: number; start: number; end: number };
  * "." and ",", an apostrophe, a space where the language writes one, or lakh), then a decimal part.
  * A decimal mark is the language's own, or the other of "." and "," before anything but three
  * digits when nothing or only apostrophes and spaces come before it ("1,5" in English, "CHF 1'234.50"
- * in German). Read nothing rather than a number the words don't mean: never a run glued to another
- * by a mark ("27.11.2026", "1,234,5"), a time's minutes, a label's digits ("Q3 250" holds 250, never
- * 3250), a number before a word for thousands or millions in any of SCALE_LOCALES ("$6.2k", "1,2
- * Millionen") or the figures that share it ("$5-6k", "1.2, 1.8 and 2.6 million"), any figure when
- * the words name a scale for all of them ("MRR ($k):"), the first end of a range or the day of a date
- * ("5-6,000", "27/11"), a leading zero ("007") or, in a language that doesn't put a space between
- * thousands, a short group then three digits ("3 250"). A mark then a space ("2025, 1 200"), a line break and a space between numbers that
- * can't be one ("in 2025 250 brands") all separate numbers. Any script's digits and full-width forms
- * are read. Pure.
+ * in German).
+ *
+ * Words that name a figure in thousands or millions anywhere ("$6.2k", "1,2 Millionen", "2, maybe 3
+ * million", "MRR ($k):") hold no figure at all, so a figure beside them must be quoted on its own words.
+ * Read nothing rather than a number the words don't mean: never a run glued to another by a mark
+ * ("27.11.2026", "1,234,5"), a date's or a time's parts ("27/11", "12:30", "2025-11-27"), the first end
+ * of a range ("5-6,000"), a label's digits ("Q3 250" holds 250, never 3250), a leading zero ("007") or,
+ * in a language that doesn't put a space between thousands, a short group then three digits ("3 250").
+ * A mark then a space ("2025, 1 200"), a line break and a space between numbers that can't be one ("in
+ * 2025 250 brands") all separate numbers. Any script's digits and full-width forms are read. Pure.
  */
-export function numbersIn(quote: string, locale = "en"): number[] {
+export function readQuote(quote: string, locale = "en"): QuoteNumbers {
   const text = plainMarks(quote);
   const dec = decimalMark(locale);
   const other = dec === "," ? "." : ",";
   const marks = new Set([other, " ", "'", "’"]);
   const spaced = groupsWithSpace(locale);
+  const scale = scaleFor(locale);
   const read = (raw: string) => readNumber(raw, dec, other, marks);
   const found: Found[] = [];
+  let scaled = scale.header.test(plainLetters(text));
 
   // One stretch of digits and marks that a mark then a space hasn't cut, starting at `at`.
   const segment = (at: number, raw: string): void => {
     const seg = raw.replace(/[.,'’ ]+$/, "");
     if (!seg) return;
     if (tiedBefore(text, at)) {
-      // A date, a time or a range ("27/11", "12:30", "5-6,000"): the number before the mark goes too.
+      // The first end of a range or a date ("5-6,000", "27/11", "12:30") goes too.
       const last = found[found.length - 1];
-      if (last && last.end === at - 1 && /[:/\-\u2010\u2011]/.test(text[at - 1]!)) found.pop();
+      const mark = text[at - 1]!;
+      if (last && last.end === at - 1) {
+        const lead = Number(/^\d+/.exec(seg)?.[0] ?? NaN);
+        const date = Number.isInteger(last.value) && last.value <= 31 && lead <= 31;
+        if (/[-‐‑]/.test(mark) || (mark === "/" && date) || (mark === ":" && /^\d\d(?!\d)/.test(seg))) found.pop();
+      }
       // Leave out the tied stretch, and read what follows it after a space as a run of its own.
       const lead = /^\S+ +/.exec(seg)?.[0];
       if (lead) segment(at + lead.length, seg.slice(lead.length));
@@ -339,25 +345,20 @@ export function numbersIn(quote: string, locale = "en"): number[] {
       from = (cut.index ?? 0) + cut[0].length;
     }
     segment(start + from, run.slice(from));
+    if (scaled) continue;
     const end = start + run.replace(/[.,'’ ]+$/, "").length;
-    if (!scaleAfter(text.slice(end, end + 32))) continue;
-    // Leave out the number before the scale word.
+    // A scale word after a number, or after the second end of a range ("$5-6k"), but not after a label's digits ("B2B").
     const last = found[found.length - 1];
-    let numberStart = end - (/\d[\d.,'’]*$/.exec(text.slice(start, end))?.[0].length ?? 0);
-    if (last && last.end === end) {
-      found.pop();
-      numberStart = last.start;
-    } else if (!/[\p{Pd}~/]/u.test(text[numberStart - 1] ?? "")) {
-      // A label's digits before the word ("B2B", "K8s"): no number of its own, and no range.
-      continue;
-    }
-    // Every figure before it that shares the word ("1.2, 1.8 and 2.6 million") goes too.
-    for (let before = found[found.length - 1]; before && SHARED_GAP.test(text.slice(before.end, numberStart)); before = found[found.length - 1]) {
-      numberStart = before.start;
-      found.pop();
-    }
+    const digitsStart = end - (/\d[\d.,'’]*$/.exec(text.slice(start, end))?.[0].length ?? 0);
+    const ownNumber = last !== undefined && last.end === end;
+    if ((ownNumber || /[\p{Pd}~/]/u.test(text[digitsStart - 1] ?? "")) && scaledAfter(scale, text.slice(end, end + 40))) scaled = true;
   }
-  return scaleForAll(text) ? [] : found.map((f) => f.value);
+  return { numbers: scaled ? [] : found.map((f) => f.value), scaled };
+}
+
+/** The numbers in someone's words (see readQuote). */
+export function numbersIn(quote: string, locale = "en"): number[] {
+  return readQuote(quote, locale).numbers;
 }
 
 /** One run of digits and marks as a number, or null when it isn't one number. */
@@ -388,7 +389,7 @@ function readNumber(raw: string, dec: string, other: string, marks: ReadonlySet<
 
 /**
  * Whether the person's own words hold this number, read with the marks of the brand's language
- * (`locale`): one of numbersIn's numbers is it exactly. In English "$6,200 a month" holds 6200 and
+ * (`locale`): one of readQuote's numbers is it exactly. In English "$6,200 a month" holds 6200 and
  * "0.125%" holds 0.125; in French or German "12,5 %" holds 12.5 (never 12 or 125) and "6.200 €"
  * holds 6200 (never 6.2). "about 6k" holds neither 6 nor 6000, so Vizzy asks for the figure rather
  * than turning words into a number.
@@ -710,8 +711,13 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
         if (op.change === "typed_number") {
           const brand = await tenantOnce();
           // Unread, the number must be held whichever way its marks are read.
-          const held = brand === undefined ? quoteHas(op.value, op.quote, "en") && quoteHas(op.value, op.quote, "de") : quoteHas(op.value, op.quote, brand?.defaultLocale ?? "en");
-          if (!held) return fail(422, "quote_mismatch", { issues: [`ops.${i}.quote: ${OP_ISSUES.notInQuote(String(Math.abs(op.value)))}`] });
+          const locales = brand === undefined ? ["en", "de"] : [brand?.defaultLocale ?? "en"];
+          if (!locales.every((l) => quoteHas(op.value, op.quote, l))) {
+            // Words that name a figure in thousands or millions hold none: Vizzy quotes only the words with this one.
+            const digits = String(Math.abs(op.value));
+            const issue = locales.some((l) => readQuote(op.quote, l).scaled) ? OP_ISSUES.scaledQuote(digits) : OP_ISSUES.notInQuote(digits);
+            return fail(422, "quote_mismatch", { issues: [`ops.${i}.quote: ${issue}`] });
+          }
           const b = typedBlock(
             { name: op.name, value: op.value, unit: op.unit, currency: op.currency, per: op.per ?? null, from: op.from },
             { typedBy: ctx.userId ?? "vizzy", saidInChat: true, quote: op.quote },

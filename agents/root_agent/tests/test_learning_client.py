@@ -66,4 +66,4 @@ def test_vizzy_is_told_when_to_use_it():
 
 def test_messages_keep_house_style():
     for text in [lc._OFF, lc._NO_LINK, *lc._ERRORS.values()]:
-        assert "—" not in text and "–" not in text and " - " not in text
+        assert chr(0x2014) not in text and chr(0x2013) not in text and " - " not in text

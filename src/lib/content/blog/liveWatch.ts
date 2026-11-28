@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { checkVersions } from "./versionLive";
 import { forTenant } from "@/lib/tenant";
 import { listAllTenants } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -384,6 +385,12 @@ async function passBrand(ctx: TenantContext, tenant: Tenant, budget: Budget, dep
     addresses[a.plan.id] = { ...s, nextAt: new Date(nowMs + LIVE_WATCH.PASS_MS).toISOString(), checks: s.checks + 1, textShare: check.textShare ?? null };
   }
 
+  // 1b. Articles' versions in other languages, at their own addresses (PAGE_LANGUAGES_ENABLED).
+  const versions = await checkVersions(ctx, { canOpen: () => canOpen(budget), open: () => void (budget.opens -= 1) }, { db: deps.db, read: deps.readAddress ?? fetchSourcePage, nowMs });
+  result.opened += versions.opened;
+  result.found += versions.found;
+  result.approved += versions.approved;
+
   // 2. The sitemap, for articles with no address.
   const noAddress = waiting.filter((a) => !a.url);
   let sitemapNextAt = doc.sitemapNextAt;
@@ -406,6 +413,7 @@ async function passBrand(ctx: TenantContext, tenant: Tenant, budget: Budget, dep
   const soonest = Math.min(
     ...stillWaiting.map((s) => Date.parse(s.nextAt)),
     unfound && sitemapNextAt ? Date.parse(sitemapNextAt) : Infinity,
+    versions.waiting ? nowMs + LIVE_WATCH.PASS_MS : Infinity,
   );
   const nextMs = more ? nowMs + LIVE_WATCH.SOON_MS : Number.isFinite(soonest) ? Math.max(nowMs + LIVE_WATCH.PASS_MS, soonest) : nowMs + LIVE_WATCH.IDLE_MS;
   const next: LiveWatchDoc = { ...doc, nextAt: new Date(nextMs).toISOString(), sitemapNextAt, site, sitemaps, queue, addresses, lastError, updatedAt: at };

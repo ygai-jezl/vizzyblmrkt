@@ -45,7 +45,16 @@ export interface LiveCheck {
 /** What a check opens a page with: its title, first heading and text, when it could read them. */
 export type PageReader = (
   url: string,
-) => Promise<{ title: string; refused?: boolean; ogImage?: string; h1?: string; text?: string; dates?: { published: string | null; modified: string | null } } | null>;
+) => Promise<{
+  title: string;
+  refused?: boolean;
+  ogImage?: string;
+  h1?: string;
+  text?: string;
+  dates?: { published: string | null; modified: string | null };
+  /** Its alternate language links (PAGE_LANGUAGES_ENABLED), when the reader reads them. */
+  alternates?: Array<{ hreflang: string; href: string }>;
+} | null>;
 
 export type LiveOutcome =
   | { ok: true; node: ContentNode; check: LiveCheck | null }

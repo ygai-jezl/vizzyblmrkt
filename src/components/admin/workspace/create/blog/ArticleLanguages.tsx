@@ -132,7 +132,9 @@ function VersionRow({ v, view, bits, act, canAct }: { v: ArticleVersionView; vie
   const live = v.live
     ? v.live.missingTags.length
       ? `Live, but its tags miss ${v.live.missingTags.join(", ")}. Google ignores the whole set until they're there.`
-      : "✓ Live"
+      : v.live.fromDefault === false
+        ? `Live, but the ${view.base.name} page doesn't list this version yet. Google ignores the whole set until it does.`
+        : "✓ Live"
     : v.approved && v.address
       ? "Approved, not live yet"
       : null;

@@ -95,6 +95,8 @@ export const VersionLiveSchema = z.object({
   checkedAt: z.string(),
   /** Languages (and "x-default") the page's tags don't list, so Google may ignore the whole set. */
   missingTags: z.array(z.string().max(20)).max(30),
+  /** The default language's page lists this version too (checked when this version was found). */
+  fromDefault: z.boolean().optional(),
 });
 export type VersionLive = z.infer<typeof VersionLiveSchema>;
 

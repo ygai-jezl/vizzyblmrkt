@@ -122,46 +122,123 @@ export function decimalMark(locale: string): "." | "," {
   return new Intl.NumberFormat(numberLocale(locale)).formatToParts(1.5).find((p) => p.type === "decimal")?.value === "," ? "," : ".";
 }
 
-/** A quote with a language's own digits (Bengali, Marathi and the like) written as 0 to 9. */
-function asciiDigits(quote: string, locale: string): string {
-  const f = new Intl.NumberFormat(numberLocale(locale), { useGrouping: false });
-  const map = new Map<string, string>();
-  for (let d = 0; d <= 9; d++) map.set(f.format(d), String(d));
-  return quote.replace(/\p{Nd}/gu, (ch) => map.get(ch) ?? ch);
+/** Whether a locale puts a space between thousands, as French, Swedish and Polish do ("14 200"). */
+function groupsWithSpace(locale: string): boolean {
+  const group = new Intl.NumberFormat(numberLocale(locale)).formatToParts(1234567).find((p) => p.type === "group")?.value ?? "";
+  return /^\s$/.test(group);
+}
+
+const DIGIT = /^\p{Nd}$/u;
+
+/** A digit's value in any script. Unicode keeps digits in runs of ten from 0 to 9, so it is the digit's place in its run. */
+function digitValue(cp: number): number {
+  if (cp >= 0x30 && cp <= 0x39) return cp - 0x30;
+  let start = cp;
+  while (DIGIT.test(String.fromCodePoint(start - 1))) start--;
+  return (cp - start) % 10;
+}
+
+/** The quote with plain marks: full-width forms as ASCII, any script's digits as 0 to 9, Arabic marks as "." and ",", every space as " ". */
+function plainMarks(quote: string): string {
+  return quote
+    .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/\p{Nd}/gu, (ch) => String(digitValue(ch.codePointAt(0)!)))
+    .replace(/٫/g, ".")
+    .replace(/٬/g, ",")
+    .replace(/\p{Zs}/gu, " ");
+}
+
+/** Scripts written without spaces between words, where a letter can sit right before a number ("月商12,500円"). */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/** A word for thousands or millions right after a number: "6.2k" and "1.2 million" never hold 6.2 or 1.2. */
+const SCALE_AFTER =
+  /^ ?(?:(?:k|m|mm|mn|b|bn|tn|thousands?|millions?|billions?|trillions?|lakhs?|lacs?|crores?|mio|mrd|tsd|md|mds|mln|mld|tys|mil|mille|milliers?|milliards?|millones?|mila|milioni|miliardi|miljoen|miljard)(?!\p{L})|[万萬億亿千만억천])/iu;
+
+/**
+ * Whether what comes right before a run ties its first digits to something that isn't a number of its
+ * own: the minutes of "12:30", "14h30" or "14時30", the "11" of "27/11", the "5" of ".5", the rest of
+ * "1万2000", or a label's digits ("Q3", "FY24", "Web3"). "Rs.6,200" and "c.500" are numbers.
+ */
+function tiedBefore(text: string, at: number): boolean {
+  const c = text[at - 1];
+  if (c === undefined) return false;
+  const c2 = text[at - 2] ?? "";
+  if (c === ":" || c === "/") return /\d/.test(c2);
+  if (c === "." || c === ",") return !/\p{L}/u.test(c2);
+  if (/\p{L}/u.test(c) && !UNSPACED.test(c)) return true;
+  return /(?:\d ?[hH時点시]|[万萬億亿千만억천]) ?$/.test(text.slice(Math.max(0, at - 4), at));
 }
 
 /**
  * Every number in someone's words, read in one pass with the brand language's marks. A number is
  * digits with a thousands mark between groups of three (the same mark all the way: the other of
- * "." and ",", a space of any width, or an apostrophe; or lakh), then a decimal part. A decimal
- * mark is the language's own, or the other of "." and "," before anything but three digits, as in
- * "12.5" in German or "1,5" in English. A run with a leading zero ("007"), a run glued to another
- * by a mark (the "27.11.2026" of a date, "1,234,5"), the minutes of a time and a line break are
- * never read into one number; runs a space apart that aren't one number are read one by one. Pure.
+ * "." and ",", an apostrophe, a space where the language writes one, or lakh), then a decimal part.
+ * A decimal mark is the language's own, or the other of "." and "," before anything but three
+ * digits when nothing or only apostrophes and spaces come before it ("1,5" in English, "CHF 1'234.50"
+ * in German). Read nothing rather than a number the words don't mean: never a run glued to another
+ * by a mark ("27.11.2026", "1,234,5"), a time's minutes, a label's digits ("Q3 250" holds 250, never
+ * 3250), a number before k, m, million or the like ("$6.2k"), a leading zero ("007") or, in a
+ * language that doesn't put a space between thousands, a short group then three digits ("3 250").
+ * A mark then a space ("2025, 1 200"), a line break and a space between numbers that can't be one
+ * ("in 2025 250 brands") all separate numbers. Any script's digits and full-width forms are read. Pure.
  */
 export function numbersIn(quote: string, locale = "en"): number[] {
-  const text = asciiDigits(quote, locale);
+  const text = plainMarks(quote);
   const dec = decimalMark(locale);
   const other = dec === "," ? "." : ",";
-  const marks = new Set([other, " ", "\u00a0", "\u202f", "'", "\u2019"]);
+  const marks = new Set([other, " ", "'", "’"]);
+  const spaced = groupsWithSpace(locale);
+  const read = (raw: string) => readNumber(raw, dec, other, marks);
   const out: number[] = [];
-  const re = /\d[\d.,'\u2019 \u00a0\u202f]*/g;
-  for (const m of text.matchAll(re)) {
-    const before = text[(m.index ?? 0) - 1];
-    // Inside a longer number, a time ("12:30") or a date ("27/11"): not a number of its own.
-    if (before && /[\d.,:/]/.test(before)) continue;
-    // Trailing marks are punctuation ("we have 12. Then"), never part of the number.
-    const raw = m[0].replace(/[.,'\u2019 \u00a0\u202f]+$/, "");
-    const value = readNumber(raw, dec, other, marks);
-    if (value !== null) {
-      out.push(value);
-      continue;
+
+  // One stretch of digits and marks that a mark then a space hasn't cut, starting at `at`.
+  const segment = (at: number, raw: string): void => {
+    const seg = raw.replace(/[.,'’ ]+$/, "");
+    if (!seg) return;
+    if (tiedBefore(text, at)) {
+      // Leave out the tied digits, and read what follows them after a space as a run of its own.
+      const lead = /^\d+ */.exec(seg)![0];
+      if (lead.endsWith(" ")) segment(at + lead.length, seg.slice(lead.length));
+      return;
     }
-    // Not one number: numbers a space apart, such as "in 2025 250 brands", each read on its own.
-    for (const piece of raw.split(/[ \u00a0\u202f]+/)) {
-      const v = piece === raw ? null : readNumber(piece.replace(/[.,'\u2019]+$/, ""), dec, other, marks);
-      if (v !== null) out.push(v);
+    const pieces = seg.split(/ +/);
+    let values: (number | null)[];
+    if (pieces.length === 1) values = [read(seg)];
+    else if (spaced) values = longestFirst(pieces, read);
+    // "3 250" could be one number in a language that doesn't write it so: read neither.
+    else if (pieces.some((p, i) => /^\d{1,3}$/.test(p) && /^\d{3}(?!\d)/.test(pieces[i + 1] ?? ""))) values = [];
+    else values = pieces.map(read);
+    const end = at + seg.length;
+    if (SCALE_AFTER.test(text.slice(end, end + 12))) values.pop();
+    for (const v of values) if (v !== null) out.push(v);
+  };
+
+  for (const m of text.matchAll(/\d[\d.,'’ ]*/g)) {
+    const run = m[0];
+    const start = m.index ?? 0;
+    let from = 0;
+    for (const cut of run.matchAll(/(?<=[.,'’]) +/g)) {
+      segment(start + from, run.slice(from, cut.index));
+      from = (cut.index ?? 0) + cut[0].length;
     }
+    segment(start + from, run.slice(from));
+  }
+  return out;
+}
+
+/** Numbers a space apart in a language that writes a space between thousands: the longest that reads as one number first. */
+function longestFirst(pieces: string[], read: (raw: string) => number | null): (number | null)[] {
+  const out: (number | null)[] = [];
+  for (let i = 0; i < pieces.length; ) {
+    let j = pieces.length;
+    let value: number | null = null;
+    for (; j > i; j--) {
+      value = read(pieces.slice(i, j).join(" "));
+      if (value !== null) break;
+    }
+    out.push(value);
+    i = value === null ? i + 1 : j;
   }
   return out;
 }
@@ -173,10 +250,11 @@ function readNumber(raw: string, dec: string, other: string, marks: ReadonlySet<
   const seps = parts.filter((_, k) => k % 2 === 1);
   if (digits.some((d) => d === "")) return null;
   if (!seps.length) return /^0\d/.test(raw) ? null : Number(raw);
-  // The last mark is the decimal mark when it is the language's, or the other one before anything but three digits.
+  // The last mark is the decimal mark when it is the language's, or the other one before anything but
+  // three digits with only apostrophes or spaces before it.
   const last = seps[seps.length - 1]!;
   const tail = digits[digits.length - 1]!;
-  const decimal = last === dec || (last === other && tail.length !== 3 && seps.length === 1);
+  const decimal = last === dec || (last === other && tail.length !== 3 && seps.slice(0, -1).every((s) => s === " " || s === "'" || s === "’"));
   const groups = decimal ? seps.slice(0, -1) : seps;
   const intParts = decimal ? digits.slice(0, -1) : digits;
   if (groups.length) {
@@ -192,12 +270,11 @@ function readNumber(raw: string, dec: string, other: string, marks: ReadonlySet<
 }
 
 /**
- * Whether the person's own words hold this number, read with the decimal mark of the brand's
- * language (`locale`), never as part of a longer number or as the whole part of a decimal: one of
- * numbersIn's numbers is it exactly. In English "$6,200 a month" holds 6200 and "0.125%" holds
- * 0.125; in French or German "12,5 %" holds 12.5 (never 12 or 125) and "6.200 €" holds 6200
- * (never 6.2). "about 6k" doesn't hold 6000, so Vizzy asks for the figure rather than turning
- * words into a number.
+ * Whether the person's own words hold this number, read with the marks of the brand's language
+ * (`locale`): one of numbersIn's numbers is it exactly. In English "$6,200 a month" holds 6200 and
+ * "0.125%" holds 0.125; in French or German "12,5 %" holds 12.5 (never 12 or 125) and "6.200 €"
+ * holds 6200 (never 6.2). "about 6k" holds neither 6 nor 6000, so Vizzy asks for the figure rather
+ * than turning words into a number.
  */
 export function quoteHas(value: number, quote: string, locale = "en"): boolean {
   const want = Math.abs(value);

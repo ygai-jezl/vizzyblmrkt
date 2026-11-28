@@ -345,6 +345,63 @@ describe("helpers", () => {
   it("reads a language's own digits", () => {
     expect(quoteHas(12.5, "\u09e7\u09e8.\u09eb%", "bn")).toBe(true);
     expect(quoteHas(125, "\u09e7\u09e8.\u09eb%", "bn")).toBe(false);
+    // Hindi and Arabic digits, though the runtime writes those languages with 0 to 9.
+    expect(quoteHas(6200, "\u0939\u092e\u093e\u0930\u0940 \u0906\u092f \u20b9\u096c,\u0968\u0966\u0966 \u0939\u0948", "hi")).toBe(true);
+    expect(quoteHas(6200, "\u20b9\u096c\u0968\u0966\u0966 \u092a\u094d\u0930\u0924\u093f \u092e\u093e\u0939", "hi")).toBe(true);
+    expect(quoteHas(6200, "\u0627\u0644\u0625\u064a\u0631\u0627\u062f \u0666\u066c\u0662\u0660\u0660 \u062c\u0646\u064a\u0647 \u0634\u0647\u0631\u064a\u0627", "ar")).toBe(true);
+    expect(quoteHas(12.5, "\u0646\u0645\u0648 \u0661\u0662\u066b\u0665\u066a", "ar")).toBe(true);
+    expect(quoteHas(12, "\u0646\u0645\u0648 \u0661\u0662\u066b\u0665\u066a", "ar")).toBe(false);
+    // Full-width digits and marks in Japanese and Chinese.
+    expect(quoteHas(12500, "\u6708\u5546\uff11\uff12\uff0c\uff15\uff10\uff10\u5186", "ja")).toBe(true);
+    expect(quoteHas(6200, "\u6708\u6536\u51656\uff0c200\u5143", "zh")).toBe(true);
+    expect(quoteHas(200, "\u6708\u6536\u51656\uff0c200\u5143", "zh")).toBe(false);
+  });
+
+  it("never reads a label's digits, a time's minutes or a number before k or million into a figure", () => {
+    // A quarter or year label before a count.
+    expect(quoteHas(250, "In Q3 250 new customers signed up")).toBe(true);
+    expect(quoteHas(3250, "In Q3 250 new customers signed up")).toBe(false);
+    expect(quoteHas(500, "FY24 500 new logos")).toBe(true);
+    expect(quoteHas(24500, "FY24 500 new logos")).toBe(false);
+    expect(quoteHas(3250, "Im Q3 250 neue Kunden", "de")).toBe(false);
+    expect(numbersIn("signups: Q1 120, Q2 180, Q3 250")).toEqual([120, 180, 250]);
+    expect(numbersIn("A1 Taxis has 40 cars")).toEqual([40]);
+    // k, m, million and the like: Vizzy asks for the figure.
+    expect(quoteHas(6.2, "MRR is about $6.2k")).toBe(false);
+    expect(quoteHas(6, "about 6k customers")).toBe(false);
+    expect(quoteHas(1.2, "ARR is $1.2m")).toBe(false);
+    expect(quoteHas(1.2, "1,2 Mio. \u20ac Umsatz", "de")).toBe(false);
+    expect(quoteHas(12, "12 months of runway")).toBe(true);
+    expect(numbersIn("\u58f2\u4e0a\u306f1\u4e072000\u5186\u3067\u3059", "ja")).toEqual([]);
+    // The minutes of a time.
+    expect(quoteHas(30, "nous avons 4 500 clients, point \u00e0 14h30", "fr")).toBe(false);
+    expect(quoteHas(4500, "nous avons 4 500 clients, point \u00e0 14h30", "fr")).toBe(true);
+    expect(quoteHas(1200, "Le webinaire de 18h30 a r\u00e9uni 1 200 inscrits", "fr")).toBe(true);
+    expect(quoteHas(30, "14\u664230\u5206\u306b\u4f1a\u8b70", "ja")).toBe(false);
+  });
+
+  it("reads a number after an abbreviation's dot, a date or a comma, but never a part of one", () => {
+    expect(quoteHas(6200, "Rs.6,200 a month")).toBe(true);
+    expect(quoteHas(500, "c.500 shops")).toBe(true);
+    expect(quoteHas(6200000, "Rp.6.200.000/bulan", "id")).toBe(true);
+    expect(quoteHas(5, "churn is .5% a month")).toBe(false);
+    expect(quoteHas(1200, "On 27/11/2026, 1,200 people signed up")).toBe(true);
+    expect(quoteHas(2026, "On 27/11/2026, 1,200 people signed up")).toBe(false);
+    expect(numbersIn("En 2025, 1 200 clients nous ont rejoints.", "fr")).toEqual([2025, 1200]);
+  });
+
+  it("reads Swiss amounts and every kind of space between thousands", () => {
+    expect(quoteHas(1234.5, "CHF 1 234.50 par mois", "fr")).toBe(true);
+    expect(quoteHas(234.5, "CHF 1 234.50 par mois", "fr")).toBe(false);
+    expect(quoteHas(1234.5, "CHF 1'234.50 im Monat", "de")).toBe(true);
+    expect(quoteHas(14200, "14\u2009200 \u20ac par mois", "fr")).toBe(true);
+    expect(quoteHas(200, "14\u2009200 \u20ac par mois", "fr")).toBe(false);
+    expect(quoteHas(14200, "14\u2007200 \u20ac par mois", "fr")).toBe(true);
+    // In English a space isn't a thousands mark: "3 250" could be one number or two, so neither.
+    expect(numbersIn("our top 10 100k accounts")).toEqual([]);
+    expect(quoteHas(250, "3 250")).toBe(false);
+    expect(quoteHas(3250, "3 250")).toBe(false);
+    expect(quoteHas(250, "in 2025 250 brands")).toBe(true);
   });
 
   it("reads a typed number in the brand's own language", async () => {

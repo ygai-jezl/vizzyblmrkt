@@ -6,7 +6,7 @@ import { versionDocId } from "@/lib/lifecycle/enrol";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import type { LifecycleJourney, LifecycleVersion, PoolItem } from "@/lib/types/lifecycle";
 import type { Tenant } from "@/lib/types/tenant";
-import { translationIdOf, type Translation } from "@/lib/types/translation";
+import { isJourneyEmailTranslation, translationIdOf, type Translation } from "@/lib/types/translation";
 import { languagesFor } from "./assetLanguages";
 import { isTranslatable, wordsHash, wordsOf } from "./emailWords";
 import { isAssetTranslationsEnabled } from "./flags";
@@ -147,7 +147,7 @@ export async function planJourney(
   });
   const ready = new Set(plan.extras.map((e) => e.code));
   const asked = new Set((opts.extra ?? []).filter((c) => c !== source.base));
-  const existing = await repo.translations.find({ where: [["journeyId", "==", source.journey.id]] });
+  const existing = (await repo.translations.find({ where: [["journeyId", "==", source.journey.id]] })).filter(isJourneyEmailTranslation);
   const byId = new Map(existing.map((t) => [t.id, t]));
   const emails = emailsOf(source.version);
   const keep = new Set<string>();
@@ -195,9 +195,9 @@ export async function translateOne(
   const now = iso(opts.nowMs);
   const lease = iso(opts.nowMs + LANE.LEASE_MS);
   const held = await repo.translations.claim(id, (cur) =>
-    cur.state === "queued" && !(cur.leaseUntil && cur.leaseUntil > now) ? { leaseUntil: lease } : null,
+    cur.kind === "journey_email" && cur.state === "queued" && !(cur.leaseUntil && cur.leaseUntil > now) ? { leaseUntil: lease } : null,
   );
-  if (!held) return "busy";
+  if (!held || !isJourneyEmailTranslation(held)) return "busy";
   const release = (patch: Partial<Translation> = {}) =>
     repo.translations.claim(id, (cur) => (cur.leaseUntil === lease ? { leaseUntil: null, ...patch } : null)).catch(() => null);
 

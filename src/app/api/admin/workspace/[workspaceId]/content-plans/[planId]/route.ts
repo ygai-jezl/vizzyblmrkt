@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { forgetPlanTranslations } from "@/lib/i18n/articleTranslations";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
 import { forgetPlanExamples, forgetRemovedExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
@@ -131,6 +132,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
+  // Its article in other languages goes with it (PAGE_LANGUAGES_ENABLED), even ones made before the switch went off.
+  await forgetPlanTranslations(ctx, planId);
   // Its pieces kept as examples go with it, even ones kept before the switch went off.
   await forgetPlanExamples(ctx, { workspaceId, plan });
   await closeDraftRows(ctx, plan);

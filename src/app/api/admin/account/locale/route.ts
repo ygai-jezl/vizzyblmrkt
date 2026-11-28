@@ -5,7 +5,8 @@ import { getTenantById } from "@/lib/tenant";
 import { updateTenantConfig } from "@/lib/tenant/control";
 import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
 import { LocaleSettingsSchema } from "@/lib/admin/localeSettings";
-import { isContentLanguageEnabled, isLanguageReadersEnabled, isAssetTranslationsEnabled } from "@/lib/i18n/flags";
+import { isContentLanguageEnabled, isLanguageReadersEnabled, isAssetTranslationsEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
+import { cleanSiteAddresses, sameAddresses } from "@/lib/i18n/siteAddresses";
 import { brandLanguages, languageReaders, minReadersOf } from "@/lib/i18n/languageReaders";
 
 export const runtime = "nodejs";
@@ -52,6 +53,14 @@ export async function GET(req: Request) {
     canSetMinReaders: ctx.role === "admin",
     // Journey emails are translated for languages over the threshold (ASSET_TRANSLATIONS_ENABLED).
     ...(isAssetTranslationsEnabled() ? { translations: true } : {}),
+    // Where each language goes on the brand's site, and the translated note (PAGE_LANGUAGES_ENABLED).
+    ...(isPageLanguagesEnabled()
+      ? {
+          pages: true,
+          siteAddresses: cleanSiteAddresses(tenant?.languageSettings?.siteAddresses, base.supportedLocales, base.defaultLocale),
+          translatedNote: tenant?.languageSettings?.translatedNote === true,
+        }
+      : {}),
     ...(wantReaders ? { readers: counted?.readers ?? null } : {}),
   });
 }
@@ -81,11 +90,31 @@ export async function PUT(req: Request) {
   const tenant = await getTenantById(ctx.tenantId);
   const minReaders = parsed.data.minReaders ?? minReadersOf(tenant);
   const changed = minReaders !== minReadersOf(tenant);
-  if (changed && ctx.role !== "admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // Where each language goes and the translated note (PAGE_LANGUAGES_ENABLED): only an admin changes
+  // them. A language taken off the list loses its folder, whoever saves.
+  const pages = isPageLanguagesEnabled();
+  const stored = tenant?.languageSettings?.siteAddresses ?? {};
+  const kept = cleanSiteAddresses(stored, supportedLocales, defaultLocale);
+  const asked = pages && parsed.data.siteAddresses !== undefined ? cleanSiteAddresses(parsed.data.siteAddresses, supportedLocales, defaultLocale) : kept;
+  const sitesChanged = pages && !sameAddresses(asked, kept);
+  const note = pages && parsed.data.translatedNote !== undefined ? parsed.data.translatedNote : tenant?.languageSettings?.translatedNote === true;
+  const noteChanged = pages && note !== (tenant?.languageSettings?.translatedNote === true);
+  if ((changed || sitesChanged || noteChanged) && ctx.role !== "admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const pruned = !sameAddresses(kept, cleanSiteAddresses(stored, Object.keys(stored), defaultLocale));
+  const writeSettings = changed || sitesChanged || noteChanged || pruned;
   await updateTenantConfig(ctx.tenantId, {
     defaultLocale,
     supportedLocales,
-    ...(changed ? { languageSettings: { ...(tenant?.languageSettings ?? {}), minReaders } } : {}),
+    ...(writeSettings
+      ? {
+          languageSettings: {
+            ...(tenant?.languageSettings ?? {}),
+            ...(changed ? { minReaders } : {}),
+            ...(pages || pruned ? { siteAddresses: asked } : {}),
+            ...(pages ? { translatedNote: note } : {}),
+          },
+        }
+      : {}),
   });
-  return NextResponse.json({ defaultLocale, supportedLocales, minReaders });
+  return NextResponse.json({ defaultLocale, supportedLocales, minReaders, ...(pages ? { siteAddresses: asked, translatedNote: note } : {}) });
 }

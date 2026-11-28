@@ -760,7 +760,17 @@ export const TenantSchema = z.object({
    * something once it has at least `minReaders` readers (10 when unset).
    */
   languageSettings: z
-    .object({ minReaders: z.number().int().min(1).max(1000).optional() })
+    .object({
+      minReaders: z.number().int().min(1).max(1000).optional(),
+      /**
+       * Where each language other than the default lives on the brand's site (PAGE_LANGUAGES_ENABLED):
+       * an https folder such as https://brand.example/fr/blog/. An article's version is that folder
+       * and the article's slug, unless changed on the article.
+       */
+      siteAddresses: z.record(z.string(), z.string().max(300)).optional(),
+      /** Add "Translated from English and checked by our team." to translated articles. */
+      translatedNote: z.boolean().optional(),
+    })
     .optional(),
   /**
    * Readers per language, counted from the person records by src/lib/i18n/languageReaders.ts and

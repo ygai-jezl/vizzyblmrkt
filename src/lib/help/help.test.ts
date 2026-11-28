@@ -123,6 +123,8 @@ vi.hoisted(() => {
   // Work and Vizzy's Work tools (ADR-0020): /help/work, and Work's lines on Review and approvals.
   process.env.WORK_ENABLED = "true";
   process.env.WORK_VIZZY_ENABLED = "true";
+  // Quick edit on Work's list, so its lines in Your tasks and the messages it quotes are checked too.
+  process.env.WORK_QUICK_EDIT_ENABLED = "true";
   // Tell Vizzy about your business, on the hub (the switch folds in no nav switch), with Talk with
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";

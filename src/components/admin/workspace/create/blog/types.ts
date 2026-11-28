@@ -1,3 +1,4 @@
+import type { ArticleLanguagesHandle } from "./ArticleLanguages";
 import type { AiOriginalView } from "@/lib/content/create/aiOriginalView";
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { VersionsControls } from "./VersionsCard";
@@ -83,6 +84,8 @@ export interface BlogHubControls {
   liveWatch?: boolean;
   /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */
   hero?: BlogHeroControls;
+  /** The article's versions in other languages (PAGE_LANGUAGES_ENABLED); absent = no Languages card or tabs. */
+  languages?: { handle: ArticleLanguagesHandle; canAct: boolean };
 }
 
 /** The hero card's actions. Each resolves to a line saying what went wrong, or null. */

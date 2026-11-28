@@ -105,12 +105,12 @@ export function WhoGetsWhich({ journeyId, view, canAct, onChanged }: { journeyId
 /** The tab strip above an email: its default language first, then each other language with its state. */
 export function LanguageStrip({ baseName, tabs, names, selected, onSelect }: {
   baseName: string;
-  tabs: TabView[];
+  tabs: Array<{ lang: string; state: string }>;
   names: Record<string, string>;
   selected: string | null;
   onSelect: (lang: string | null) => void;
 }) {
-  const label = (t: TabView) => {
+  const label = (t: { lang: string; state: string }) => {
     const name = names[t.lang] ?? t.lang;
     if (t.state === "approved") return `${name} ✓`;
     if (t.state === "to_check") return `${name} · to check`;

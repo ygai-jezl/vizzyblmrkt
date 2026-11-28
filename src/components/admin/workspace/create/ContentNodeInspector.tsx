@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { AiDraftCard } from "./AiDraftCard";
+import { ArticleTranslationPanel } from "./blog/ArticleLanguages";
+import { LanguageStrip } from "@/components/admin/lifecycle/LanguageTabs";
 import type { AiOriginalView } from "@/lib/content/create/aiOriginalView";
 import { CHANNELS, channelLabel, formatLabel } from "@/lib/content/channels";
 import { CORE_ANGLES, frameworkLabel } from "@/lib/content/frameworks";
@@ -109,6 +111,10 @@ export function ContentNodeInspector({
     node.type === "spoke" || node.type === "promo_pre" || node.type === "promo_post";
   // The brief and the review only belong to the blog hub itself — never a blog spoke.
   const blogHub = blog && node.type === "hub" && node.channel === "blog" ? blog : null;
+  // The article's language tabs (PAGE_LANGUAGES_ENABLED): another language shows its version instead.
+  const [lang, setLang] = useState<string | null>(null);
+  const languages = blogHub?.languages ?? null;
+  const version = (languages && lang && languages.handle.view.versions.find((v) => v.lang === lang)) || null;
 
   // Structural sequence nodes (trigger / wait / condition) carry no copy — a compact
   // inspector that just edits their config.
@@ -240,6 +246,19 @@ export function ContentNodeInspector({
         </div>
       </div>
 
+      {languages ? (
+        <div className="mb-4">
+          <LanguageStrip
+            baseName={languages.handle.view.base.nativeName}
+            tabs={languages.handle.view.versions}
+            names={Object.fromEntries(languages.handle.view.versions.map((v) => [v.lang, v.nativeName]))}
+            selected={version ? lang : null}
+            onSelect={setLang}
+          />
+        </div>
+      ) : null}
+      {languages && version ? <ArticleTranslationPanel v={version} handle={languages.handle} canAct={languages.canAct} /> : null}
+      <div className={version ? "hidden" : undefined}>
       {/* Config: channel + template skeleton (content nodes only). */}
       {!isEmail ? (
         <div className="mb-4 grid grid-cols-2 gap-3">
@@ -533,6 +552,7 @@ export function ContentNodeInspector({
         >
           {node.status === "approved" ? "Approved ✓" : "Approve"}
         </button>
+      </div>
       </div>
     </div>
   );

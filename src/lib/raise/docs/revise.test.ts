@@ -416,7 +416,7 @@ describe("helpers", () => {
       expect(quoteHas(value, quote, locale), quote).toBe(false);
     }
     // A range with the scale word on its second end: neither end is a figure.
-    for (const quote of ["MRR is $5-6k", "MRR is $5–6k", "somewhere between $5 and 6k", "5 or 6 million", "ARR is $1-2M"]) {
+    for (const quote of ["MRR is $5-6k", "MRR is $5\u20136k", "somewhere between $5 and 6k", "5 or 6 million", "ARR is $1-2M"]) {
       expect(numbersIn(quote), quote).toEqual([]);
     }
     expect(numbersIn("MRR ist 5 bis 6 Tsd. €", "de")).toEqual([]);
@@ -472,6 +472,62 @@ describe("helpers", () => {
   it("keeps a rating and the count after a time", () => {
     expect(quoteHas(4.8, "Our app is rated 4.8/5 on the App Store")).toBe(true);
     expect(numbersIn("Le webinaire de 14 h 30, 1 200 inscrits", "fr")).toEqual([14, 1200]);
+  });
+
+  it("knows informal, plural and compound scale words, and the headers of finance tables", () => {
+    for (const [quote, locale] of [
+      ["We raised $2 mil last year", "en"],
+      ["We raised 2 millions last year", "en"],
+      ["We hit 3 billions in GMV", "en"],
+      ["TAM is $1.2tn", "en"],
+      ["We closed a $1.5 m seed round", "en"],
+      ["turnover of £1.2 m a year", "en"],
+      ["we have 1.2 M+ downloads", "en"],
+      ["we have 10K's of users", "en"],
+      ["We closed a $1.5-million-dollar seed round", "en"],
+      ["a 10-million-strong community", "en"],
+      ["Wir haben eine 2-Millionen-Euro-Runde abgeschlossen", "de"],
+      ["Wir haben 50 Mille Umsatz im Monat", "de"],
+      ["Wir machen 500 TCHF Umsatz", "de"],
+      ["Wir erzielen CHF 1,2 Mia. Umsatz", "de-CH"],
+      ["We hebben 3 ton opgehaald bij angels", "nl"],
+      ["Vi omsätter 50 tkr i månaden", "sv"],
+      ["Zamknęliśmy rundę z 2 milionami złotych", "pl"],
+      ["levantamos 1,5 mmdd", "es"],
+      ["ARRは$1.2Mです", "ja"],
+      ["Revenue (millions): 4.2", "en"],
+      ["Revenue (£000): 450", "en"],
+      ["Revenue (EUR m): 1.2", "en"],
+      ["Revenue (in $ millions): 1.2", "en"],
+      ["Revenue (in thousands of dollars): 1,250", "en"],
+      ["Revenue (₹ in lakhs): 45", "en"],
+      ["Umsatz (in Tsd. €): 1.250", "de"],
+      ["CA (en k€) : 1 250", "fr"],
+      ["Przychody (w tys. zł): 1 250", "pl"],
+      ["Receita (R$ mil): 1.250", "pt"],
+      ["売上高（千円）：12,500", "ja"],
+    ] as const) {
+      expect(readQuote(quote, locale), quote).toEqual({ numbers: [], scaled: true });
+    }
+    // A range with an en dash holds neither end.
+    expect(numbersIn("MRR is $5\u20136,000 a month")).toEqual([]);
+  });
+
+  it("keeps a count beside a word that is a scale only in another language, or a unit", () => {
+    for (const [quote, locale, value] of [
+      ["We onboarded 340 MDs and 1,200 nurses", "en", 1200],
+      ["Nel 2019 mio padre ha aperto il primo negozio, oggi ne abbiamo 12", "it", 12],
+      ["On a signé 1 grand compte et 40 PME", "fr", 40],
+      ["1 200 clients livrés en 30 mn", "fr", 1200],
+      ["Our shop is 85m² in the city centre", "en", 85],
+      ["a 120m² office with 14 desks", "en", 14],
+      ["हमने 200 नीले बैग बेचे", "hi", 200],
+      ["कीमत रु.500 है", "hi", 500],
+      ["Mia hat 40 Kunden", "de", 40],
+      ["we sell 300 kg a week", "en", 300],
+    ] as const) {
+      expect(quoteHas(value, quote, locale), quote).toBe(true);
+    }
   });
 
   it("reads a count beside a code, a unit or a date, and never the code's or date's own digits", () => {
@@ -534,7 +590,7 @@ describe("helpers", () => {
     expect(quoteHas(1200, "Wir liefern 1.200 Bio-Kisten pro Woche", "de")).toBe(true);
     expect(quoteHas(500, "we serve 500 e-commerce brands")).toBe(true);
     expect(quoteHas(300, "we sold 300 T-shirts")).toBe(true);
-    expect(quoteHas(1200, "signups doubled—1,200 this week")).toBe(true);
+    expect(quoteHas(1200, "signups doubled\u20141,200 this week")).toBe(true);
     expect(quoteHas(1200, "In Q3'25 1,200 new users")).toBe(true);
     // The minutes of a time are never a count; the count after them is.
     expect(numbersIn("Le webinaire de 14 h 30 a réuni 1 200 inscrits", "fr")).toEqual([14, 1200]);

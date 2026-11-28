@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-108 types: 88 built and 20 planned.
+111 types: 91 built and 20 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1027,26 +1027,28 @@ A social post waiting to go out on one of the brand's accounts, and what happene
 - Numbers: none. Its numbers are post results.
 - Made by: `content_write`, `spintax_variant`, `auto_plug`, `carousel` (see Learning)
 
-### What posts taught (`post_learning`)
+### What posts and image votes taught (`post_learning`)
 
-What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.
+What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers. With image style versions on, every version of each image style's look learned from votes too, with the member who changed a look by hand.
 
 - Status: built
 - Home: the brand's region
-- Personal: no
+- Personal: the brand's own team
 - Stores:
   - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`. The best posts, and the approved emails and hub pieces kept as examples.
   - `post_perf_vectors`, the brand's regional Firestore, in `src/lib/tenant/postVectors.ts`
-  - `learned_pattern_versions`, the brand's regional Firestore, in `src/lib/tenant/patternVersions.ts`. Append only, the source of a revert.
-- Links: `post_result` through the posts it learned from (many); `content_plan` through the approved pieces it keeps as examples (many)
+  - `learned_pattern_versions`, the brand's regional Firestore, in `src/lib/tenant/patternVersions.ts`. Append only, the source of a revert; image style looks use one channel per style (`image_style.<id>`), and `by` holds the user id of the member who wrote a row by hand.
+  - `tenants`, control plane Firestore, in `src/lib/tenant/control.ts`. `learnedPostPatterns`, the post patterns in use for each channel; residency gap: the brand record is in the control plane, in the United States, whatever the brand's region.
+- Links: `post_result` through the posts it learned from (many); `content_plan` through the approved pieces it keeps as examples (many); `image_asset` through evidenceIds, the images a look was learned from (many); `member` through by, on version rows a member wrote
 - Erase:
   - `forgetPlanExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (an approved example goes with its content plan; the post statistics are the brand's own and stay)
   - `forgetRemovedExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a piece taken off the canvas takes its approved example with it)
   - `forgetWorkspaceExamples` in `src/lib/content/create/approvedExamples.ts`, on removing the record (a deleted programme takes the approved examples of its plans with it)
-- Export: none. The brand's own work, with no one's personal data.
-- Search: none. Vectors and versions for the writer, not text to find.
+  - Gap: no path removes a team member's user id in `by` on a version row when they leave the team; it stays an id
+- Export: gap. Team member ids in `by` stay as ids, with no export by team member.
+- Search: `learned`
 - Numbers: none. Its numbers are post results.
-- Made by: `post_feedback`, `content_email`, `content_hub` (see Learning)
+- Made by: `post_feedback`, `content_email`, `content_hub`, `loop_learn` (see Learning)
 
 ### Generated image (`image_asset`)
 
@@ -1056,19 +1058,19 @@ An image made for the brand's content, with its prompt and where it is used.
 - Home: the brand's region
 - Personal: no
 - Stores:
-  - `image_assets`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `image_assets`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. A vote may keep its reason and an optional note of up to 200 characters the team wrote, with no writer kept; both go when the image is deleted.
   - `{tenantId}/{campaignId}/{file}`, Cloud Storage, in `src/lib/agents/imageStore.ts`. The image files, served through the email asset proxy; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Links: `content_plan` through where it is used (many)
 - Erase:
   - `deleteImageAsset` in `src/lib/admin/brandKit.ts`, on removing the record
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `image`
-- Numbers: none. No numbers an agent reads.
+- Numbers: `likedShare`, `remadeShare`, through `get_image_style`
 - Made by: `blog_hero`, `post_image`, `email_block_image`, `email_hero`, `ebook_image`, `customize_image`, `image_style_pick` (see Learning)
 
 ### Brand kit (`brand_kit`)
 
-How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, and Vizzy's suggested style waits beside it.
+How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, used only while image style versions are off, and Vizzy's suggested style waits beside it.
 
 - Status: built
 - Home: the brand's region
@@ -1081,6 +1083,7 @@ How the brand looks and sounds: voice, colours, email style and image style on t
   - `brand/{tenantId}/fonts/{file}`, Cloud Storage, in `src/lib/tenant/brandFontStore.ts`. Font files; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
   - `brand/{tenantId}/{category}/{file}`, Cloud Storage, in `src/lib/tenant/brandAssetStore.ts`. Icons and graphics; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
   - `brand/{tenantId}/{file}`, Cloud Storage, in `src/lib/tenant/brandAsset.ts`. Brand guideline files, read only on the server; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+  - `tenants`, control plane Firestore, in `src/lib/tenant/control.ts`. The looks learned from image votes, `brandKit.learnedImageStyle` and `imageStyle.learned`, used only while IMAGE_STYLE_VERSIONS_ENABLED is off; residency gap: the brand record is in the control plane, in the United States, whatever the brand's region.
 - Links: `brand` through brandKit, brandVoice, imageStyle (with its learned looks) and imageStyleSuggestion on the brand record
 - Erase:
   - `deleteLogo` in `src/lib/admin/brandLogos.ts`, on removing the record
@@ -1625,14 +1628,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, the learning lane's offers to go back to an earlier learned image look, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action, or a pasted list; `work_task` through the target, when it is a Work task suggestion: the id the task takes once a person adds it; `work_log` through the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it; `next_action_card` through the card's step records name it; `launch_journey` through draft, a launch's welcome emails on the original engine (agent record); `lifecycle_journey` through draft, a journey Vizzy drafted or styled (agent record); `invite_wave` through draft, an invite wave Vizzy drafted (agent record); `content_plan` through draft, a plan Vizzy or the autopilot drafted (agent record); `brand_map` through draft, one research run or chat call with hashes of the keys it filed (agent record); `brand_note` through draft, a note Vizzy suggested in a chat (agent record); `repo_map` through draft, learning a product's map from its repo, by product (agent record); `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action, or a pasted list; `work_task` through the target, when it is a Work task suggestion: the id the task takes once a person adds it; `work_log` through the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it; `post_learning` through the target, when it offers to go back from a learned image look; `next_action_card` through the card's step records name it; `launch_journey` through draft, a launch's welcome emails on the original engine (agent record); `lifecycle_journey` through draft, a journey Vizzy drafted or styled (agent record); `invite_wave` through draft, an invite wave Vizzy drafted (agent record); `content_plan` through draft, a plan Vizzy or the autopilot drafted (agent record); `brand_map` through draft, one research run or chat call with hashes of the keys it filed (agent record); `brand_note` through draft, a note Vizzy suggested in a chat (agent record); `repo_map` through draft, learning a product's map from its repo, by product (agent record); `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1654,7 +1657,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - Gap: an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot`, `investor_quiet`, `paste_columns` (see Learning)
+- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot`, `investor_quiet`, `paste_columns`, `loop_learn` (see Learning)
 
 ## Platform
 
@@ -1673,6 +1676,50 @@ What a brand used of each paid resource this month, such as web searches for res
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Counts, read on Plan and usage.
 - Numbers: `usedThisMonth`, `monthlyLimit`, `leftThisMonth`, through `get_usage`
+
+### Learning counts (`loop_day`)
+
+What the learning loops keep for a brand, as counts and pointers with no words and no person: each week's counts of what YouGrow made and what people did with it, folded weeks, totals for each learned version, which version each style uses, whether image learning is paused or the brand opted out of counts across brands, the lane's own state, and the key that signs the brand's stamps.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `loop_days`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per kind and key under the one map `d`, read and counted through forTenant.
+  - `loop_days`, the brand's regional Firestore, in `src/lib/tenant/loops.ts`. Each week's counter shards go 70 days after the week ends and folded weeks 2 years after, by a time to live on ttlAt; pointers, the lane's state and the stamp key never expire; the stamp key is never shown or logged.
+- Links: `post_learning` through the version each scope uses, by number (many)
+- Erase: none. Counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Counts and pointers, read by the learning loops.
+- Numbers: `keptShare`, `editShare`, `declineShare`, `unusedShare`, through `get_learning`
+
+### Learning lane bookkeeping (`loop_lane`)
+
+The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, how many learner calls it made today, and one mark per organisation, so an organisation with several brands counts once in the counts across brands. A mark holds its newest week only: the cells it is already counted in and the outputs counted so far against the cap.
+
+- Status: built
+- Home: the control plane
+- Personal: no
+- Stores:
+  - `loop_lane`, control plane Firestore, in `src/lib/tenant/loopLane.ts`. The `lane` document, whose cursor is the last brand id the lane visited, and one mark per organisation (`o:<organisationId>`, or `o:t:<tenantId>` for a brand with no organisation), each under the one map `d`; a mark is replaced by its organisation's next week, and nothing on screen reads it; residency gap: the control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words.
+- Erase: gap. A mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. The lane's own bookkeeping.
+- Numbers: none. The lane's own bookkeeping: a cursor and one mark per organisation, with no meaning to count.
+
+### Counts across brands (`fleet_cell`)
+
+What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing of theirs (only that the lane visited them), and numbers of things show only from 10 organisations.
+
+- Status: built
+- Home: the control plane
+- Personal: no
+- Stores:
+  - `fleet_cells`, control plane Firestore, in `src/lib/tenant/fleetCells.ts`. One row per kind of choice and closed week (`fh:<kind>:<week>`), and the copy's own rows `fh:_orgs`, `fh:_types` and `fh:_calls`, every count under the one map `n`; read by id only; residency gap: the control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them.
+- Erase: none. Counts across organisations with no brand, organisation or person in them, so nothing in them is anyone's to erase.
+- Export: none. Counts across organisations, with no brand's or person's own data.
+- Search: none. Counts, read by the people who run the copy.
+- Numbers: gap. Counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path.
 
 ### Brand (`brand`)
 
@@ -2016,11 +2063,18 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
 - Programme (`workspace`):
   - Erase: deleting a programme leaves its plans, clippings and templates in their subcollections
+- What posts and image votes taught (`post_learning`):
+  - Erase: no path removes a team member's user id in `by` on a version row when they leave the team; it stays an id
+  - Export: team member ids in `by` stay as ids, with no export by team member
 - Author (`brand_author`):
   - Erase: no path removes an author when the person leaves the team
 - What we've seen note (`brand_note`):
   - Erase: a person's erase does not find notes that name them: notes are free text
   - Export: a person's export does not include notes that name them
+- Learning lane bookkeeping (`loop_lane`):
+  - Erase: a mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next
+- Counts across brands (`fleet_cell`):
+  - Numbers: counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path
 - Vizzy chat (`vizzy_chat`):
   - Erase: no path deletes a member's chats with Vizzy
   - Export: no path exports a member's chats with Vizzy
@@ -2109,11 +2163,15 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 Stores that don't keep to the brand's region.
 
 - Scrapbook clipping: `workspace/{tenantId}/{workspaceId}/{file}` in `src/lib/workspace/assetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- What posts and image votes taught: `tenants` in `src/lib/tenant/control.ts`. The brand record is in the control plane, in the United States, whatever the brand's region.
 - Generated image: `{tenantId}/{campaignId}/{file}` in `src/lib/agents/imageStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/logos/{file}` in `src/lib/tenant/brandLogo.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/fonts/{file}` in `src/lib/tenant/brandFontStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/{category}/{file}` in `src/lib/tenant/brandAssetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/{file}` in `src/lib/tenant/brandAsset.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Brand kit: `tenants` in `src/lib/tenant/control.ts`. The brand record is in the control plane, in the United States, whatever the brand's region.
+- Learning lane bookkeeping: `loop_lane` in `src/lib/tenant/loopLane.ts`. The control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words.
+- Counts across brands: `fleet_cells` in `src/lib/tenant/fleetCells.ts`. The control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them.
 - Vizzy editing memory: `edit memories` in `src/lib/agents/memoryBank.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
 - Vizzy chat: `sessions` in `src/lib/agents/agentRuntime.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
 - Work task: `work_tasks` in `src/lib/tenant/work.ts`. A whole business task is kept in the region of the brand it was added from, and its owners read it from a session in any of the organisation's brands, so its words reach a server in another region.
@@ -2134,18 +2192,17 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-106 kinds: 0 learn, 0 fleet only, 27 own, 36 gap and 43 none.
+107 kinds: 5 learn, 0 fleet only, 23 own, 35 gap and 44 none.
 
-127 call sites: 0 learn, 0 fleet only, 37 own, 42 gap and 48 none.
+132 call sites: 8 learn, 0 fleet only, 33 own, 41 gap and 50 none.
 
-Not learning: 90 of 127 call sites, under gap and none lines.
+Not learning: 91 of 132 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
 - `learned`: The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.
 - `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.
 - `vizzy_memory`: Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.
-- `brand_kit`: Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.
 - `brand_map`: The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.
 - `brand_question`: Each question a person dismissed stays on the brand map marked dismissed.
 - `article_review`: An article's review keeps the fingerprints of the last 50 changes a person dismissed on it.
@@ -2158,7 +2215,19 @@ Not learning: 90 of 127 call sites, under gap and none lines.
 
 ### Learns
 
-No line says this yet.
+- `blog_hero` (AI purpose, Blog hero images), behind `IMAGE_STYLE_VERSIONS_ENABLED`: learns from votes in `image_style.illustration`, `image_style.editorial_photo`, `image_style.soft_3d`, `image_style.paper_collage`, `image_style.natural_photo`, `image_style.product_still_life`, `image_style.brand_character`, `image_style.brand`, checked by `likedShare` and guarded by `remadeShare`.
+  - `src/lib/content/blog/hero.ts`
+  - `src/lib/loops/remake.ts`
+- `post_image` (AI purpose, Post images), behind `IMAGE_STYLE_VERSIONS_ENABLED`: learns from votes in `image_style.illustration`, `image_style.editorial_photo`, `image_style.soft_3d`, `image_style.paper_collage`, `image_style.natural_photo`, `image_style.product_still_life`, `image_style.brand_character`, `image_style.brand`, checked by `likedShare` and guarded by `remadeShare`.
+  - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/post-image/route.ts`
+  - `src/lib/loops/remake.ts`
+- `email_block_image` (AI purpose, Email images), behind `IMAGE_STYLE_VERSIONS_ENABLED`: learns from votes in `image_style.illustration`, `image_style.editorial_photo`, `image_style.soft_3d`, `image_style.paper_collage`, `image_style.natural_photo`, `image_style.product_still_life`, `image_style.brand_character`, `image_style.brand`, checked by `likedShare` and guarded by `remadeShare`.
+  - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/image/route.ts`
+- `email_hero` (AI purpose, Email hero images), behind `IMAGE_STYLE_VERSIONS_ENABLED`: learns from votes in `image_style.illustration`, `image_style.editorial_photo`, `image_style.soft_3d`, `image_style.paper_collage`, `image_style.natural_photo`, `image_style.product_still_life`, `image_style.brand_character`, `image_style.brand`, checked by `likedShare` and guarded by `remadeShare`.
+  - `src/app/api/admin/email/image/route.ts`
+- `ebook_image` (AI purpose, eBook images), behind `IMAGE_STYLE_VERSIONS_ENABLED`: learns from votes in `image_style.illustration`, `image_style.editorial_photo`, `image_style.soft_3d`, `image_style.paper_collage`, `image_style.natural_photo`, `image_style.product_still_life`, `image_style.brand_character`, `image_style.brand`, checked by `likedShare` and guarded by `remadeShare`.
+  - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/ebook/images/route.ts`
+  - `src/lib/loops/remake.ts`
 
 ### Fleet only
 
@@ -2191,7 +2260,7 @@ No line says this yet.
   - `src/lib/content/create/generateNode.ts`
 - `content_hub` (AI purpose, Writing hub content), kept in `post_learning`. Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet.
   - `src/lib/content/create/generateNode.ts`
-- `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
+- `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is on for a brand, through its plan or, where this copy allows it, through Vizzy in Edit mode with its data where Vizzy runs, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
 - `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none.
   - `src/app/api/admin/email/assist/route.ts`
@@ -2202,14 +2271,6 @@ No line says this yet.
   - `src/lib/signals/judge.ts`
 - `next_action` (AI purpose, Your next action), kept in `next_action_card`. A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched.
   - `src/lib/nextAction/service.ts`
-- `blog_hero` (AI purpose, Blog hero images), kept in `brand_kit`. Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it.
-  - `src/lib/content/blog/hero.ts`
-- `post_image` (AI purpose, Post images), kept in `brand_kit`. Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it.
-  - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/post-image/route.ts`
-- `email_block_image` (AI purpose, Email images), kept in `brand_kit`. Where learning from image votes is turned on, images inside emails follow the look learned from your thumbs and ratings on brand images.
-  - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/image/route.ts`
-- `ebook_image` (AI purpose, eBook images), kept in `brand_kit`. Where learning from image votes is turned on, eBook images follow the look learned from your thumbs and ratings on brand images.
-  - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/ebook/images/route.ts`
 - `autopilot` (AI purpose, Autopilot), kept in `learned`. The autopilot drafts only Next up's picks, so a pick your team skipped in the last 30 days is not drafted.
   - `src/lib/autopilot/draftSteps.ts`
   - `src/lib/autopilot/find.ts`
@@ -2233,11 +2294,9 @@ No line says this yet.
 
 ### Gap
 
-- `email_hero` (AI purpose, Email hero images), look again by 2027-01-31. Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.
-  - `src/app/api/admin/email/image/route.ts`
-- `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.
+- `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images or the look each style learned, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.
   - `src/lib/canvas/kinds/imageStyle.ts`
-- `image_style_pick` (rule, Image style used), look again by 2027-01-31. Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.
+- `image_style_pick` (rule, Image style used), look again by 2027-01-31. Where image versions are on, each painted style learns its own look from votes, but which style an image uses is still the brand's pick or a fixed preset for its surface, and votes never change it.
   - `src/lib/content/imageStyle/resolve.ts`
 - `next_action_order` (rule, Your next action order), look again by 2027-02-26. When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.
   - `src/lib/onboarding/homeOrder.ts`
@@ -2273,11 +2332,11 @@ No line says this yet.
   - `src/lib/lifecycle/prepare.ts`
 - `translation` (AI purpose, Email translations), look again by 2027-05-01. A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.
   - `src/lib/i18n/translate.ts`
-- `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.
+- `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's Work task suggestions and drafts and the notes it suggests in chat keep what it proposed beside what the person did with each one, and with the learning loops on Work's answers are counted kept, edited or dismissed, but nothing learns from those choices yet.
   - `src/app/api/admin/agent/chat/route.ts`
 - `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.
   - `src/lib/canvas/kinds/journey.ts`
-- `canvas.lifecycle` (canvas), look again by 2027-05-01. With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.
+- `canvas.lifecycle` (canvas), look again by 2027-05-01. With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept and counted, but not what they changed, so the next draft cannot get better yet.
   - `src/lib/canvas/kinds/lifecycle.ts`
 - `rising_search` (connector rule), look again by 2027-05-01. A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.
   - `src/lib/connectors/signals/detect.ts`
@@ -2344,8 +2403,11 @@ No line says this yet.
   - `src/lib/competitors/articleTick.ts`
 - `post_feedback` (AI purpose, Learning from posts). This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape.
   - `src/lib/distribute/feedback/patterns.ts`
-- `images` (AI purpose, Images). This is the image style learner itself, and it is judged by the images its learned look shapes.
+- `images` (AI purpose, Images). This is the image style learner from before versions, and where versions are on its calls move to the loops' own learner.
   - `src/lib/content/create/styleProfile.ts`
+- `loop_learn` (AI purpose, Learning and checking it helps). The learners themselves, judged by the loops they feed.
+  - `src/lib/loops/learners/votes.ts`
+  - `src/lib/loops/remake.ts`
 - `product_map` (AI purpose, Learning your product). It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog.
   - `workers/knowledge-scraper/src/productMap/usage.ts`
 - `onboarding` (AI purpose, Getting to know you). It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved.

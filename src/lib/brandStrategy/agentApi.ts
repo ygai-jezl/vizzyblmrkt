@@ -8,11 +8,12 @@ import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Competitor } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
-import { COMPETITOR_GROUP_LABEL, NOT_GROUPED_LABEL, claimShown, competitorsOf, type StrategyCheck } from "@/lib/types/brandStrategy";
+import { COMPETITOR_GROUP_LABEL, NOT_GROUPED_LABEL, NOT_NOW_LABEL, claimShown, competitorsOf, type StrategyCheck, type StrategySuggestion, type SuggestHold } from "@/lib/types/brandStrategy";
 import { isMonitored, sameStrategy } from "./adminApi";
 import { FLAG_WORDS, reasonLine } from "./checkRules";
 import { liveCompetitors } from "./competitors";
-import { isBrandStrategyChatEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled, isStrategyResultsEnabled } from "./flags";
+import { isBrandStrategyChatEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled, isStrategyResultsEnabled, isStrategySuggestEnabled } from "./flags";
+import { BUILT_IN_WORDS, isReviewSuggestion, liveHolds, resultNoun, suggestionAction, suggestionLines } from "./suggestRules";
 import { strategyMonthsView, type StrategyMonthsView } from "./monthView";
 import { readBrandStrategyDoc } from "./store";
 import { OUTCOME_WORDS, OUTCOMES, type CoverageState } from "@/lib/metrics/outcomes";
@@ -161,6 +162,54 @@ export function measuring(v: StrategyMonthsView) {
   };
 }
 
+export const SUGGESTION_NOTE =
+  "One suggestion a month, worked out by code with no AI when How it went is added up, from YouGrow's own data and whatever is connected. " +
+  "Say `whatToSay` as it is, with what it was `basedOn` and what it `cantSee`. A person decides: in Review they press Review the strategy (Propose with Vizzy then takes it as a note to the draft, approved as always) or Not now. Never change the strategy or plan yourself. " +
+  "`inReview: false` with `state: \"open\"` is Working: a line on How it went, with no row. `putOff` lists what an admin said Not now to, and why: it stays away until `until`.";
+
+/** What a suggestion's facts are, every number named for its meaning. */
+function suggestionFacts(s: StrategySuggestion) {
+  const d = s.detail;
+  if (d.kind === "behind_plan") return { roadmapBehind: d.behind, named: d.entries.map((e) => e.title) };
+  if (d.kind === "stalled_focus") {
+    const by =
+      d.swap.by === "their_articles"
+        ? { pickedBy: "their articles of the last 90 days", swapTheirArticles: d.swap.count }
+        : d.swap.by === "result" && d.swap.outcome
+          ? { pickedBy: `its articles' ${resultNoun(d.swap.outcome, s.keyWord)} in the latest 28 days`, swapResult: d.swap.count }
+          : { pickedBy: "its questions with no live answer yet", swapOpenQuestions: d.swap.count };
+    return { situation: d.text, monthsStalled: 2, judgedOn: d.kinds.map((k) => OUTCOMES[k].label), swapFor: { situation: d.swap.text, ...by } };
+  }
+  if (d.kind === "claim_no_proof") return { claim: d.text, monthsWithoutProof: d.months };
+  if (d.kind === "measure_more") return { kind: OUTCOMES[d.outcome].label, why: WHY[d.why], connectors: d.connectors.map((c) => ({ name: c.name, link: c.href })) };
+  return { kind: OUTCOMES[d.outcome].label, focusResultNow: d.focusNow, focusResultBefore: d.focusBefore, restResultNow: d.restNow, restResultBefore: d.restBefore };
+}
+
+/** The month's suggestion as Vizzy reads it (STRATEGY_SUGGEST_ENABLED): what it says, what it stood on and couldn't see, and what was put off. */
+export function agentSuggestion(s: StrategySuggestion | null, holds: readonly SuggestHold[], nowIso: string) {
+  const putOff = liveHolds(holds, nowIso).map((h) => ({ kind: h.kind, about: h.about, until: h.until, why: NOT_NOW_LABEL[h.reason] }));
+  if (!s) return { month: null, putOff, note: "No suggestion this month: none of the rules applied, or each one that did was put off. A new one is worked out when the next month is added up." };
+  const action = suggestionAction(s, `${STRATEGY_LINK}?tab=strategy`);
+  return {
+    month: s.month,
+    kind: s.detail.kind,
+    state: s.state,
+    inReview: isReviewSuggestion(s),
+    whatToSay: suggestionLines(s),
+    basedOn: { builtIn: s.basedOn.builtIn.map((b) => BUILT_IN_WORDS[b]), measured: s.basedOn.measured.map((m) => ({ kind: OUTCOMES[m.kind].label, connector: m.connector })) },
+    cantSee: s.cantSee.map((c) => ({
+      kind: OUTCOMES[c.kind].label,
+      why: WHY[c.why],
+      ...(c.connector ? { whatToDo: c.why === "not_connected" ? `Connect ${c.connector}` : c.why === "not_shared" ? `Share ${c.connector} with the team and Vizzy` : `Check ${c.connector}'s connection` } : {}),
+      link: c.href,
+    })),
+    facts: suggestionFacts(s),
+    ...(isReviewSuggestion(s) ? { button: action.label, link: action.href } : {}),
+    putOff,
+    note: SUGGESTION_NOTE,
+  };
+}
+
 const daysSince = (iso: string, now: Date) => (Date.parse(iso) ? (now.getTime() - Date.parse(iso)) / 86_400_000 : Number.POSITIVE_INFINITY);
 
 /** The approved strategy for Vizzy. */
@@ -233,6 +282,8 @@ export async function agentBrandStrategy(
     askGoal: !s.goal || daysSince(s.goal.setAt, now) > GOAL_ASK_DAYS,
     ...(checkOn ? { againstCompetitors: againstCompetitors(doc?.check ?? null, now.toISOString(), canWatch && canRead) } : {}),
     ...(months ? { howItWent: howItWent(months), measuring: measuring(months) } : {}),
+    // The month's suggestion (STRATEGY_SUGGEST_ENABLED), with what it stood on and couldn't see.
+    ...(isStrategySuggestEnabled() && doc ? { suggestion: agentSuggestion(doc.suggestion, doc.suggestHolds, now.toISOString()) } : {}),
     link: STRATEGY_LINK,
     note: NOTE,
   };

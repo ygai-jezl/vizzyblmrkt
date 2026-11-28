@@ -416,7 +416,8 @@ function tells(kind: OutcomeKind, keyWord: string | null): string {
   return `which situations bring ${resultNoun(kind, keyWord)}`;
 }
 
-const BUILT_IN_WORDS: Record<SuggestBuiltIn, string> = {
+/** What each kind of built-in data is called in a suggestion's words. */
+export const BUILT_IN_WORDS: Record<SuggestBuiltIn, string> = {
   articles: "your articles",
   roadmap: "your content plan",
   claims: "your approved claims",

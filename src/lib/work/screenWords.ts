@@ -193,6 +193,11 @@ export const WORK_COPY = {
   rowDecisionLabel: "The decision",
   rowPickLabel: "The new pick",
   rowApproveLabel: "The plan's approval",
+  saving: "Saving…",
+  saved: "Saved",
+  rowChanged: "Someone changed this task just now. Their change is showing, and your text is still in its box, so save again.",
+  rowChangedPick: "Someone changed this task just now. Their change is showing, so make your change again.",
+  rowChangedShort: "Someone changed this task just now.",
 } as const;
 
 // --- People ------------------------------------------------------------------------------------

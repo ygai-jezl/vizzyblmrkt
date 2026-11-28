@@ -279,7 +279,7 @@ export const LOOPS = {
   "canvas.image_style": gap("Vizzy suggests an image style without reading the thumbs on the brand's images or the look each style learned, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.", IMAGES_BY),
   "canvas.person_fields": none("Each suggestion is a fact about one person that a teammate confirms or dismisses, so it is right or wrong rather than a taste."),
   "canvas.new_person": none("Vizzy copies details from the chat into the New person form, and a person checks the facts and records consent, so no taste is involved."),
-  "canvas.raise_deck": none("The deck only gathers slides, and the words on each slide learn under Writing decks."),
+  "canvas.raise_deck": none("The deck only gathers slides, and the words on each slide are counted under Writing decks, which says how they learn."),
 
   // ----- Connector rules (src/lib/types/dataSignal.ts) -----
   rising_search: gap("A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.", LATER),

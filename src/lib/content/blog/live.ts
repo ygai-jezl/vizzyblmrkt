@@ -222,6 +222,7 @@ export async function setArticleLive(
         nodeId: node.id,
         mark,
         approve: isBlogLiveWatchEnabled() && args.action !== "clear",
+        person: args.action === "mark",
         // Its dates come with the mark; "Not live" takes them away with it.
         ...(isBlogDatesEnabled()
           ? {

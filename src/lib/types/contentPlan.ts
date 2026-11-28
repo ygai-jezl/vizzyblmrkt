@@ -472,6 +472,11 @@ export const BlogArticleLiveSchema = z.object({
   auto: z.boolean().optional(),
   /** Being found live approved the article (a canvas left open keeps that approval on its next save). */
   approvedOnLive: z.boolean().optional(),
+  /**
+   * A hash of the article's words when this mark was written (foundLive.ts articleBodyHash). Once the
+   * words change (a refresh, an edit), the mark no longer approves them: a person does.
+   */
+  bodyHash: z.string().max(40).optional(),
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 

@@ -129,13 +129,13 @@ function liveHere(plan: ContentPlan, hub: ContentNode): boolean {
 }
 
 /**
- * The brand's blog articles written in the last 60 days and not live yet (`waiting`), and those
- * marked live whose approval is still to come (`toApprove`). Never one autopilot is writing.
+ * The brand's blog articles written in the last 60 days and not live yet (`waiting`). Never one
+ * autopilot is writing. An article already marked live and not approved stays for a person: its
+ * words may have changed since (a refresh), and only a new live check or a person approves them.
  */
-export async function articlesToWatch(ctx: TenantContext, nowMs: number, deps: { db?: FirestoreLike } = {}): Promise<{ waiting: WaitingArticle[]; toApprove: WaitingArticle[] }> {
+export async function articlesToWatch(ctx: TenantContext, nowMs: number, deps: { db?: FirestoreLike } = {}): Promise<{ waiting: WaitingArticle[] }> {
   const workspaces = (await forTenant(ctx, deps.db).workspaces.find({ where: [], limit: 200 })).filter((w) => !w.archivedAt).slice(0, LIVE_WATCH.MAX_WORKSPACES);
   const waiting: WaitingArticle[] = [];
-  const toApprove: WaitingArticle[] = [];
   for (const ws of workspaces) {
     const plans = await listRecentContentPlans(ctx, ws.id, LIVE_WATCH.PLANS_PER_WORKSPACE, deps.db).catch(() => [] as ContentPlan[]);
     for (const plan of plans) {
@@ -154,12 +154,10 @@ export async function articlesToWatch(ctx: TenantContext, nowMs: number, deps: {
         slug: hub.blog?.slug?.trim().toLowerCase() ?? "",
         url: address && !articleAddressProblem(address) ? address : null,
       };
-      if (liveHere(plan, hub)) {
-        if (hub.status === "generated") toApprove.push(article);
-      } else waiting.push(article);
+      if (!liveHere(plan, hub)) waiting.push(article);
     }
   }
-  return { waiting, toApprove };
+  return { waiting };
 }
 
 // ---- Matching a sitemap's pages to articles --------------------------------------------------------
@@ -358,13 +356,7 @@ async function passBrand(ctx: TenantContext, tenant: Tenant, budget: Budget, dep
   const at = new Date(nowMs).toISOString();
   const repo = forTenant(ctx, deps.db).liveWatch;
   const doc: LiveWatchDoc = { ...freshDoc(ctx.tenantId, at), ...((await repo.getById(docId(ctx.tenantId))) ?? {}) };
-  const { waiting, toApprove } = await articlesToWatch(ctx, nowMs, { db: deps.db });
-
-  // Marked live, never approved (a mark made before Found live): approved now, no page opened.
-  for (const article of toApprove) {
-    const written = await writeLiveMark(ctx, { workspaceId: article.workspaceId, plan: article.plan, nodeId: article.hub.id, mark: (stored) => stored, approve: true }, { db: deps.db });
-    if (written?.approved) result.approved += 1;
-  }
+  const { waiting } = await articlesToWatch(ctx, nowMs, { db: deps.db });
 
   // 1. Addresses saved on articles: a new one straight away, then every few hours, for two weeks.
   const withAddress = waiting.filter((a) => a.url);

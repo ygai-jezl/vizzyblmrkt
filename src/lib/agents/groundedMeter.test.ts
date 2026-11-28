@@ -256,6 +256,10 @@ const UNRESOLVED: Record<string, Unresolved> = {
     why: "Vizzy suggests a Work task or drafts a Log note or decision; agentWorkPost stamps each under vizzy_chat and counts it as it saves it.",
     reads: { vizzy_chat: ["src/lib/work/agentApi.ts"] },
   },
+  "src/app/api/agent/audience/paste/route.ts": {
+    why: "Vizzy hands over the rows a person pasted in the chat; readPaste reads them by code into one card, stamps it under paste_columns, by: vizzy, and counts it made as it saves it.",
+    reads: { paste_columns: ["src/lib/crm/paste/batch.ts"] },
+  },
 };
 
 /** Files that keep no stamp, each with its reason from UNSTAMPED_REASONS (4.3). */

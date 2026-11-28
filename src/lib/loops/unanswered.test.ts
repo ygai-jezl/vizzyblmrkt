@@ -32,6 +32,7 @@ const ANSWERED: readonly LoopKind[] = [
   "canvas.image_style",
   "canvas.person_fields",
   "canvas.new_person",
+  "paste_columns",
 ];
 
 afterEach(() => vi.unstubAllEnvs());

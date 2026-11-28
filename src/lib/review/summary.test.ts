@@ -936,9 +936,9 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
         action: "Check",
       },
     ]);
-    // Beside the people suggestions, after the board's follow-ups (S2a).
+    // Beside the people suggestions: the board's follow-ups (S2a), then pasted lists (S2b).
     const at = REVIEW_ORDER.indexOf("person_suggestion");
-    expect(REVIEW_ORDER.slice(at, at + 3)).toEqual(["person_suggestion", "raise_followup", "business_fact"]);
+    expect(REVIEW_ORDER.slice(at, at + 4)).toEqual(["person_suggestion", "raise_followup", "paste_batch", "business_fact"]);
     expect(REVIEW_SECTIONS.business_fact.title).toBe("About your business");
   });
 

@@ -1,8 +1,10 @@
 "use client";
 
+import { ClipboardPaste } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { personHref } from "@/lib/audience/paths";
+import { boardStageHint, PASTE_WORDS } from "@/lib/crm/paste/words";
 import { dueReasons, dueTallies } from "@/lib/raise/pipeline/due";
 import { BOARD_WORDS } from "@/lib/raise/pipeline/words";
 import { HowToLink } from "@/components/help/HowToLink";
@@ -198,6 +200,36 @@ function CardView({
 }
 
 /**
+ * Whether Paste a list opens Start from a public list: on an Investors board with no one on it yet.
+ * That card lists investor directories, so a Funding board (loans, grants) never opens it. Pure.
+ */
+export function opensPublicList(b: Pick<BoardAnswer, "kind" | "totals">): boolean {
+  return b.kind === "raising" && b.totals.people === 0;
+}
+
+/**
+ * Paste a list beside How the board works, for admins while Paste a list is on (S2b), told whether
+ * to open Start from a public list too. No hooks, so a test can press it.
+ */
+export function PasteButton({ openPublicList, onPaste }: { openPublicList: boolean; onPaste: (openPublicList: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPaste(openPublicList)}
+      data-public-list={openPublicList ? "open" : undefined}
+      className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+    >
+      <ClipboardPaste size={14} aria-hidden /> {PASTE_WORDS.button}
+    </button>
+  );
+}
+
+/** The board header's Paste a list, for this board. No hooks: BoardView draws exactly this. */
+export function boardPasteButton(board: Pick<BoardAnswer, "kind" | "totals">, onPaste: (openPublicList: boolean) => void) {
+  return <PasteButton openPublicList={opensPublicList(board)} onPaste={onPaste} />;
+}
+
+/**
  * The board as it is drawn, from one board answer. Read only without `onMove`, or when the board
  * says this user can't move people.
  */
@@ -206,13 +238,17 @@ export function BoardView({
   actions,
   error = null,
   onMove,
+  onPaste,
 }: {
   board: BoardAnswer;
   /** Buttons beside How the board works. */
   actions?: ReactNode;
   error?: string | null;
   onMove?: (card: BoardCard, to: string) => void;
+  /** Paste a list is on for this admin: its button, told whether the board is empty. */
+  onPaste?: (openPublicList: boolean) => void;
 }) {
+  const empty = board.totals.people === 0;
   const canMove = board.canMove && !!onMove;
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -231,15 +267,18 @@ export function BoardView({
           <HowToLink path={BOARD_WORDS.helpHref} className="text-sm underline underline-offset-2">
             {BOARD_WORDS.howItWorks}
           </HowToLink>
-          {/* S2b puts Paste a list here. */}
           {actions}
+          {onPaste ? boardPasteButton(board, onPaste) : null}
         </div>
       </div>
       {error ? <Banner tone="err">{error}</Banner> : null}
       {board.canMove ? null : <p className="text-xs text-neutral-500">{BOARD_WORDS.membersOnly}</p>}
       {board.totals.capped ? <p className="text-xs text-neutral-500">{BOARD_WORDS.capped}</p> : null}
-      {board.totals.people === 0 ? (
-        <p className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">{BOARD_WORDS.emptyBoard}</p>
+      {empty ? (
+        <div className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
+          <p>{BOARD_WORDS.emptyBoard}</p>
+          {onPaste ? <p className="mt-1">{boardStageHint(board.fields.stage?.label ?? "Stage")}</p> : null}
+        </div>
       ) : null}
       <div className="flex gap-3 overflow-x-auto pb-2">
         {board.columns.map((col) => {
@@ -311,7 +350,7 @@ export function BoardView({
 type Loaded = { state: "loading" } | { state: "failed" } | { state: "not_set_up" } | { state: "ready"; board: BoardAnswer };
 
 /** The board on People: loads it, moves cards and asks why on Passed. */
-export function InvestorBoard({ actions }: { actions?: ReactNode }) {
+export function InvestorBoard({ actions, onPaste }: { actions?: ReactNode; onPaste?: (openPublicList: boolean) => void }) {
   const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
   const [error, setError] = useState<string | null>(null);
   const [passing, setPassing] = useState<{ card: BoardCard; to: string } | null>(null);
@@ -324,9 +363,22 @@ export function InvestorBoard({ actions }: { actions?: ReactNode }) {
   }, []);
   useEffect(() => reload(), [reload]);
 
-  if (loaded.state === "loading") return <p className="text-sm text-neutral-500">{BOARD_WORDS.loading}</p>;
-  if (loaded.state === "failed") return <Banner tone="err">{BOARD_WORDS.errors.load_failed}</Banner>;
-  if (loaded.state === "not_set_up") return <Banner tone="info">{BOARD_WORDS.errors.not_set_up}</Banner>;
+  // Paste a list stays on the tab while the board loads, can't load or isn't set up: the tab row's
+  // own button steps aside on this tab.
+  const pasteAside = (line: ReactNode) =>
+    onPaste ? (
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <PasteButton openPublicList={false} onPaste={onPaste} />
+        </div>
+        {line}
+      </div>
+    ) : (
+      line
+    );
+  if (loaded.state === "loading") return pasteAside(<p className="text-sm text-neutral-500">{BOARD_WORDS.loading}</p>);
+  if (loaded.state === "failed") return pasteAside(<Banner tone="err">{BOARD_WORDS.errors.load_failed}</Banner>);
+  if (loaded.state === "not_set_up") return pasteAside(<Banner tone="info">{BOARD_WORDS.errors.not_set_up}</Banner>);
   const board = loaded.board;
 
   const setBoard = (next: (b: BoardAnswer) => BoardAnswer) => setLoaded((l) => (l.state === "ready" ? { state: "ready", board: next(l.board) } : l));
@@ -355,7 +407,7 @@ export function InvestorBoard({ actions }: { actions?: ReactNode }) {
 
   return (
     <>
-      <BoardView board={board} actions={actions} error={error} onMove={requestMove} />
+      <BoardView board={board} actions={actions} error={error} onMove={requestMove} onPaste={onPaste} />
       {passing ? (
         <PassReasonDialog
           options={board.reasonOptions}

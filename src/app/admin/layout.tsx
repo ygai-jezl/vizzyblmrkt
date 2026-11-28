@@ -50,6 +50,7 @@ import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isAssetTranslationsEnabled, isLanguageReadersEnabled } from "@/lib/i18n/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isPasteEnabled, isVizzyPasteEnabled } from "@/lib/crm/paste/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 
@@ -252,6 +253,8 @@ export default async function AdminLayout({
             agentRecord={isAgentRecordEnabled()}
             languageReaders={isLanguageReadersEnabled()}
             raiseFollowUps={isRaiseFollowupsEnabled()}
+            paste={isPasteEnabled()}
+            vizzyPaste={isVizzyPasteEnabled()}
             assetTranslations={isAssetTranslationsEnabled()}
           >
             {shell}

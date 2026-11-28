@@ -25,6 +25,7 @@ import SearchHelp from "./pages/search";
 import LanguagesHelp from "./pages/languages";
 import YourAudienceHelp from "./pages/your-audience";
 import InvestorsAndFundingHelp from "./pages/investors-and-funding";
+import PasteAListHelp from "./pages/paste-a-list";
 import HistoryAndRestoreHelp from "./pages/history-and-restore";
 import TroubleshootingHelp from "./pages/troubleshooting";
 
@@ -55,6 +56,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "search": SearchHelp,
   "your-audience": YourAudienceHelp,
   "investors-and-funding": InvestorsAndFundingHelp,
+  "paste-a-list": PasteAListHelp,
   "history-and-restore": HistoryAndRestoreHelp,
   "troubleshooting": TroubleshootingHelp,
 };

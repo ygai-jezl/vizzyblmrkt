@@ -680,7 +680,7 @@ export const CORE_STEPS = [
     },
     changes: (ctx) => [
       `Create an HSM signing key ${signingKeyName(ctx.project)} and let the backend sign with it (infra/lifecycle/setup.sh signing-key)`,
-      "Turn on Firestore TTL clean-up for old events, drafts and sign-in codes on (default) (infra/lifecycle/setup.sh ttl)",
+      "Turn on Firestore TTL clean-up for old events, drafts, learning counts and sign-in codes on (default) (infra/lifecycle/setup.sh ttl)",
     ],
     async apply(ctx) {
       const script = join(ctx.repoRoot, "infra", "lifecycle", "setup.sh");

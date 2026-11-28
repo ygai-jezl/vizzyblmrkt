@@ -115,6 +115,15 @@ export async function processInviteJob(
   const journeyId = inviteJourneyId(campaign.id);
   // The person, on the send record and the send row (ONTOLOGY_PERSON_IDS_ENABLED); never in the metadata.
   const personId = personIdForSignup(ctx.tenantId, signup);
+  // The wave's stamp goes on each invite's send record. The wave is one made thing however many
+  // emails it sends (learning loops step 5, 4.1): sendInviteWave counted it, and the wave's own
+  // record keeps its stamp, so an invite whose send record is off or lost counts nothing more.
+  const { metadata } = await sendMetadata(
+    ctx,
+    { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
+    "invite",
+    { db, personId, made: wave.made ?? { unstamped: "person_wrote" } },
+  );
   const res = await sendEmail({
     to: signup.email,
     subject: rendered.subject,
@@ -125,12 +134,7 @@ export async function processInviteJob(
     replyTo: sender.replyTo,
     ...(unsub.apiUrl ? { listUnsubscribe: { url: unsub.apiUrl, oneClick: true } } : {}),
     track: { opens: true, clicks: true },
-    metadata: await sendMetadata(
-      ctx,
-      { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
-      "invite",
-      { db, personId },
-    ),
+    metadata,
     tags: ["invite", `wave-${wave.id}`],
   });
   // The log provider (dev, no key) counts as sent. An AMBIGUOUS result may have

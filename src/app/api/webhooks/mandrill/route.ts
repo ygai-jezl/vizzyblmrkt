@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { forTenant, getTenantById } from "@/lib/tenant";
+import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Region } from "@/lib/types/tenant";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@/lib/email/mandrillWebhook";
 import { attributionOfEnrolmentSend } from "@/lib/lifecycle/sendAttribution";
 import { recordEmailEvent } from "@/lib/email/events";
-import { attributionOfSend, readSendRef, readTenantTag, sendIdOf } from "@/lib/email/sends";
+import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, upsertEarlierSend } from "@/lib/email/sends";
 import { applyEngagement } from "@/lib/email/engagement";
 import { emailEventKeyBase } from "@/lib/email/events";
 import { isEmailEngagementDetailEnabled } from "@/lib/email/flags";
@@ -208,7 +208,8 @@ export async function POST(req: Request) {
     const id = key.slice(key.indexOf("|") + 1);
     try {
       const nowIso = new Date().toISOString();
-      await forTenant(g.ctx).emailSends.upsert(
+      await upsertEarlierSend(
+        g.ctx,
         id,
         () =>
           ({

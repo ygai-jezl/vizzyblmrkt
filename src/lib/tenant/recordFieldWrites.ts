@@ -5,6 +5,7 @@ import { prepareEventsTx, regionalStoreFor, retryOnceOnExists, stageEvent } from
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransition, type AgentTransitionOk, type TransitionError } from "./agentActions";
 import { RECORD_FIELD_LISTS, settingsDocId } from "./settingsLog";
 import type { FirestoreLike, TenantContext } from "./types";
+import { countAgentDecision } from "@/lib/loops/decisions";
 import { fieldTagRepair, fieldTagsForPerson, isInEveryone, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
 import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
 import { isCanonicalInstant, jsonBytes, type EventActor, type FieldChangeSource } from "@/lib/ontology/events";
@@ -140,8 +141,11 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
   const listRef = store.collection(RECORD_FIELD_LISTS).doc(settingsDocId(ctx.tenantId, subject));
   const recordRef = store.collection(RECORD_COLLECTIONS[input.object]).doc(input.recordId);
 
-  return retryOnceOnExists(() =>
+  // The decision the saved attempt staged, counted once it is saved (learning loops step 5).
+  let decided: AgentTransitionOk | null = null;
+  const out = await retryOnceOnExists(() =>
     store.runTransaction(async (txn): Promise<SetFieldValuesResult> => {
+      decided = null;
       // Read phase: the list, the record and the action, before any write.
       const listSnap = await txn.get(listRef);
       const recordSnap = await txn.get(recordRef);
@@ -234,6 +238,7 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
       if (Object.keys(patch).length) txn.update(recordRef, patch);
       const written = fresh.map((e) => stageEvent(txn, store, ctx, e, nowIso));
       if (move) written.push(...stageAgentTransition(txn, store, ctx, move));
+      decided = move;
       return {
         ok: true,
         outcome: "updated",
@@ -245,6 +250,9 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
       };
     }),
   );
+  const saved = decided as AgentTransitionOk | null;
+  if (out.ok && saved) await countAgentDecision(ctx, saved.current, saved.next, { db: opts.db });
+  return out;
 }
 
 export interface MoveFieldValuesResult {

@@ -1,11 +1,13 @@
 import { forTenant, getTenantById, listAllTenants } from "@/lib/tenant";
+import { CountBuffer } from "@/lib/loops/count";
+import { RunCache as LoopsRunCache } from "@/lib/loops/runCache";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
-import { sendMetadata, transactionalTag } from "@/lib/email/sends";
+import { countSendUnrecorded, sendMetadata, transactionalTag } from "@/lib/email/sends";
 import { resolveEmailStyle, resolveTransactionalEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { isEmailStyleTransactionalEnabled } from "@/lib/email/flags";
 import {
@@ -136,6 +138,8 @@ export async function processEmailJobs(
 
   // Rank is expensive (one ordered scan); compute once per campaign per run.
   const rankCache = new Map<string, Map<string, number>>();
+  // Learning loops step 5 (4.1): the run's stamps, read once per kind, and its counts, written once at the end.
+  const loops: JobLoops = { stamps: new LoopsRunCache({}), counts: new CountBuffer({ db }) };
   let processed = 0;
   let done = 0;
   let failed = 0;
@@ -177,7 +181,7 @@ export async function processEmailJobs(
           await processBroadcastJob(ctx, job, db);
           break;
         case "journey_step":
-          outcome = await processJourneyStepJob(ctx, job, rankCache, db);
+          outcome = await processJourneyStepJob(ctx, job, rankCache, db, loops);
           break;
         case "lifecycle":
           outcome = await processLifecycleJob(ctx, job, db);
@@ -286,7 +290,14 @@ export async function processEmailJobs(
       failed += 1;
     }
   }
+  await loops.counts.flush();
   return { processed, done, failed };
+}
+
+/** A run's stamps and counts (learning loops step 5), shared by the jobs that send email. */
+interface JobLoops {
+  stamps: LoopsRunCache;
+  counts: CountBuffer;
 }
 
 export interface TenantDrainResult {
@@ -613,7 +624,8 @@ async function processJourneyStepJob(
   ctx: TenantContext,
   job: EmailJob,
   rankCache: Map<string, Map<string, number>>,
-  db?: FirestoreLike,
+  db: FirestoreLike | undefined,
+  loops: JobLoops,
 ): Promise<JobOutcome> {
   const journeyId = String(job.payload.journeyId ?? "");
   const nodeId = String(job.payload.nodeId ?? "");
@@ -721,6 +733,22 @@ async function processJourneyStepJob(
   if (!job.emailSentAt) {
     // The person, on the send record and the send row (ONTOLOGY_PERSON_IDS_ENABLED); never in the metadata.
     const personId = personIdForSignup(ctx.tenantId, signup);
+    // What made the email (LOOPS_ENABLED, learning loops step 5): when the step went is the
+    // journey's, sent by YouGrow; its words are a person's or Vizzy's draft. Read once per run.
+    const made = await loops.stamps.stamp(ctx, "send_time");
+    const sent = await sendMetadata(
+      ctx,
+      {
+        tenantId: ctx.tenantId,
+        campaignId: journey.campaignId,
+        journeyId: journey.id,
+        nodeId: node.id,
+        signupId: signup.id,
+        variantId,
+      },
+      "waitlist",
+      { db, personId, made },
+    );
     const res = await sendEmail({
       to: signup.email,
       subject: compiled.subject,
@@ -736,19 +764,7 @@ async function processJourneyStepJob(
       // Echoed back verbatim on Mandrill open/click webhooks — attributes the
       // event to this step + recipient + A/B arm with no database lookup.
       // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s} instead (Mandrill drops metadata over 250 bytes).
-      metadata: await sendMetadata(
-        ctx,
-        {
-          tenantId: ctx.tenantId,
-          campaignId: journey.campaignId,
-          journeyId: journey.id,
-          nodeId: node.id,
-          signupId: signup.id,
-          variantId,
-        },
-        "waitlist",
-        { db, personId },
-      ),
+      metadata: sent.metadata,
       tags: ["journey", `node-${node.id}`],
     });
     // "log" provider (dev, no key) counts as success so the chain still advances.
@@ -763,6 +779,9 @@ async function processJourneyStepJob(
       variantId,
       ...ambiguityNote(ctx, job, res),
     });
+    loops.counts.made(ctx, "send_time", made, { type: "email_send" });
+    // Beside made, once the email went: a stamp its send record doesn't keep (4.2 row 4).
+    if (sent.unrecorded) await countSendUnrecorded(ctx, made, "send_time", { counts: loops.counts }, sent.unrecorded);
     // Record the send as an engagement event ourselves rather than depend on
     // Mandrill's "Message is sent" webhook for the denominator — open/click rates
     // are computed over delivered, and "enrolled"/"sent" counts come from these

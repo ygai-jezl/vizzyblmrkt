@@ -107,7 +107,7 @@ export async function clearSearchConsoleArticles(ctx: TenantContext, deps: { db?
   const late = () => Date.now() > stopAt;
   const clearPlan = async (workspaceId: string, planId: string, nodeId: string) => {
     try {
-      const node = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {}, deps.db, {
+      const node = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, { made: { unstamped: "dates_only" } }, deps.db, {
         setFreshness: (stored) => (stored && fromSearchConsole(stored.reasons) ? { ...stored, reasons: withoutSearchConsole(stored.reasons) } : stored),
       });
       if (node) out.articles += 1;

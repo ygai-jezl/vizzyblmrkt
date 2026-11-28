@@ -1,4 +1,7 @@
 import { forTenant, TENANT_FIELD } from "./repository";
+import { countAgentDecision } from "@/lib/loops/decisions";
+import { keptMade } from "@/lib/loops/made";
+import type { Made } from "@/lib/types/loopStamp";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type { DocRefLike, FirestoreLike, TenantContext, TransactionLike } from "./types";
 import {
@@ -72,6 +75,8 @@ export interface AgentProposal {
   expiresAt: string;
   /** Clear proposal and basis in the same commit as an acted or declined decision. */
   clearDetailsOnClose?: boolean;
+  /** What made it, when Vizzy drafted it on a canvas: kept only with LOOPS_ENABLED on (keptMade). */
+  made?: Made;
   /** When it was proposed (canonical). */
   at: string;
 }
@@ -197,6 +202,7 @@ export async function proposeAgentAction(
     clearDetailsOnClose: p.clearDetailsOnClose ?? false,
     detailsClearedAt: null,
     blankedFieldIds: [],
+    ...(keptMade(p.made) ? { made: keptMade(p.made) } : {}),
     createdAt: p.at,
     updatedAt: p.at,
   };
@@ -295,7 +301,11 @@ export function stageAgentTransition(txn: TransactionLike, store: FirestoreLike,
   return plan.events.map((e) => stageAgentEventTx(txn, store, ctx, prepareTrailEvent(ctx, e), e.at));
 }
 
-/** Move one action and append its row(s), in one transaction. */
+/**
+ * Move one action and append its row(s), in one transaction. Once it is saved, a move of an
+ * action Vizzy drafted counts against its stamp (learning loops step 5): acted as kept or edited,
+ * undone, or a person's dismissal as declined (src/lib/loops/decisions.ts).
+ */
 export async function transitionAgentAction(
   ctx: TenantContext,
   id: AgentActionId,
@@ -303,14 +313,20 @@ export async function transitionAgentAction(
   opts: { db?: FirestoreLike } = {},
 ): Promise<{ ok: true; action: AgentAction; events: StoredEvent[] } | { ok: false; error: TransitionError; state?: AgentActionState }> {
   const store = regionalStoreFor(ctx, opts.db);
-  return retryOnceOnExists(() =>
+  // The move the saved attempt planned: a transaction that runs again plans it again.
+  let moved: AgentTransitionOk | null = null;
+  const out = await retryOnceOnExists(() =>
     store.runTransaction(async (txn) => {
       const plan = planAgentTransition(await readAgentActionTx(txn, store, ctx, id), t);
+      moved = plan.ok ? plan : null;
       if (!plan.ok) return plan;
       const events = stageAgentTransition(txn, store, ctx, plan);
       return { ok: true as const, action: plan.next, events };
     }),
   );
+  const saved = moved as AgentTransitionOk | null;
+  if (out.ok && saved) await countAgentDecision(ctx, saved.current, saved.next, { db: opts.db });
+  return out;
 }
 
 // --- Minimising and expiring -------------------------------------------------------------------

@@ -88,6 +88,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED = "true";
   process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED = "true";
+  process.env.EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED = "true";
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
   process.env.CONTENT_LANGUAGE_ENABLED = "true";
   process.env.LANGUAGE_READERS_ENABLED = "true";
@@ -127,6 +128,10 @@ vi.hoisted(() => {
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
   process.env.ONBOARDING_VOICE_ENABLED = "true";
+  // What YouGrow learned (image style versions, learning loops step 4) needs the image style and its loop.
+  process.env.BRAND_STYLE_LOOP_ENABLED = "true";
+  process.env.BRAND_IMAGE_STYLE_ENABLED = "true";
+  process.env.IMAGE_STYLE_VERSIONS_ENABLED = "true";
   // Settings › History (piece O part 2), with its help page.
   process.env.SETTINGS_HISTORY_ENABLED = "true";
   // Your next action as Vizzy's card, so its section and the messages it quotes are checked too.
@@ -1408,6 +1413,88 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
       expect(dashesIn(line), line).toEqual([]);
       expect(aiTellsIn(line), line).toEqual([]);
     }
+  });
+});
+
+describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
+  const section = (text: string, heading: string) => {
+    const from = text.indexOf(`## ${heading}`);
+    const next = text.indexOf("\n## ", from + 3);
+    return text.slice(from, next === -1 ? undefined : next);
+  };
+
+  it("says Vizzy reads the reasons and the newest notes it is given, and never that notes stay with the brand's data", async () => {
+    const { VIZZY_NOTES } = await import("@/lib/loops/learnedWords");
+    const text = helpPageMarkdown("what-yougrow-learned", "https://app.example.com")!;
+    const vizzy = section(text, "Ask Vizzy");
+    expect(vizzy).toContain("reasons given with votes");
+    expect(vizzy).toContain(`${VIZZY_NOTES} newest notes`);
+    expect(text).not.toContain("Notes stay with your brand");
+    expect(section(text, "How your votes teach it")).toContain("Vizzy and the model that learns looks read them");
+    expect(section(text, "Where it is kept")).toContain("with any note Vizzy read in one");
+  });
+
+  it("explains the counts across brands while the learning loops are on, worded for question 4, and Vizzy's read of the brand's own", () => {
+    const page = (loops: boolean) => docToMarkdown(HELP_BODIES["what-yougrow-learned"]!({ loops }), "https://app.example.com");
+    const on = page(true);
+    const counts = section(on, "Counts across brands");
+    expect(counts).toContain("It counts organisations and numbers only, never images, words or people. Only the people who run this copy see these counts.");
+    // Question 4, yes: counts of organisations below 10 show to the people who run the copy, and never set defaults.
+    expect(counts).toContain("Numbers of things made, kept and liked show only from 10 organisations.");
+    expect(counts).toContain("even when fewer than 10, and those counts never set defaults.");
+    expect(counts).not.toContain("Nothing shows for fewer than 10 organisations.");
+    expect(counts).toContain("stay inside this copy of YouGrow");
+    expect(counts).toContain("turn off **Help check that learning works**");
+    expect(section(on, "About 1 image in 20")).toContain("also leaves your brand out of the counts across brands");
+    expect(section(on, "Ask Vizzy")).toContain("own learning counts for the last 90 days");
+    // Where the Help board puts it: after Ask Vizzy, right before Messages.
+    const headings = on.split("\n").filter((l) => l.startsWith("## ")).map((l) => l.slice(3));
+    expect(headings.slice(headings.indexOf("Where it is kept"))).toEqual(["Where it is kept", "Ask Vizzy", "Counts across brands", "Messages"]);
+    const off = page(false);
+    expect(off).not.toContain("Counts across brands");
+    expect(off).not.toContain("counts across brands");
+    expect(off).not.toContain("learning counts");
+    // The drawer passes the server's switch.
+    expect(drawerBodyProps({ loops: true } as never).loops).toBe(true);
+    expect(drawerBodyProps(null).loops).toBe(false);
+  });
+
+  it("with only the learning loops on, is listed and says what is counted and how a brand leaves, with nothing about image looks", () => {
+    const versions = process.env.IMAGE_STYLE_VERSIONS_ENABLED;
+    try {
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = "false";
+      process.env.LOOPS_ENABLED = "true";
+      expect(shownHelpPages().some((p) => p.slug === "what-yougrow-learned")).toBe(true);
+      // Its summary, which the list, its description, llms.txt and Vizzy's help list give, speaks of the counts alone.
+      const summary = "What YouGrow counts across brands, who sees the counts, and how your brand leaves them.";
+      expect(shownHelpPages().find((p) => p.slug === "what-yougrow-learned")?.summary).toBe(summary);
+      expect(helpMetadata("what-yougrow-learned").description).toBe(summary);
+      expect(helpLlmsTxt("https://app.example.com").split("\n").find((l) => l.includes("what-yougrow-learned"))).toContain(summary);
+      expect(dashesIn(summary)).toEqual([]);
+      expect(aiTellsIn(summary)).toEqual([]);
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = "true";
+      expect(helpPage("what-yougrow-learned")?.summary).toMatch(/^See the look each image style learned from your votes/);
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = "false";
+      process.env.LOOPS_ENABLED = "false";
+      expect(shownHelpPages().some((p) => p.slug === "what-yougrow-learned")).toBe(false);
+    } finally {
+      process.env.IMAGE_STYLE_VERSIONS_ENABLED = versions;
+      delete process.env.LOOPS_ENABLED;
+    }
+    const only = docToMarkdown(HELP_BODIES["what-yougrow-learned"]!({ loops: true, imageVersions: false }), "https://app.example.com");
+    const counts = section(only, "Counts across brands");
+    expect(counts).toContain("turn off **Help check that learning works**");
+    expect(counts).toContain("Your brand's own learning carries on.");
+    expect(only).not.toContain("1 in 20");
+    expect(only).not.toContain("A look for each style");
+    expect(section(only, "Ask Vizzy")).toContain("own learning counts for the last 90 days");
+    for (const line of only.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    // The drawer passes the server's switch for image looks too.
+    expect(drawerBodyProps({ imageVersions: true } as never).imageVersions).toBe(true);
+    expect(drawerBodyProps(null).imageVersions).toBe(false);
   });
 });
 

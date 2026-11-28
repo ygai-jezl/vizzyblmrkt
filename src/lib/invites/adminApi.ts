@@ -116,7 +116,7 @@ export async function createWave(ctx: TenantContext, campaignId: string, input: 
   const parsed = WaveInputSchema.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   return fromResult(
-    await createWaveDraft(ctx, campaignId, parsed.data, { userId: ctx.userId ?? null, authoredBy: "human" }, db),
+    await createWaveDraft(ctx, campaignId, parsed.data, { userId: ctx.userId ?? null, authoredBy: "human", made: { unstamped: "person_wrote" } }, db),
     "wave",
     201,
   );

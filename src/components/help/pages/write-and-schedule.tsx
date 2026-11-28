@@ -3,7 +3,12 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warnin
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled, isBlogCitableEnabled } from "@/lib/content/blog/flags";
-import { isEditModeEnabled, isEditModeVizzyEnabled, isEditModeVizzyLearningEnabled } from "@/lib/content/editor/flags";
+import {
+  isEditModeEnabled,
+  isEditModeLearningFollowsVizzyEnabled,
+  isEditModeVizzyEnabled,
+  isEditModeVizzyLearningEnabled,
+} from "@/lib/content/editor/flags";
 import { isAiDraftKeptEnabled, isAiOriginalsEnabled, isApprovedExamplesEnabled } from "@/lib/content/create/flags";
 import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distribute/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
@@ -171,6 +176,14 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
           you asked and the words that changed, never the whole article, to Agent Platform Memory Bank in this copy of
           YouGrow&apos;s Google Cloud project. Anything not used for 6 months is forgotten. An admin can press{" "}
           <strong>Add to brand voice</strong> to make one a rule for the whole team in Brand kit.
+        </P>
+      ) : null}
+      {isEditModeEnabled() && isEditModeLearningFollowsVizzyEnabled() ? (
+        <P>
+          On this copy, learning from your edits in Edit mode comes with Vizzy in Edit mode when your brand keeps its data in
+          the region where Vizzy runs. A brand that keeps its data in another region learns from edits only when Vizzy
+          learning from edits is in its plan or granted to it. Learning from LinkedIn and X posts always needs Vizzy learning
+          from edits in your plan or granted to your brand.
         </P>
       ) : null}
       {isBlogAiSummaryUiEnabled() ? (

@@ -10,10 +10,13 @@ import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { dismissBrandMapSuggestions, readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
 import { authorBrandMapSuggestions } from "./brandMap";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "usr_member", role: "member" };
 const author = (input: Record<string, unknown>, ctx = admin, db = new FakeFirestore(), brief = "Add what we talked about") =>
-  authorBrandMapSuggestions({ ctx, input, brief }, { db, nowMs: Date.parse("2026-10-15T10:00:00Z") });
+  authorBrandMapSuggestions({ ctx, input, made: LOOPS_OFF, brief }, { db, nowMs: Date.parse("2026-10-15T10:00:00Z") });
 
 beforeEach(() => {
   __resetRateLimitState();
@@ -95,7 +98,7 @@ describe("Vizzy's brand map suggestions", () => {
     vi.stubEnv("BRAND_MAP_RESEARCH_ENABLED", "true");
     const db = new FakeFirestore();
     const r = await authorBrandMapSuggestions(
-      { ctx: admin, input: { mode: "research" }, brief: "" },
+      { ctx: admin, input: { mode: "research" }, made: LOOPS_OFF, brief: "" },
       {
         db,
         research: {
@@ -112,7 +115,16 @@ describe("Vizzy's brand map suggestions", () => {
       },
     );
     expect(r.ok && r.summary).toMatch(/^Research filed \d+ suggestions for your brand map \(.*\)\. Nothing in the map has changed/);
+    // Research counts its own made where it files, so the route counts no canvas.brand_map beside it.
+    expect(r.ok && r.card.stats[0]!.value).toBeGreaterThan(0);
+    expect(r).toMatchObject({ ok: true, saved: "none" });
     const read = await readBrandMap(admin, db);
     expect(read.state === "ok" && read.map.rev).toBe(0);
+  });
+
+  it("counts Vizzy's own suggestions as created, and nothing for a call that filed none", async () => {
+    const db = new FakeFirestore();
+    expect(await author({ mode: "add", changes: [{ type: "add_name", name: "Rivalco", kind: "alternative" }] }, admin, db)).toMatchObject({ ok: true, saved: "created" });
+    expect(await author({ mode: "add", changes: [{ type: "add_name", name: "Rivalco", kind: "alternative" }] }, admin, db)).toMatchObject({ ok: true, saved: "none" });
   });
 });

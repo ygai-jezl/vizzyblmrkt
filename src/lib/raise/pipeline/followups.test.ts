@@ -302,6 +302,25 @@ describe("decideFollowUp", () => {
     expect(await getAgentAction(w.ctx, a!.id, { db })).toMatchObject({ state: "declined", declined: { reason: "dismissed" }, decidedBy: member });
   });
 
+  it("with the learning loops on, keeps no stamp on a follow-up, so I followed up, Dismiss and a clear count under no kind (learning loops step 5)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-10" });
+    await w.add({ email: "priya@example.test", stage: "contacted", lastTouch: "2026-11-09", nextStepDate: "2026-11-20" });
+    await propose();
+    const raised = await open();
+    expect(raised).toHaveLength(3);
+    // YouGrow's rule raised them, not a model, and they keep no stamp.
+    for (const a of all()) expect(a).not.toHaveProperty("made");
+    const quiet = raised.filter((a) => a.proposal?.due === "quiet");
+    const nextStep = raised.find((a) => a.proposal?.due === "next_step")!;
+    expect((await decide(quiet[0]!.id, { op: "followed_up", rev: quiet[0]!.rev })).status).toBe(200);
+    expect((await decide(nextStep.id, { op: "dismiss", rev: nextStep.rev })).status).toBe(200);
+    // The last one is cleared by the system when the person's Stage moves.
+    await reconcileFollowUps(w.ctx, { now: NOW, valuesOf: async () => ({ [w.ids.stage]: w.stage("money_in") }) }, db);
+    expect(all().map((a) => a.state).sort()).toEqual(["acted", "declined", "declined"]);
+    expect(db.dump("loop_days")).toEqual([]);
+  });
+
   it("finds nothing for a bad id, another kind of action or another brand's follow-up", async () => {
     await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-10" });
     await propose();

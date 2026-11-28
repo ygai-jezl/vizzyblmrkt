@@ -8,6 +8,8 @@ import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { isNavV2Enabled, isNavV2Phase2Enabled } from "@/lib/nav/flags";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { loadGrowthSignals, type SetupOptions } from "@/lib/nav/growthSignals";
@@ -326,6 +328,8 @@ export async function composeNextAction(ctx: TenantContext, opts: { reason: "sta
       await declineUnshown(ctx, proposed, by, at, deps);
       return { composed: false, record: await readNextActionCard(ctx, { db: deps.db, nowMs: now() }), held: "busy", state };
     }
+    // A card the model wrote is counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+    if (result.ok) await countMade(ctx, "next_action", (await learnedFor(ctx, "next_action")).stamp, { type: "next_action_card", db: deps.db });
     return { composed: true, record: commit.record, state };
   } catch (err) {
     // Steps proposed for a card that never went in are declined, not left for the expiry tick.

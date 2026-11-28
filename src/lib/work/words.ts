@@ -2,7 +2,9 @@ import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
 import { localDateKey } from "@/lib/lifecycle/sendWindow";
 import { dayWords } from "@/lib/connectors/period";
 import { PURPOSE_LABELS, RESOURCES, type ResourceId, type ResourcePurpose } from "@/lib/plans/resources";
-import type { Counted, Measure, ThenMeasure, WorkStatus } from "./types";
+import { kindLabel } from "@/lib/loops/reasonWords";
+import { LOOP_RULES } from "@/lib/loops/registry";
+import type { Counted, CountedWeeks, Measure, ThenMeasure, UsedCounts, WorkStatus } from "./types";
 
 /**
  * The words Work says to people (ADR-0020): what a status, a plan link's approval and a check
@@ -162,7 +164,18 @@ export function purposeResource(purpose: string): ResourceId | null {
   return best;
 }
 
-const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+/** Names a label may start with, which keep their capitals mid sentence. */
+const NAMES = ["Vizzy", "Memory Bank", "LinkedIn", "Google", "YouGrow", "Instagram", "Search Console"];
+
+/**
+ * A label as it reads mid sentence: a plain first word loses its capital ("Suggesting angles" is
+ * "suggesting angles", "A plan for one person" is "a plan for one person"), while one that starts
+ * with an acronym or a name keeps it ("AI lines in emails", "Vizzy chat", "Memory Bank memories").
+ */
+const lower = (s: string) => {
+  if (NAMES.some((n) => s === n || s.startsWith(`${n} `))) return s;
+  return /^[A-Z](?:[a-z]|\s|$)/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+};
 
 /** What a Moves a number measure moves, in the brand's word: "orders", "open rate". */
 export function movesWhat(m: { meaning: MeaningKey; word?: string }): string {
@@ -178,14 +191,84 @@ export interface CountedLineInput {
   timeZone: string;
   /** The usage meter is off, so a purpose isn't counted. */
   meterOff?: boolean;
+  /** The learning loops are on (LOOPS_ENABLED), so a type or a LOOPS kind is counted too. */
+  loopsOn?: boolean;
+  /** The LOOPS kind is an image kind and image style versions are off, so it isn't counted on this copy. */
+  imagesOff?: boolean;
   /** A product event's label in its catalog, as the picker shows it; the raw name when there is none. */
   eventLabel?: string | null;
 }
 
 const READ_IS_RECORD = "so your read is the record.";
 
+/** The line on a check that counts an image kind while image style versions are off on this copy. */
+export const IMAGES_OFF_LINE = "Work can't count images while image learning is off on this copy, so your read is the record.";
+
 /** The line on a check that counts this copy's own purposes, types or loop kinds, for anyone who isn't an operator. */
 export const OPERATOR_COUNT_LINE = "Only the people who run this copy's own learning loop see this count, so your read is the record.";
+
+/**
+ * What every count from the learning loops' weekly counts can miss, in Work's words: each point of
+ * USED_NOTE (src/lib/loops/used.ts), which src/lib/work/words.test.ts holds this to.
+ */
+export const LOOPS_COUNT_NOTE =
+  "It can undercount: a count that fails to save isn't tried again, a person's own uploads aren't counted, nothing is counted while the learning loops are off, brands that opted out are left out, a week some brands didn't report counts less, and counts can take up to a week to come in.";
+
+/** A day of the loops' weeks, which run Monday to Sunday in UTC. */
+const weekDay = (iso: string) => dayOf(iso, "UTC");
+
+/** What a count from the loops is of: "AI calls for suggesting angles", "content plan records made", "things made for next up". */
+function loopsWhat(c: Extract<UsedCounts, { purpose: string } | { type: string } | { loopKind: string }>, row?: string): string {
+  if ("purpose" in c) return `AI calls for ${lower(PURPOSE_LABELS[c.purpose as ResourcePurpose] ?? c.purpose)}`;
+  if ("type" in c) return `${c.type.replace(/_/g, " ")} records made`;
+  if (row === "image_style") return "images made of every image kind";
+  return `things made for ${lower(kindLabel(row ?? c.loopKind))}`;
+}
+
+/** "the week of 23 Nov", or "the 4 weeks from 2 Nov to 29 Nov". */
+function weeksWords(n: number, from: string, to: string): string {
+  return n === 1 ? `the week of ${weekDay(from)}` : `the ${n} weeks from ${weekDay(from)} to ${weekDay(to)}`;
+}
+
+/** The weeks not over yet: "The week of 30 Nov isn't over yet", "The 2 weeks from 23 Nov aren't over yet". */
+function openWords(w: CountedWeeks, fallback: string): string {
+  const from = weekDay(w.openFrom ?? fallback);
+  return w.open === 1 ? `the week of ${from} isn't over yet` : `the ${w.open} weeks from ${from} aren't over yet`;
+}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * The line on a check counted from the learning loops' weekly counts across brands: the number,
+ * the weeks and the organisations behind it, the weeks left out (below 10 organisations, not over
+ * yet, or past the newest 13), and what such a count can miss (LOOPS_COUNT_NOTE).
+ */
+function loopsCountedLine(c: Parameters<typeof loopsWhat>[0], k: Counted & { weeks: CountedWeeks }): string {
+  const w = k.weeks;
+  const what = loopsWhat(c, w.row);
+  if (w.read === 0) return `Work counts ${what} across brands in whole weeks, and ${openWords(w, k.from)}, ${READ_IS_RECORD}`;
+  const out: string[] = [];
+  const span = weeksWords(w.read, k.from, k.to);
+  if (w.shown === 0 || k.n === undefined) {
+    out.push(`Work counted ${what} across brands in ${span}. How many isn't shown: no week had counts from ${LOOP_RULES.cellOrgs} organisations yet.`);
+  } else {
+    const weeks = w.shown === w.read ? span : `${w.shown} of ${span}`;
+    const orgs = w.shown === 1 ? `from ${countWords(w.orgs ?? 0)} organisations` : `from at least ${countWords(w.orgs ?? 0)} organisations a week`;
+    out.push(`Work counted about ${countWords(k.n)} ${what} across brands in ${weeks}, ${orgs}.`);
+    // Things made count at most orgOutputsCap per organisation a week; calls are uses, never capped.
+    if (!("purpose" in c)) out.push(`Each organisation counts up to ${LOOP_RULES.orgOutputsCap} a week.`);
+    const left = w.read - w.shown;
+    // A week below the floor, or one whose counts haven't all come in yet.
+    if (left === 1) out.push(`The other week didn't have counts from ${LOOP_RULES.cellOrgs} organisations yet, so it is left out.`);
+    if (left > 1) out.push(`The other ${left} weeks didn't have counts from ${LOOP_RULES.cellOrgs} organisations yet, so they are left out.`);
+  }
+  if (w.beforeDone) out.push("The first week includes days before Done.");
+  if (w.older === 1) out.push(`Work reads the newest ${w.read} weeks, so the week before them is left out.`);
+  if (w.older > 1) out.push(`Work reads the newest ${w.read} weeks, so the ${w.older} weeks before them are left out.`);
+  if (w.open > 0) out.push(`${capital(openWords(w, k.to))}, so ${w.open === 1 ? "it isn't" : "they aren't"} counted.`);
+  out.push(LOOPS_COUNT_NOTE);
+  return out.join(" ");
+}
 
 /**
  * The line on a measure's check: the number Work counted, or what it can't count. For example
@@ -199,11 +282,18 @@ export function countedLine(i: CountedLineInput): string {
   if (p.kind === "moves") return `Work can't count ${movesWhat(p)}${i.brandName ? ` for ${i.brandName}` : ""} yet, ${READ_IS_RECORD}`;
   const c = p.counts;
   if ("none" in c) return `Work counts nothing for this one, ${READ_IS_RECORD}`;
-  if ("type" in c) return `Work can't count ${c.type.replace(/_/g, " ")} records yet, ${READ_IS_RECORD}`;
-  if ("loopKind" in c) return `Work can't count ${c.loopKind} yet, ${READ_IS_RECORD}`;
+  // A count from the learning loops reads as one, whether or not the loops are still on.
+  const fromLoops = i.counted?.weeks ? (i.counted as Counted & { weeks: CountedWeeks }) : null;
+  if ("type" in c || "loopKind" in c) {
+    if (fromLoops) return loopsCountedLine(c, fromLoops);
+    if (!i.loopsOn) return "type" in c ? `Work can't count ${c.type.replace(/_/g, " ")} records yet, ${READ_IS_RECORD}` : `Work can't count ${c.loopKind} yet, ${READ_IS_RECORD}`;
+    if ("loopKind" in c && i.imagesOff) return IMAGES_OFF_LINE;
+    return "Work counts it once the check is due.";
+  }
   if ("purpose" in c) {
     const label = lower(PURPOSE_LABELS[c.purpose as ResourcePurpose] ?? c.purpose);
     if (i.meterOff) return `Work can't count ${label} while the usage meter is off, ${READ_IS_RECORD}`;
+    if (fromLoops) return loopsCountedLine(c, fromLoops);
     if (!i.counted || i.counted.units === undefined) return "Work counts it once the check is due.";
     const r = purposeResource(c.purpose);
     const unit = r ? RESOURCES[r].unit : "units";

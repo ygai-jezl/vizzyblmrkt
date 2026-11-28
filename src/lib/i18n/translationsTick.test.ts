@@ -3,6 +3,8 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import { updateTenantConfig } from "@/lib/tenant/control";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { publishLifecycleJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
 import { T0, TENANT_ID, ctx, publishOnboarding, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import type { TranslateInput, TranslateResult } from "./translate";
@@ -198,5 +200,40 @@ describe("the translations lane", () => {
     await updateTenantConfig(TENANT_ID, { translationsQueuedAt: new Date(NOW).toISOString() }, fs(w.db));
     vi.unstubAllEnvs();
     expect(await w.run()).toMatchObject({ brands: 0 });
+  });
+});
+
+describe("the translations lane under the learning loops (LOOPS_ENABLED, learning loops step 5)", () => {
+  /** What this brand's week counts under the translation kind: made against its stamp, and why none. */
+  const counted = (db: FakeFirestore) => {
+    const week = sumWeek(db, TENANT_ID, loopWeekOf(new Date())) as { c?: Record<string, unknown>; u?: Record<string, unknown> };
+    return { stamped: week.c?.translation, unstamped: week.u?.translation };
+  };
+
+  it("counts each translation made once its draft is kept, and a run with nothing queued counts no more", async () => {
+    on();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const w = await world();
+    await w.drain();
+    const made = { stamped: { translation: { v0: { none: { made: w.emails } } } }, unstamped: undefined };
+    expect(counted(w.db)).toEqual(made);
+    await w.run();
+    expect(counted(w.db)).toEqual(made);
+  });
+
+  it("counts a failed translation as nothing made", async () => {
+    on();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const w = await world();
+    await w.run(vi.fn(async (): Promise<TranslateResult> => ({ ok: false, tries: 2, reason: "No answer came back in time." })));
+    expect(counted(w.db)).toEqual({ stamped: undefined, unstamped: undefined });
+  });
+
+  it("counts nothing with LOOPS_ENABLED off (decision 22)", async () => {
+    on();
+    const w = await world();
+    await w.drain();
+    expect((await w.all()).length).toBe(w.emails);
+    expect(w.db.dump("loop_days")).toEqual([]);
   });
 });

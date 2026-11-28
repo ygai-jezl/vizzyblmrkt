@@ -282,7 +282,7 @@ function NextUpCard({
     const res = await fetch("/api/admin/brand-kit/autopilot/next-up/skip", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ questionId: pick.questionId, question: pick.question, ...(reason.trim() ? { reason: reason.trim() } : {}) }),
+      body: JSON.stringify({ questionId: pick.questionId, ...(reason.trim() ? { reason: reason.trim() } : {}) }),
     }).catch(() => null);
     if (res?.ok) setCurrent(((await res.json()) as { nextUp: NextUpDoc | null }).nextUp);
   };

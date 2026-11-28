@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { learnedFor } from "@/lib/loops/read";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandVoiceEnabled } from "@/lib/content/brandKit";
@@ -31,8 +33,10 @@ export async function POST(req: Request) {
   if (!voice) {
     return NextResponse.json({ error: "generation_failed" }, { status: 502 });
   }
+  // Handed to the browser to save later: counted made once and its stamp signed for the save (learning loops step 5, decision 20).
+  const stampToken = await handBack(ctx, "brand_voice", (await learnedFor(ctx, "brand_voice")).stamp);
   // Stamp provenance so a saved AI-drafted voice records which domain (and when) it came from.
-  return NextResponse.json({
-    brandVoice: { ...voice, sourceDomain: domain, generatedAt: new Date().toISOString() },
-  });
+  return NextResponse.json(
+    withStampToken({ brandVoice: { ...voice, sourceDomain: domain, generatedAt: new Date().toISOString() } }, stampToken),
+  );
 }

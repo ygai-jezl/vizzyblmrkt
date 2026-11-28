@@ -5,6 +5,8 @@ import { clean, fence, oneLine } from "@/lib/brandMap/lineChecks";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { blogResearchThinkingBudget } from "@/lib/content/blog/flags";
 import { siteOf, sitesOf, tenantDomains } from "@/lib/knowledge/site";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { brandMonthlyLimit } from "@/lib/plans/limits";
 import { aiUsage } from "@/lib/plans/meter";
@@ -253,6 +255,8 @@ export async function findCompetitors(ctx: TenantContext, input: { mode: FinderM
   }
   const saved = await saveFound(ctx, { mode: input.mode, found, counted: true }, { db: deps.db, now: deps.now });
   if (!saved.ok) return saved;
+  // Each competitor found is counted made, in one write (LOOPS_ENABLED, learning loops step 5).
+  if (found.length) await countMade(ctx, "competitor_find", (await learnedFor(ctx, "competitor_find", { promptId: FIND_PROMPT })).stamp, { type: "brand_strategy", n: found.length, db: deps.db });
   return {
     ok: true,
     doc: saved.value,

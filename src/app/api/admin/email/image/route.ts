@@ -12,6 +12,11 @@ import { getTenantById } from "@/lib/tenant";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
 import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { newImageAssetId } from "@/lib/admin/brandKit";
+import { imageScopeOf, learnedFor } from "@/lib/loops/read";
+import { settleStamp } from "@/lib/loops/stamp";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +28,13 @@ const ImageSchema = z.object({
   styleId: z.string().min(1).max(40).optional(),
 });
 
-/** Agent 3: generate a hero image (Gemini Nano Banana) and store it for the email. */
+/**
+ * Agent 3: generate a hero image (Gemini Nano Banana) and store it for the email. With image style
+ * versions on (learning loops step 4) it reads what was learned for the hero's style and counts the
+ * image made once stored; no save of the email checks a stamp token yet, so none is handed back
+ * (TOKEN_SAVES in src/lib/loops/handBack.ts). With them off the image and the response are
+ * exactly as before.
+ */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;
@@ -52,6 +63,14 @@ export async function POST(req: Request) {
     tenant: isBrandImageStyleEnabled() ? await getTenantById(ctx.tenantId) : null,
     override: parsed.data.styleId ?? null,
   });
+  // What was learned for the hero's style (learnedFor). Off, and before the brand is seeded, the
+  // email hero reads no look, as before. It keeps no library row, so its id serves only the
+  // holdback's hash.
+  const learned = await learnedFor(ctx, "email_hero", {
+    scope: imageScopeOf(choice.enabled ? canonicalStyleId(choice.model.styleId) : null),
+    outputId: newImageAssetId(),
+    promptId: "creative.image_brief",
+  });
   const result = await generateHeroImage({
     campaign,
     brief: parsed.data.brief,
@@ -59,10 +78,15 @@ export async function POST(req: Request) {
     baseUrl,
     brandVoice: await activeBrandVoiceText(ctx.tenantId),
     direction: choice.model.direction,
+    learnedImageStyle: learned.block.look,
     usage: aiUsage(ctx, "email_hero"),
   });
   if (result.reason === "image_limit") return NextResponse.json({ ...result, error: "image_limit", message: IMAGE_LIMIT_MESSAGE }, { status: 429 });
-  return NextResponse.json(
-    choice.enabled ? { ...result, imageStyleId: choice.ownPick, styleId: choice.model.styleId } : result,
-  );
+  // Counted once handed back (decision 20; a token only for a save that checks one); email heroes
+  // never count a remake (decision 12).
+  const stampToken = result.imageUrl
+    ? await handBack(ctx, "email_hero", settleStamp(learned.stamp, { lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0 }))
+    : null;
+  const body = choice.enabled ? { ...result, imageStyleId: choice.ownPick, styleId: choice.model.styleId } : result;
+  return NextResponse.json(withStampToken(body, stampToken));
 }

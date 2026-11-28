@@ -42,6 +42,12 @@ import {
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
+import { countDraftOutcome, countMade, countsFor, isLoopKind } from "@/lib/loops/count";
+import { keepsAiDraft } from "@/lib/content/create/aiDraft";
+import { publishAnswers } from "@/lib/content/create/aiOriginals";
+import { keptMade, rootOf, sameStamp } from "@/lib/loops/made";
+import { learnedFor } from "@/lib/loops/read";
+import type { Made } from "@/lib/types/loopStamp";
 import type { PpsResult } from "./pps";
 
 /**
@@ -92,7 +98,8 @@ async function reflectNodeDistribution(
       post.workspaceId,
       post.contentPlanId,
       post.nodeId,
-      { distributionStatus },
+      // Where the post is in Distribute: the node's stamps stay as they were.
+      { distributionStatus, made: { unstamped: "records_where" } },
       db,
     );
   } catch (err) {
@@ -325,7 +332,7 @@ async function publishPost(
       // done (above): publish-first is deliberate so a crash here can only LOSE a
       // follow-up (silent miss), never re-publish the parent (double-tweet). The
       // enqueue can't be atomic with the X post (no idempotency key).
-      if (post.autoPlug) await enqueueAutoPlug(repo, post, outcome.remoteId, now);
+      if (post.autoPlug) await enqueueAutoPlug(ctx, repo, post, outcome.remoteId, now, db);
       // Closed loop: only enqueue a harvest job while the loop is enabled (else junk).
       if (isClosedLoopEnabled()) {
         await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now);
@@ -333,6 +340,7 @@ async function publishPost(
       // Vizzy learns from what the person changed in its draft, now the post is public.
       // Never throws, and runs after the done stamp so it can't cause a re-post.
       await learnFromPublishedPost(ctx, post);
+      await countPublished(ctx, post, renderedVariant, db);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -457,6 +465,7 @@ async function publishPost(
       }
       // Vizzy learns from what the person changed in its draft (never throws; see the X path).
       await learnFromPublishedPost(ctx, post);
+      await countPublished(ctx, post, renderedVariant, db);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -484,7 +493,34 @@ async function publishPost(
     processedAt: now,
     lastError: null,
   });
+  await countPublished(ctx, post, renderedVariant, db);
   return "done";
+}
+
+/**
+ * Once a post is out, on any path (the manual one too), what a person did with Vizzy's draft
+ * first counts against the post's stamp (learning loops step 5, 4.4): kept when its words went out
+ * as Vizzy wrote them, edited otherwise. The words that went out are the spintax variant when the
+ * post has a template (a person's, set with setPostSpintax), else its body, as each path posts
+ * them. A post with no kept draft counts neither. A retry after the done stamp returns before
+ * this, so each post counts once. A piece for a channel other than LinkedIn or X (a blog, a
+ * newsletter, Instagram) counts at the first approval of its AI original, so its publish counts
+ * only when no approval did, and then an approval after it counts nothing (publishAnswers): one
+ * answer for one made thing. Never throws.
+ */
+async function countPublished(
+  ctx: TenantContext,
+  post: ScheduledPost,
+  renderedVariant: string | undefined,
+  db?: FirestoreLike,
+): Promise<void> {
+  const made = post.made;
+  if (!made || "unstamped" in made || !isLoopKind(made.kind) || !countsFor(made.kind)) return;
+  if (post.jobKind === "publish" && !keepsAiDraft(post.channel)) {
+    const answers = await publishAnswers(ctx, { planId: post.contentPlanId, nodeId: post.nodeId }, { db }).catch(() => true);
+    if (!answers) return;
+  }
+  await countDraftOutcome(ctx, made, { draft: post.aiBody, final: renderedVariant ?? post.body }, { db });
 }
 
 /**
@@ -492,15 +528,23 @@ async function publishPost(
  * rule. A separate `auto_plug_comment` job (deterministic id → idempotent) polls the
  * post's metrics at +AUTO_PLUG_DELAY_MS and posts the promo comment if the threshold
  * is crossed. Only for a REAL X publish (needs the tweet's remoteId).
+ *
+ * The job is the comment's record, so its made counts here where it is saved (decision 20), once
+ * for each publish: a re-armed rule saves a new comment, with a new stamp, for the new post.
  */
 async function enqueueAutoPlug(
+  ctx: TenantContext,
   repo: ReturnType<typeof forTenant>["scheduledPosts"],
   parent: ScheduledPost,
   remoteId: string,
   now: string,
+  db?: FirestoreLike,
 ): Promise<void> {
   if (!parent.autoPlug) return;
   const id = `autoplug:${parent.dedupeKey}`;
+  // What makes the comment: the auto plug rule firing for the post it promotes (`root`), LOOPS_ENABLED.
+  const { stamp } = await learnedFor(ctx, "auto_plug", { root: rootOf(parent.made) });
+  const made = keptMade(stamp);
   const scheduledAt = new Date(Date.parse(now) + AUTO_PLUG_DELAY_MS).toISOString();
   // Re-arm the rule to THIS publish: fresh (firedAt cleared) and targeting the new
   // tweet. UPSERT (not create) so a re-armed + republished parent re-points its
@@ -524,6 +568,7 @@ async function enqueueAutoPlug(
     publishedRef: null,
     lastError: null,
     processedAt: null,
+    ...(made ? { made } : {}),
   };
   const existing = await repo.getById(id);
   if (existing) {
@@ -531,6 +576,7 @@ async function enqueueAutoPlug(
   } else {
     await repo.create(id, { ...fields, createdAt: now } as never);
   }
+  await countMade(ctx, "auto_plug", stamp, { type: "scheduled_post", db });
 }
 
 /**
@@ -1008,6 +1054,12 @@ export interface SchedulePostInput {
   scheduledBy?: string | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
+  /**
+   * What made the post's words (learning loops step 5, decision 19): the node's stamp, so the post
+   * and its node count as one made thing, or `{ unstamped }` when the node has none. Required, so
+   * a new caller must say; kept only with LOOPS_ENABLED on.
+   */
+  made: Made;
 }
 
 /**
@@ -1028,6 +1080,8 @@ export async function schedulePost(
   );
   const now = new Date().toISOString();
   const repo = forTenant(ctx, db).scheduledPosts;
+  const made = keptMade(input.made);
+  const stamps = made ? { made } : {};
   try {
     const post = await repo.create(dedupeKey, {
       workspaceId: input.workspaceId,
@@ -1054,6 +1108,7 @@ export async function schedulePost(
       lastError: null,
       createdAt: now,
       processedAt: null,
+      ...stamps,
     });
     return { status: "scheduled", post };
   } catch (err) {
@@ -1093,10 +1148,17 @@ export async function schedulePost(
         scheduledBy: input.scheduledBy ?? null,
         channel: input.channel,
         format: input.format ?? null,
+        // The words were refreshed from the node, so its stamps come with them.
+        ...stamps,
       };
-      await repo.update(dedupeKey, patch);
+      // With no stamp to keep (LOOPS_ENABLED off), a stamp the post kept from words it no longer
+      // holds goes, so nothing answers a made thing that was never counted once the switch is back.
+      // The same stamp handed back (the node's words unchanged) stays.
+      const stale = !made && Boolean(existing.made) && !sameStamp(input.made, existing.made);
+      await repo.update(dedupeKey, patch, stale ? { remove: ["made"] } : {});
       // Construct the result in-memory — no second read for data we just wrote.
-      return { status: "scheduled", post: { ...existing, ...patch } };
+      const { made: _was, ...kept } = existing;
+      return { status: "scheduled", post: { ...(stale ? kept : existing), ...patch } };
     }
     throw new SchedulePostConflictError(
       existing ? "already_publishing" : "conflict",

@@ -12,6 +12,9 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { authorEmailStyleSuggestion } from "./emailStyle";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "usr_member", role: "member" };
 const PNG = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
@@ -81,6 +84,7 @@ function world(over: Record<string, unknown> = {}): FakeFirestore {
 const PINNED_BRAND_KIT = {
   answer: {
     ok: true,
+    saved: "created",
     id: "email_style",
     status: "suggested",
     url: "/admin/brand-kit/email-style",
@@ -117,6 +121,7 @@ const PINNED_BRAND_KIT = {
 const PINNED_EDIT = {
   answer: {
     ok: true,
+    saved: "created",
     id: "email_style",
     status: "suggested",
     url: "/admin/brand-kit/email-style",
@@ -152,7 +157,7 @@ const PINNED_EDIT = {
 };
 
 const author = (db: FakeFirestore, input: Record<string, unknown>, ctx = admin, brief = "Use my brand kit for my emails") =>
-  authorEmailStyleSuggestion({ ctx, input: { kind: "email_style", action: "save_draft", ...input }, brief }, { db });
+  authorEmailStyleSuggestion({ ctx, input: { kind: "email_style", action: "save_draft", ...input }, made: LOOPS_OFF, brief }, { db });
 const suggestionIn = (db: FakeFirestore) => db.raw("tenants", "ten_A")?.emailStyleSuggestion as Record<string, unknown> | undefined;
 
 beforeEach(() => {
@@ -489,6 +494,7 @@ describe("email_style canvas kind: header options", () => {
     );
     expect(r).toEqual({
       ok: true,
+      saved: "created",
       id: "email_style",
       status: "suggested",
       url: "/admin/brand-kit/email-style",
@@ -687,6 +693,7 @@ describe("email_style canvas kind: header images", () => {
     const r = await spring(db);
     expect(r).toEqual({
       ok: true,
+      saved: "created",
       id: "email_style",
       status: "suggested",
       url: "/admin/brand-kit/email-style",
@@ -979,6 +986,7 @@ describe("email_style canvas kind: themes", () => {
     const db = world({ emailStyle: SAVED });
     expect(await author(db, { mode: "edit", theme: "modern" }, admin, "Make my emails feel more modern")).toEqual({
       ok: true,
+      saved: "created",
       id: "email_style",
       status: "suggested",
       url: "/admin/brand-kit/email-style",

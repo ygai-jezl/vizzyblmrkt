@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, CheckCircle2, Lightbulb, Sparkles } from "lucide-re
 import { Button } from "@/components/admin/connect/ui";
 import { draftOfMeasure, measureInputOf, measureProblems, type MeasureDraft } from "@/lib/work/form";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
-import { lookWords, MEASURE_KIND_LABEL, measureHint, measureWhat, proposedLine, WORK_COPY } from "@/lib/work/screenWords";
+import { lookWords, MEASURE_KIND_LABEL, measureHint, measureWhat, proposedLine, WORK_COPY, type OperatorCounting } from "@/lib/work/screenWords";
 import type { Measure, ThenMeasure, WorkTask } from "@/lib/work/types";
 import type { MeaningKey } from "@/lib/metrics/meanings";
 import type { ProductOption } from "@/lib/work/screens";
@@ -46,6 +46,7 @@ export function MeasureSection({
   products,
   meanings,
   operator,
+  counting = null,
   runsInApp,
   word,
   oneBrand,
@@ -57,6 +58,8 @@ export function MeasureSection({
   products: ProductOption[] | null;
   meanings: MeaningKey[];
   operator: boolean;
+  /** What Work can count for an operator's purpose, type or loop kind on this copy. */
+  counting?: OperatorCounting | null;
   runsInApp: boolean;
   word: string | null;
   oneBrand: boolean;
@@ -81,7 +84,7 @@ export function MeasureSection({
   if (editing) {
     return (
       <div ref={focus.form} className="space-y-3">
-        <MeasurePicker idPrefix="wk-t-ms" value={draft} onChange={setDraft} suggestion={suggestion} products={products} meanings={meanings} operator={operator} runsInApp={runsInApp} word={word} />
+        <MeasurePicker idPrefix="wk-t-ms" value={draft} onChange={setDraft} suggestion={suggestion} products={products} meanings={meanings} operator={operator} counting={counting} runsInApp={runsInApp} word={word} />
         <div className="flex gap-2">
           <Button
             tone="primary"

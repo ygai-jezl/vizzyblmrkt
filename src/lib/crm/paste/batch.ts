@@ -9,6 +9,8 @@ import { peopleWarning } from "@/lib/audience/newPerson";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { personIdOf } from "@/lib/audience/personSync";
 import { getAgentAction } from "@/lib/ontology/agentActions";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { checkAllowance, type UsageDeps } from "@/lib/plans/usage";
 import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
 import type { FieldValue, RecordField } from "@/lib/types/recordField";
@@ -245,11 +247,15 @@ export async function readPaste(ctx: TenantContext, input: { text: string; sourc
   // A one off: each paste its own key, so a dismissed list never blocks pasting it again.
   const dedupeKey = agentDedupeKey(PASTE_ACTION, randomUUID().replace(/-/g, ""));
   const id = deterministicAgentActionId(ctx.tenantId, dedupeKey);
+  const agent = input.from === "chat" ? "vizzy" : "paste";
+  // What made the card (LOOPS_ENABLED, learning loops step 5): the code that reads the columns,
+  // by whoever proposed it. The card keeps the stamp, so Add and Dismiss count against it.
+  const made = (await learnedFor(ctx, "paste_columns", { by: agent })).stamp;
   const saved = await proposeAgentAction(
     ctx,
     {
       dedupeKey,
-      agent: input.from === "chat" ? "vizzy" : "paste",
+      agent,
       action: PASTE_ACTION,
       target: { type: "brand", id: ctx.tenantId },
       personId: null,
@@ -263,10 +269,12 @@ export async function readPaste(ctx: TenantContext, input: { text: string; sourc
       requestedBy: { type: "member", id: ctx.userId ?? null },
       expiresAt: new Date(nowMs + PASTE_DAYS * DAY_MS).toISOString(),
       clearDetailsOnClose: true,
+      made,
       at: new Date(nowMs).toISOString(),
     },
     { db: deps.db },
   );
+  if (saved.outcome === "created") await countMade(ctx, "paste_columns", made, { type: "agent_action", db: deps.db });
   const batch = batchViewOf(saved.action);
   if (!batch) throw new Error("paste: the saved list can't be read back");
   const warning = await warningFor(ctx, batch.counts.people, deps.usage);

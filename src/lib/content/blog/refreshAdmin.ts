@@ -79,7 +79,7 @@ export async function markChecked(
   if (!hub.blog?.live || !hub.blog.freshness || !hub.blog.dates?.published) return { ok: false, status: 409, error: "no_clock" };
   const now = (deps.now ?? (() => new Date()))();
   const at = now.toISOString();
-  const node = await updateContentPlanNode(ctx, args.workspaceId, args.planId, args.nodeId, {}, deps.db, {
+  const node = await updateContentPlanNode(ctx, args.workspaceId, args.planId, args.nodeId, { made: { unstamped: "person_marked_checked" } }, deps.db, {
     setFreshness: (stored, current) => {
       if (!stored) return stored;
       const dates = current.blog?.dates;

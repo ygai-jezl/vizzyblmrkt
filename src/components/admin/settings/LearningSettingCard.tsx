@@ -1,0 +1,87 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { HOW_THIS_WORKS, LEARNING_SETTING, learningOffLine } from "@/lib/loops/learnedWords";
+import { learnedAction } from "@/components/admin/brand-kit/learnedClient";
+
+/**
+ * Settings › General › Learning (learning loops step 4, screen 5, IMAGE_STYLE_VERSIONS_ENABLED):
+ * Help check that learning works, on by default. Off, no image of the brand is made without what
+ * YouGrow learned, and the brand's own learning carries on. Admins change it; members read it.
+ * With `counts` (LOOPS_ENABLED, step 5, worked out on the server) its words say that off also
+ * leaves the brand out of the counts across brands, and with `holdback` false (image style
+ * versions off) that leaving the counts is all it does. /help/what-yougrow-learned#holdback
+ * explains it, and #counts-across-brands once the counts are on.
+ */
+export function LearningSettingCard({
+  isAdmin,
+  offSince: initial,
+  counts = false,
+  holdback = true,
+}: {
+  isAdmin: boolean;
+  offSince: string | null;
+  counts?: boolean;
+  holdback?: boolean;
+}) {
+  const [offSince, setOffSince] = useState<string | null>(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const on = offSince === null;
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    setError(null);
+    const r = await learnedAction<{ offSince?: string | null }>({ op: "help_check", on: next });
+    setBusy(false);
+    if (!r.ok) {
+      setError(r.status === 403 ? LEARNING_SETTING.member : "Couldn't save. Try again.");
+      return;
+    }
+    setOffSince(r.data.offSince ?? null);
+  }
+
+  return (
+    <section id="learning" aria-labelledby="learning-h" className="max-w-2xl scroll-mt-16 space-y-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 id="learning-h" className="text-sm font-semibold">
+          {LEARNING_SETTING.title}
+        </h2>
+        <Link href={counts ? "/help/what-yougrow-learned#counts-across-brands" : "/help/what-yougrow-learned#holdback"} className="text-xs text-neutral-600 underline-offset-2 hover:underline dark:text-neutral-400">
+          {HOW_THIS_WORKS}
+        </Link>
+      </div>
+      <div className="space-y-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+        <label className="flex items-start gap-3">
+          <input type="checkbox" checked={on} disabled={!isAdmin || busy} onChange={(e) => void toggle(e.target.checked)} className="mt-1" />
+          <span>
+            <span className="block text-sm font-medium">{LEARNING_SETTING.toggle}</span>
+            <span className="block text-sm text-neutral-600 dark:text-neutral-400">
+              {counts ? (holdback ? LEARNING_SETTING.countsWords : LEARNING_SETTING.countsOnlyWords) : LEARNING_SETTING.words}
+            </span>
+          </span>
+        </label>
+        {offSince ? (
+          <p role="status" className="text-sm text-neutral-700 dark:text-neutral-300">
+            {learningOffLine(offSince, counts)}
+          </p>
+        ) : null}
+        {!isAdmin ? <p className="text-xs text-neutral-600 dark:text-neutral-400">{LEARNING_SETTING.member}</p> : null}
+        <SaveError error={error} />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Why a change didn't save, announced as it shows (role alert), so a screen reader user hears it
+ * as the checkbox goes back to where it was. Nothing while there is no error.
+ */
+export function SaveError({ error }: { error: string | null }) {
+  return error ? (
+    <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+      {error}
+    </p>
+  ) : null;
+}

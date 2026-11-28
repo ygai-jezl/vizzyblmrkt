@@ -110,6 +110,17 @@ describe("setTenantImageStyle", () => {
     expect(raw).not.toHaveProperty("imageStyle");
     expect(raw).toHaveProperty("imageStyleSuggestion");
   });
+
+  it("Reset with image style versions on also clears the brand look learned before versions, and keeps the rest of the kit", async () => {
+    const db = seeded({
+      brandKit: { summary: "A neighbourhood bakery", learnedImageStyle: "Warm natural light.", learnedImageStyleUpdatedAt: "2026-11-20T09:00:00.000Z", learnedImageStyleSampleCount: 4 },
+    });
+    await setTenantImageStyle("ten_A", INPUT, db);
+    await clearTenantImageStyle("ten_A", db, { learnedBrandLook: true });
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw).not.toHaveProperty("imageStyle");
+    expect(raw.brandKit).toEqual({ summary: "A neighbourhood bakery" });
+  });
 });
 
 describe("the suggestion", () => {

@@ -16,6 +16,8 @@ import {
 } from "./launchTranslations";
 import { translateLaunch, type LaunchTranslateInput, type LaunchTranslateResult } from "./translateLaunch";
 import { runTranslations } from "./translationsTick";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 
 /** A launch page's own words in other languages (PAGE_LANGUAGES_ENABLED). Made-up launch. */
 
@@ -110,6 +112,42 @@ describe("a launch page's words", () => {
     expect((await launchTranslationsAction(A, "camp1", { action: "make", lang: "fr" }, fdb(db))).status).toBe(403);
     vi.unstubAllEnvs();
     expect(await queueLaunchTranslations(A, { campaign: CAMPAIGN, nowMs: NOW }, fdb(db))).toBe(0);
+  });
+});
+
+describe("a launch page's words under the learning loops (LOOPS_ENABLED, learning loops step 5)", () => {
+  /** What this brand's week counts under the translation kind: made against its stamp, and why none. */
+  const counted = (db: FakeFirestore) => {
+    const week = sumWeek(db, "ten_A", loopWeekOf(new Date())) as { c?: Record<string, unknown>; u?: Record<string, unknown> };
+    return { stamped: week.c?.translation, unstamped: week.u?.translation };
+  };
+  const run = (db: FakeFirestore, translate: (input: LaunchTranslateInput) => Promise<LaunchTranslateResult> = french) =>
+    runTranslations({ deadlineMs: NOW + 95_000 }, { db: fdb(db), now: () => NOW, translateLaunch: translate, log: () => {} });
+
+  it("counts each one made once its draft is kept, and a run with nothing queued counts no more", async () => {
+    on();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = world();
+    await queueLaunchTranslations(A, { campaign: CAMPAIGN, nowMs: NOW }, fdb(db));
+    await run(db);
+    expect(counted(db)).toEqual({ stamped: { translation: { v0: { none: { made: 1 } } } }, unstamped: undefined });
+    await run(db);
+    expect(counted(db)).toEqual({ stamped: { translation: { v0: { none: { made: 1 } } } }, unstamped: undefined });
+  });
+
+  it("counts a failed one as nothing made, and nothing at all with LOOPS_ENABLED off (decision 22)", async () => {
+    on();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const failed = world();
+    await queueLaunchTranslations(A, { campaign: CAMPAIGN, nowMs: NOW }, fdb(failed));
+    await run(failed, async () => ({ ok: false, tries: 2, reason: "No answer came back in time." }));
+    expect(counted(failed)).toEqual({ stamped: undefined, unstamped: undefined });
+    vi.stubEnv("LOOPS_ENABLED", "false");
+    const off = world();
+    await queueLaunchTranslations(A, { campaign: CAMPAIGN, nowMs: NOW }, fdb(off));
+    await run(off);
+    expect(((await launchTranslationsView(A, "camp1", fdb(off))).body as LaunchTranslationsView).versions[0]).toMatchObject({ state: "to_check" });
+    expect(off.dump("loop_days")).toEqual([]);
   });
 });
 

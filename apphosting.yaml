@@ -347,6 +347,18 @@ env:
     availability:
       - RUNTIME
 
+  # == Learning loops ==
+  # The learning loops' platform switch (learning loops step 5): everything YouGrow makes records
+  # what made it and is counted for its brand, the loops lane covers every kind, a weekly heartbeat
+  # counts organisations across brands (counts only, never images, words or people; brands that
+  # opted out send nothing), and Settings > Loops shows those counts to the people
+  # LOOPS_OPERATOR_EMAILS names. Image learning has its own switch, IMAGE_STYLE_VERSIONS_ENABLED.
+  # Off: nothing else is stamped or counted, and nothing is counted across brands, as before.
+  - variable: LOOPS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
   # == Work ==
   # Work (ADR-0020): one list of tasks across the organisation's brands and regions, and a daily
   # log, at /admin/work. Needs the work_tasks and work_log indexes READY. Off: no Work in the
@@ -809,6 +821,15 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+  # Image style versions (learning loops step 4; needs BRAND_STYLE_LOOP_ENABLED and
+  # BRAND_IMAGE_STYLE_ENABLED): each painted style's look learned from votes is kept as
+  # versions in the brand's region, with Undo, Pause and Forget, and learned once a day.
+  # Go back suggestions wait in Review with NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED; without it a
+  # worse check shows on What it learned. Off, images use the look on the brand record as before.
+  - variable: IMAGE_STYLE_VERSIONS_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
 
   # == Brand map and What we've seen ==
@@ -1295,6 +1316,15 @@ env:
   # Vizzy learns each person's editing preferences in Agent Platform Memory Bank (needs
   # NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED and VIZZY_MEMORY_BANK_ID).
   - variable: EDIT_MODE_VIZZY_LEARNING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Edit mode learning comes with Vizzy in Edit mode (edit_vizzy) for brands that keep their data
+  # in the agent's region (ROOT_AGENT_LOCATION), without the edit_vizzy_learning plan key. Post
+  # edits keep the key. On, a hold on edit_vizzy_learning in GRANTED_ONLY_FEATURES keeps back post
+  # edit learning only: to keep Edit mode learning to some brands, hold edit_vizzy as well or leave
+  # this off. Needs EDIT_MODE_VIZZY_LEARNING_ENABLED (ADR-0021).
+  - variable: EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED
     value: "false"
     availability:
       - RUNTIME

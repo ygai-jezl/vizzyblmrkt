@@ -1,4 +1,6 @@
 import { forTenant, getTenantById } from "@/lib/tenant";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
@@ -151,6 +153,8 @@ export async function processContactEnrichJob(
       enrichedAt: new Date().toISOString(),
       lastError: null,
     });
+    // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+    await countMade(ctx, "enrichment", (await learnedFor(ctx, "enrichment")).stamp, { type: "company", db });
     const fresh = (await repo.companies.getById(companyId)) ?? company;
     await associateContacts(repo, fresh, profile.confidence ?? null);
     return "done";

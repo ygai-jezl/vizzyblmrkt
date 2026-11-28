@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { generateJsonWithSchema, parseFirstJson } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -810,6 +812,8 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
 
   // Text changes: one model call for all of them.
   let sources: PackLine[] | undefined;
+  /** Whether a slide took the model's words, so the version is something raise_write made. */
+  let wrote = false;
   if (tasks.length) {
     const tenant = (await tenantOnce()) ?? null;
     const fresh = await raiseContext(ctx, { audience: doc.audience, stage: doc.stage }, { db: deps.db, loadTenant: async () => tenant, ...deps.pack, reader });
@@ -838,13 +842,18 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
           ? await buildSlide(m, { section: t.section!, n, layout: t.layout, prompt: REVISE_PROMPT_TAG }, c, warnings)
           : (warnings.push(CHANGE_WARNINGS.addOutline(n)), await outlineSlide(t.section!, c, doc.title, warnings, t.layout));
         work[n - 1] = { ...made, id: t.id };
+        if (m) wrote = true;
       } else if (t.kind === "rewrite") {
-        if (m) work[n - 1] = await rewritten(s, m, n, c, warnings);
-        else warnings.push(CHANGE_WARNINGS.notRewritten(n));
+        if (m) {
+          work[n - 1] = await rewritten(s, m, n, c, warnings);
+          wrote = true;
+        } else warnings.push(CHANGE_WARNINGS.notRewritten(n));
       } else {
         const next = m ? withNotes(s, m, c) : null;
-        if (next) work[n - 1] = next;
-        else warnings.push(CHANGE_WARNINGS.emptyNotes(n));
+        if (next) {
+          work[n - 1] = next;
+          wrote = true;
+        } else warnings.push(CHANGE_WARNINGS.emptyNotes(n));
       }
     }
   }
@@ -859,7 +868,12 @@ export async function reviseDeck(ctx: TenantContext, doc: RaiseDoc, input: Revis
 
   const note =
     clip(input.note, L.note) || (onlyRefresh(input.ops) && changed.length ? NOTE_WORDS.refreshed(changed.map((x) => `slide ${x.slideN} ${x.name} ${x.from} to ${x.to}`)) : undefined);
+  // What made the words (LOOPS_ENABLED, learning loops step 5): raise_write by Vizzy, read where
+  // the version is saved. Only a version with the model's words counts made, once as it is saved:
+  // a move, a layout, a number or a refresh is code, and a version saved over nothing counts none.
+  const made = wrote ? (await learnedFor(ctx, "raise_write", { promptId: REVISE_PROMPT.id, by: "vizzy" }, { now })).stamp : null;
   const saved = await saveRaiseVersion(ctx, doc.id, { baseVersion: input.baseVersion, title: doc.title, slides, note, by: "vizzy", keepAi: false, ...(sources ? { sources } : {}) }, deps);
   if (!saved.ok) return saved;
+  if (made && saved.value.saved) await countMade(ctx, "raise_write", made, { type: "raise_doc", db: deps.db, now });
   return { ok: true, value: { doc: saved.value.doc, saved: saved.value.saved, warnings: [...new Set(warnings)], changed } };
 }

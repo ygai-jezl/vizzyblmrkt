@@ -5,6 +5,9 @@ import { deleteContentPlan } from "@/lib/tenant/workspaceContent";
 import { BlogArticleMetaSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 import { listVersions, readVersions, restoreVersion, saveVersion, VERSIONS_KEPT } from "./versions";
 import { sampleHub, samplePlan } from "./testing/samplePlan";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import type { LoopStamp } from "@/lib/types/loopStamp";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "member" };
 const OTHER: TenantContext = { ...ctx, tenantId: "ten_B" };
@@ -77,6 +80,20 @@ describe("an article's versions", () => {
     const again = await restoreVersion(ctx, { plan: (db.raw(PLANS, "plan_1") as ContentPlan), nodeId: "hub", n: 2 }, { db, now });
     expect(again.ok).toBe(true);
     expect(stored(db)).toMatchObject({ body: "Second copy.", blog: { metaTitle: "Second title", dates: { updated: { source: "change" } } } });
+  });
+
+  it("counts the copy a person turned away from as undone when YouGrow made it (learning loops step 5)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    await saveVersion(ctx, { plan, node: plan.graph.nodes[0], reason: "apply" }, { db, now });
+    const made: LoopStamp = { made: "m1.blog_refresh.0.n", kind: "blog_refresh", scope: "blog_refresh", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, at: "2026-11-25T09:00:00.000Z" };
+    const changed = seed(db, "Second copy.", { made });
+    await restoreVersion(ctx, { plan: changed, nodeId: "hub", n: 1 }, { db, now });
+    // The restored copy is the person's: restoring away from it counts nothing.
+    await restoreVersion(ctx, { plan: db.raw(PLANS, "plan_1") as ContentPlan, nodeId: "hub", n: 2 }, { db, now });
+    const week = sumWeek(db, ctx.tenantId, loopWeekOf(new Date())) as { c: Record<string, unknown> };
+    expect(week.c).toEqual({ blog_refresh: { blog_refresh: { v0: { none: { undone: 1 } } } } });
   });
 
   it("refuses a version that isn't there, scheduled copy, and another brand's article", async () => {

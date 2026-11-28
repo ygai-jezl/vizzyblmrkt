@@ -29,6 +29,8 @@ import {
 } from "@/lib/tenant";
 import { teamMemberNames } from "@/lib/team/names";
 import { isUsageMeterEnabled } from "@/lib/plans/flags";
+import { countsFor } from "@/lib/loops/count";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import type { Region } from "@/lib/types/tenant";
 import { countForCheck, type EventLabel } from "./counted";
 import { importFileName, matchColumns, parseSheet, readSheet, type ImportRow } from "./import";
@@ -435,7 +437,9 @@ export function checkLineOf(scope: WorkScope, task: WorkTask, eventLabel?: Event
   const brand = brandForTask(scope, task);
   const meterOff = part.kind === "used" && "purpose" in part.counts && !isUsageMeterEnabled();
   const label = part.kind === "used" && "productEvent" in part.counts ? eventLabel?.(part.counts.productEvent.connectionId, part.counts.productEvent.event) : undefined;
-  return countedLine({ part, counted: task.check.counted ?? null, brandName: brand?.name ?? null, timeZone: zoneForTask(scope, task), meterOff, eventLabel: label ?? null });
+  // An image kind counts nothing while image style versions are off (decision 22).
+  const imagesOff = part.kind === "used" && "loopKind" in part.counts && !countsFor(part.counts.loopKind);
+  return countedLine({ part, counted: task.check.counted ?? null, brandName: brand?.name ?? null, timeZone: zoneForTask(scope, task), meterOff, loopsOn: isLoopsEnabled(), imagesOff, eventLabel: label ?? null });
 }
 
 /**

@@ -158,6 +158,20 @@ describe("TenantCollection isolation", () => {
     expect(db.raw("signups", "evil")).toBeUndefined(); // id never changed
   });
 
+  it("update() takes off the fields `remove` names, never an identity field", async () => {
+    const db = new FakeFirestore();
+    const repo = forTenant(ctxA, db);
+    await repo.signups.create("s1", signup({ isSpam: true, createdAt: "2026-06-15T16:00:00Z" }) as never);
+
+    await repo.signups.update("s1", { score: 3 } as never, { remove: ["isSpam", "tenantId", "createdAt"] as never });
+
+    const raw = db.raw("signups", "s1")!;
+    expect(raw).not.toHaveProperty("isSpam");
+    expect(raw.score).toBe(3);
+    expect(raw.tenantId).toBe("ten_A");
+    expect(raw.createdAt).toBe("2026-06-15T16:00:00Z");
+  });
+
   it("deleteWhere() removes only this tenant's matching docs and returns the count", async () => {
     const db = new FakeFirestore();
     // Tenant A: two signups in camp1, one in camp2.
@@ -453,6 +467,43 @@ describe("find by a field inside a map", () => {
     db.seed("campaigns", "their-list", { tenantId: "ten_B", idea: { justAList: true } });
     const lists = await forTenant(ctxA, db).campaigns.find({ where: [["idea.justAList", "==", true]] });
     expect(lists.map((c) => c.id)).toEqual(["product-updates"]);
+  });
+});
+
+describe("TenantCollection.increment (counters with no read)", () => {
+  it("takes an id that holds the tenant's id whole, between underscores or between colons", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxA, db).usageMeters.increment("um_ten_A_2026-11", { meters: { images: { total: 1 } } });
+    await forTenant(ctxA, db).loopDays.increment("lw:ten_A:2026-W48:0", { d: { t: { image_asset: { made: 1 } } } });
+    expect(db.raw("loop_days", "lw:ten_A:2026-W48:0")).toEqual({ tenantId: "ten_A", d: { t: { image_asset: { made: 1 } } } });
+  });
+
+  it("refuses an id that names another tenant, or a longer id that starts with this one", async () => {
+    const db = new FakeFirestore();
+    for (const id of ["lw:ten_B:2026-W48:0", "lw:ten_AB:2026-W48:0", "lw:ten_A", "ten_A"]) {
+      await expect(forTenant(ctxA, db).loopDays.increment(id, { d: { x: 1 } }), id).rejects.toBeInstanceOf(TenantValidationError);
+    }
+    expect(db.dump("loop_days")).toEqual([]);
+  });
+});
+
+describe("TenantCollection.findFields (a projected find)", () => {
+  it("reads only the named fields of this brand's rows, in order", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxA, db).signups.create("s1", signup({ score: 3, createdAt: "2026-06-15T16:00:00Z" }) as never);
+    await forTenant(ctxA, db).signups.create("s2", signup({ score: 5, createdAt: "2026-06-16T16:00:00Z" }) as never);
+    await forTenant(ctxB, db).signups.create("s3", signup({ score: 9 }) as never);
+    const rows = await forTenant(ctxA, db).signups.findFields(["score", "createdAt"], { orderBy: [["createdAt", "desc"]], limit: 5 });
+    expect(rows).toEqual([
+      { id: "s2", score: 5, createdAt: "2026-06-16T16:00:00Z" },
+      { id: "s1", score: 3, createdAt: "2026-06-15T16:00:00Z" },
+    ]);
+  });
+
+  it("never widens past the brand, whatever the where clause says", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxB, db).signups.create("s3", signup() as never);
+    expect(await forTenant(ctxA, db).signups.findFields(["score"], { where: [["tenantId", "==", "ten_B"]] })).toEqual([]);
   });
 });
 

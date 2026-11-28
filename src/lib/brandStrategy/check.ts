@@ -2,6 +2,8 @@ import { listSituations } from "@/lib/brandMap/situations";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { listRecentReadArticles } from "@/lib/competitors/articles";
 import { listCompetitors } from "@/lib/competitors/store";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import { forTenant } from "@/lib/tenant";
 import { listAllTenants } from "@/lib/tenant/registry";
@@ -21,7 +23,8 @@ import { parseBrandStrategy } from "./store";
  * months, the watched competitors, the buying situations and the brand map) and keeps the result on
  * the strategy record without moving its revision. Brands without Competitors or their articles
  * (GRANTED_ONLY_FEATURES) are skipped. One brand's failure never stops the rest: it is tried again
- * a day later.
+ * a day later. A row the look opens, or one about something new, counts made under strategy_check
+ * (LOOPS_ENABLED, learning loops step 5); a look that keeps the same row counts nothing.
  */
 
 const TICK_MS = 120_000;
@@ -77,13 +80,21 @@ export async function lookAtBrand(ctx: TenantContext, tenant: Tenant, deps: Chec
   const now = (deps.now ?? (() => new Date()))();
   const input = await lookInput(ctx, tenant, deps, now);
   const nowIso = now.toISOString();
+  // The row open before this look, from the attempt that saved (a claim that runs again reads again).
+  let openBefore: string | null = null;
   const kept = await forTenant(ctx, deps.db).brandStrategy.claim(brandStrategyDocId(ctx.tenantId), (current) => {
     const doc = parseBrandStrategy(current);
     if (!doc?.approved) return null;
+    openBefore = doc.check?.open?.key ?? null;
     return { check: nextCheck(doc.check, doc.approved.at, { ...input, focusIds: doc.approved.focusSituationIds }, nowIso) };
   });
   const parsed = kept ? StrategyCheckSchema.nullable().safeParse((kept as { check?: unknown }).check ?? null) : null;
-  return parsed?.success ? parsed.data : null;
+  const check = parsed?.success ? parsed.data : null;
+  // A new row in Review, as Review counts one: made once (a gap line, so the read is free).
+  if (check?.open && check.open.key !== openBefore) {
+    await countMade(ctx, "strategy_check", (await learnedFor(ctx, "strategy_check")).stamp, { type: "brand_strategy", db: deps.db });
+  }
+  return check;
 }
 
 /** After a failed look: try again a day later, so one brand can't hold the queue. */

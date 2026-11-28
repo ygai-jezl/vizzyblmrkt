@@ -6,6 +6,8 @@ import type { AdminGate } from "@/lib/connect/admin";
 import { getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { tenantDomains } from "@/lib/knowledge/site";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { BrandMapDecidedSchema, type BrandMap } from "@/lib/types/brandMap";
 import { dismissBrandMapSuggestions, readBrandMap, saveBrandMap, type MapResult } from "./store";
 import { fileSuggestions } from "./filing";
@@ -154,6 +156,10 @@ export async function runBrandMapResearch(ctx: TenantContext, deps: ResearchDeps
   await recordMapRun(ctx, { action: "brand_map.research", keys: filed.value.filed.map((s) => s.key), refs: filed.value.refs }, { db: deps.db, nowMs: deps.nowMs });
   const after = await readBrandMap(ctx, deps.db);
   const proposals = filed.value.proposed.length;
+  // Each suggestion research filed is counted made, in one write (LOOPS_ENABLED, learning loops step 5).
+  const made = filed.value.filed.length + proposals;
+  const promptId = onMap ? "brand.map_research_scale" : "brand.map_research";
+  if (made) await countMade(ctx, "brand_map_research", (await learnedFor(ctx, "brand_map_research", { promptId })).stamp, { type: "brand_map", n: made, db: deps.db });
   return {
     ok: true,
     filed: filed.value.filed.length + proposals,

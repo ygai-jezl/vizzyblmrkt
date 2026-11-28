@@ -33,10 +33,17 @@ const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
 const regional = (collection: string, note?: string): StoreRef => ({ collection, db: "regional", definedIn: REPO, ...(note ? { note } : {}) });
 /** A collection in the brand's regional database, reached from its own file in src/lib/tenant. */
 const side = (collection: string, definedIn: string, extra: Partial<StoreRef> = {}): StoreRef => ({ collection, db: "regional", definedIn, ...extra });
-const control = (collection: string, definedIn: string, note?: string): StoreRef => ({ collection, db: "control", definedIn, ...(note ? { note } : {}) });
+const control = (collection: string, definedIn: string, note?: string, residencyGap?: string): StoreRef => ({
+  collection,
+  db: "control",
+  definedIn,
+  ...(note ? { note } : {}),
+  ...(residencyGap ? { residencyGap } : {}),
+});
 
 const BUCKET_GAP = "one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region";
 const AGENT_GAP = "one agent location (ROOT_AGENT_LOCATION) serves every region";
+const BRAND_RECORD_GAP = "the brand record is in the control plane, in the United States, whatever the brand's region";
 const gcs = (collection: string, definedIn: string, note: string): StoreRef => ({ collection, db: "gcs", definedIn, note, residencyGap: BUCKET_GAP });
 
 /** The firestore-bigquery-export mirrors, one per region (extensions/*.env). */
@@ -1038,21 +1045,27 @@ export const ONTOLOGY: readonly OntologyType[] = [
   },
   {
     id: "post_learning",
-    name: "What posts taught",
-    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.",
+    name: "What posts and image votes taught",
+    description:
+      "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers. With image style versions on, every version of each image style's look learned from votes too, with the member who changed a look by hand.",
     place: "content",
     status: "built",
-    madeBy: ["post_feedback", "content_email", "content_hub"],
+    madeBy: ["post_feedback", "content_email", "content_hub", "loop_learn"],
     home: "brand",
-    personal: "none",
+    personal: "team",
     stores: [
       side("performance_exemplars", "src/lib/tenant/exemplars.ts", { note: "the best posts, and the approved emails and hub pieces kept as examples" }),
       side("post_perf_vectors", "src/lib/tenant/postVectors.ts"),
-      side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", { note: "append only, the source of a revert" }),
+      side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", {
+        note: "append only, the source of a revert; image style looks use one channel per style (`image_style.<id>`), and `by` holds the user id of the member who wrote a row by hand",
+      }),
+      control("tenants", CONTROL, "`learnedPostPatterns`, the post patterns in use for each channel", BRAND_RECORD_GAP),
     ],
     links: [
       { to: "post_result", via: "the posts it learned from", many: true },
       { to: "content_plan", via: "the approved pieces it keeps as examples", many: true },
+      { to: "image_asset", via: "evidenceIds, the images a look was learned from", many: true },
+      { to: "member", via: "by, on version rows a member wrote", many: false },
     ],
     events: [],
     erase: {
@@ -1061,9 +1074,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
         brandPath("forgetRemovedExamples", "src/lib/content/create/approvedExamples.ts", "a piece taken off the canvas takes its approved example with it"),
         brandPath("forgetWorkspaceExamples", "src/lib/content/create/approvedExamples.ts", "a deleted programme takes the approved examples of its plans with it"),
       ],
+      gaps: ["no path removes a team member's user id in `by` on a version row when they leave the team; it stays an id"],
     },
-    export: { none: NOT_PERSONAL },
-    search: { none: "vectors and versions for the writer, not text to find" },
+    export: { gap: "team member ids in `by` stay as ids, with no export by team member" },
+    // Each image look in use is found as `learned`, ref image_style.<style>@<version> (step 4, 3.10).
+    search: { kinds: ["learned"] },
     numbers: { none: "its numbers are post results" },
   },
   {
@@ -1075,18 +1090,27 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["blog_hero", "post_image", "email_block_image", "email_hero", "ebook_image", "customize_image", "image_style_pick"],
     home: "brand",
     personal: "none",
-    stores: [regional("image_assets"), gcs("{tenantId}/{campaignId}/{file}", "src/lib/agents/imageStore.ts", "the image files, served through the email asset proxy")],
+    stores: [
+      regional(
+        "image_assets",
+        "a vote may keep its reason and an optional note of up to 200 characters the team wrote, with no writer kept; both go when the image is deleted",
+      ),
+      gcs("{tenantId}/{campaignId}/{file}", "src/lib/agents/imageStore.ts", "the image files, served through the email asset proxy"),
+    ],
     links: [{ to: "content_plan", via: "where it is used", many: true }],
     events: [],
     erase: { paths: [brandPath("deleteImageAsset", "src/lib/admin/brandKit.ts")] },
     export: { none: NOT_PERSONAL },
     search: { kinds: ["image"] },
-    numbers: { none: NO_NUMBERS },
+    // With image style versions on, get_image_style says how each look's images did: liked of those
+    // voted on, and remade (learning loops step 4, 3.10).
+    numbers: { meanings: ["likedShare", "remadeShare"], tool: "get_image_style" },
   },
   {
     id: "brand_kit",
     name: "Brand kit",
-    description: "How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, and Vizzy's suggested style waits beside it.",
+    description:
+      "How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, used only while image style versions are off, and Vizzy's suggested style waits beside it.",
     place: "content",
     status: "built",
     madeBy: ["brand_voice", "brand_kit", "images", "canvas.email_style", "canvas.image_style"],
@@ -1100,6 +1124,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
       gcs("brand/{tenantId}/fonts/{file}", "src/lib/tenant/brandFontStore.ts", "font files"),
       gcs("brand/{tenantId}/{category}/{file}", "src/lib/tenant/brandAssetStore.ts", "icons and graphics"),
       gcs("brand/{tenantId}/{file}", "src/lib/tenant/brandAsset.ts", "brand guideline files, read only on the server"),
+      control(
+        "tenants",
+        CONTROL,
+        "the looks learned from image votes, `brandKit.learnedImageStyle` and `imageStyle.learned`, used only while IMAGE_STYLE_VERSIONS_ENABLED is off",
+        BRAND_RECORD_GAP,
+      ),
     ],
     links: [{ to: "brand", via: "brandKit, brandVoice, imageStyle (with its learned looks) and imageStyleSuggestion on the brand record", many: false }],
     events: [],
@@ -1418,6 +1448,85 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { none: NOT_PERSONAL },
     search: { none: "counts, read on Plan and usage" },
     numbers: { meanings: ["usedThisMonth", "monthlyLimit", "leftThisMonth"], tool: "get_usage" },
+  },
+  {
+    id: "loop_day",
+    name: "Learning counts",
+    description:
+      "What the learning loops keep for a brand, as counts and pointers with no words and no person: each week's counts of what YouGrow made and what people did with it, folded weeks, totals for each learned version, which version each style uses, whether image learning is paused or the brand opted out of counts across brands, the lane's own state, and the key that signs the brand's stamps.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "brand",
+    personal: "none",
+    stores: [
+      regional("loop_days", "one document per kind and key under the one map `d`, read and counted through forTenant"),
+      side("loop_days", "src/lib/tenant/loops.ts", {
+        note: "each week's counter shards go 70 days after the week ends and folded weeks 2 years after, by a time to live on ttlAt; pointers, the lane's state and the stamp key never expire; the stamp key is never shown or logged",
+      }),
+    ],
+    links: [{ to: "post_learning", via: "the version each scope uses, by number", many: true }],
+    events: [],
+    erase: { none: "counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "counts and pointers, read by the learning loops" },
+    // get_learning reads the brand's own lb:, lt:, lw: and lv: (learning loops step 5); each look's
+    // liked and remade shares are image_asset's, through get_image_style.
+    numbers: { meanings: ["keptShare", "editShare", "declineShare", "unusedShare"], tool: "get_learning" },
+  },
+  {
+    id: "loop_lane",
+    name: "Learning lane bookkeeping",
+    description:
+      "The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, how many learner calls it made today, and one mark per organisation, so an organisation with several brands counts once in the counts across brands. A mark holds its newest week only: the cells it is already counted in and the outputs counted so far against the cap.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "control",
+    personal: "none",
+    stores: [
+      control(
+        "loop_lane",
+        "src/lib/tenant/loopLane.ts",
+        "the `lane` document, whose cursor is the last brand id the lane visited, and one mark per organisation (`o:<organisationId>`, or `o:t:<tenantId>` for a brand with no organisation), each under the one map `d`; a mark is replaced by its organisation's next week, and nothing on screen reads it",
+        "the control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: {
+      gap: "a mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next",
+    },
+    export: { none: NOT_PERSONAL },
+    search: { none: "the lane's own bookkeeping" },
+    numbers: { none: "the lane's own bookkeeping: a cursor and one mark per organisation, with no meaning to count" },
+  },
+  {
+    id: "fleet_cell",
+    name: "Counts across brands",
+    description:
+      "What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing of theirs (only that the lane visited them), and numbers of things show only from 10 organisations.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "control",
+    personal: "none",
+    stores: [
+      control(
+        "fleet_cells",
+        "src/lib/tenant/fleetCells.ts",
+        "one row per kind of choice and closed week (`fh:<kind>:<week>`), and the copy's own rows `fh:_orgs`, `fh:_types` and `fh:_calls`, every count under the one map `n`; read by id only",
+        "the control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "counts across organisations with no brand, organisation or person in them, so nothing in them is anyone's to erase" },
+    export: { none: "counts across organisations, with no brand's or person's own data" },
+    search: { none: "counts, read by the people who run the copy" },
+    numbers: {
+      gap: "counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path",
+    },
   },
   {
     id: "live_watch",
@@ -2769,7 +2878,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, the learning lane's offers to go back to an earlier learned image look, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
     madeBy: [
@@ -2792,6 +2901,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "autopilot",
       "investor_quiet",
       "paste_columns",
+      "loop_learn",
     ],
     home: "brand",
     personal: "people",
@@ -2807,6 +2917,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action, or a pasted list", many: false },
       { to: "work_task", via: "the target, when it is a Work task suggestion: the id the task takes once a person adds it", many: false },
       { to: "work_log", via: "the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it", many: false },
+      { to: "post_learning", via: "the target, when it offers to go back from a learned image look", many: false },
       { to: "next_action_card", via: "the card's step records name it", many: false },
       { to: "launch_journey", via: "draft, a launch's welcome emails on the original engine (agent record)", many: false },
       { to: "lifecycle_journey", via: "draft, a journey Vizzy drafted or styled (agent record)", many: false },

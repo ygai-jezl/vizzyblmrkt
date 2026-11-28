@@ -8,6 +8,8 @@ import {
 } from "@/lib/content/create/ebookChapter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { generateTextStream } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
@@ -109,6 +111,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           emit({ type: "error", message: "Chapter generated but couldn't be saved — try again." });
         } else {
           emit({ type: "chapter", chapter: savedChapter });
+          // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+          if (hasText) await countMade(ctx, "ebook", (await learnedFor(ctx, "ebook")).stamp, { type: "content_plan" });
         }
         emit({ type: "done" });
       } catch (err) {

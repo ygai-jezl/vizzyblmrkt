@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { isRateLimited } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BRAND_NOTE_KIND_LABEL, BRAND_NOTE_KINDS, BRAND_NOTE_LIMITS, BrandNoteKind } from "@/lib/types/brandNote";
@@ -99,6 +101,12 @@ export async function agentSuggestNotes(
   const limited = deps.limited ?? ((key: string) => isRateLimited(key, CHAT_LIMIT));
   if (await limited(`tenant:${ctx.tenantId}`)) return { status: 429, body: { error: "rate_limited" } };
   let filed = 0;
+  let recorded = 0;
+  // One stamp for the notes of this call (brand_notes is a none line, so this reads nothing): made
+  // counts it once per note its record keeps, so a person's keep or remove counts once where the
+  // record closes (learning loops step 5). A note no record keeps (AGENT_RECORD_ENABLED off, or a
+  // failed write) counts no made: nothing could ever count its answer, so it would read as unused.
+  const { stamp } = await learnedFor(ctx, "brand_notes", { by: "vizzy" });
   for (const n of parsed.data.notes) {
     const r = await createNote(
       ctx,
@@ -113,8 +121,11 @@ export async function agentSuggestNotes(
     filed += 1;
     // The agent record: one record per note, by id and a fingerprint of its text, never the text
     // itself (soft, never fails the save).
-    await recordDraft(ctx, { action: "brand_note.suggest", draft: { kind: "brand_note", ref: r.value.id }, href: LINK, fingerprint: notePrint(r.value) }, { db: deps.db });
+    const kept = await recordDraft(ctx, { action: "brand_note.suggest", draft: { kind: "brand_note", ref: r.value.id }, href: LINK, fingerprint: notePrint(r.value), made: stamp }, { db: deps.db });
+    if (kept === "recorded" || kept === "same") recorded += 1;
   }
+  // The notes Vizzy wrote that a record keeps are counted made where they are filed, in one write (LOOPS_ENABLED, learning loops step 5).
+  if (recorded) await countMade(ctx, "brand_notes", stamp, { type: "brand_note", n: recorded, db: deps.db });
   return {
     status: 200,
     body: {

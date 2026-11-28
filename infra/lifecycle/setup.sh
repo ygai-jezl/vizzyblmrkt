@@ -41,6 +41,7 @@
 #   data_connection_states.ttlAt    connected data sign ins, 10 minutes (ADR-0011)
 #   metric_snapshots.ttlAt    collected numbers, about 97 days after their day (ADR-0012)
 #   data_signals.ttlAt        suggestions from collected numbers, 30 days (ADR-0012)
+#   loop_days.ttlAt           learning counts, 70 days after their week, or 2 years once folded (ADR-0028)
 #   rate_limits.ttl           ingest rate-limit counters, 2 hours (control plane only)
 #   email_codes.ttl           password sign-in codes, 10 minutes (control plane only)
 #   email_code_guards.ttl     per address sign-in code counts, a day (control plane only)
@@ -51,7 +52,7 @@ set -euo pipefail
 CMD="${1:-help}"
 PROJECT="${2:-}"
 
-usage() { sed -n '2,47p' "$0"; }
+usage() { sed -n '2,48p' "$0"; }
 
 case "$CMD" in
   secret|worker-secret|signing-key|rotate-signing-key|retire-signing-key|ttl|scheduler|run|verify) ;;
@@ -213,6 +214,7 @@ case "$CMD" in
       ttl_on "$db" metric_snapshots ttlAt
       ttl_on "$db" data_signals ttlAt
       ttl_on "$db" organisation_connection_activity ttlAt
+      ttl_on "$db" loop_days ttlAt
     done
     ttl_on "(default)" rate_limits ttl
     ttl_on "(default)" email_codes ttl

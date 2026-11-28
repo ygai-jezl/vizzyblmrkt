@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdminContext, getTenantById, listBusinessFacts, listConversations, openFactSuggestions, isLiveConfigured } = vi.hoisted(() => ({
+const { requireAdminContext, getTenantById, listBusinessFacts, listConversations, openFactSuggestions, isLiveConfigured, readBrandPointers } = vi.hoisted(() => ({
+  readBrandPointers: vi.fn(),
   requireAdminContext: vi.fn(),
   getTenantById: vi.fn(),
   listBusinessFacts: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("@/lib/tenant", () => ({ getTenantById }));
 vi.mock("@/lib/onboarding/store", () => ({ listBusinessFacts, listConversations }));
 vi.mock("@/lib/onboarding/factSuggestions", () => ({ openFactSuggestions }));
 vi.mock("@/lib/agents/gemini", () => ({ isLiveConfigured }));
+vi.mock("@/lib/tenant/loops", () => ({ readBrandPointers }));
 
 const { default: AccountSettingsPage } = await import("./page");
 const { SIGN_IN_SECURITY_COPY } = await import("@/components/admin/SignInSecurityCard");
@@ -319,5 +321,87 @@ describe("Settings › General, About your business", () => {
     const html = await renderPage();
     expect(html).toContain("Not set. Add it under Sending.");
     expect(html).not.toContain("\u2014");
+  });
+});
+
+describe("Settings › General, Learning (image style versions or the learning loops)", () => {
+  const LEARNING = ["BRAND_STYLE_LOOP_ENABLED", "BRAND_IMAGE_STYLE_ENABLED", "IMAGE_STYLE_VERSIONS_ENABLED", "LOOPS_ENABLED", ...SWITCHES];
+  const versionsOn = () => {
+    process.env.BRAND_STYLE_LOOP_ENABLED = "true";
+    process.env.BRAND_IMAGE_STYLE_ENABLED = "true";
+    process.env.IMAGE_STYLE_VERSIONS_ENABLED = "true";
+  };
+
+  beforeEach(() => {
+    for (const name of LEARNING) delete process.env[name];
+    requireAdminContext.mockResolvedValue(CTX);
+    getTenantById.mockResolvedValue({ tenantName: "Acme", rootDomain: "acme.example.com" });
+    listBusinessFacts.mockResolvedValue([]);
+    listConversations.mockResolvedValue([]);
+    readBrandPointers.mockResolvedValue({ scopes: {} });
+  });
+  afterEach(() => {
+    for (const name of LEARNING) delete process.env[name];
+    vi.clearAllMocks();
+  });
+
+  it("isn't there, and reads nothing, with versions and the learning loops off", async () => {
+    phase3On();
+    expect(await renderPage()).not.toContain("Help check that learning works");
+    expect(readBrandPointers).not.toHaveBeenCalled();
+  });
+
+  it("shows Help check that learning works, on, with step 4's words; and since when it is off", async () => {
+    versionsOn();
+    phase3On();
+    const on = await renderPage();
+    expect(on).toContain("Help check that learning works");
+    expect(on).toContain("About 1 in 20 images is made without what YouGrow learned, so YouGrow can check that learning helps. Turn off to always use what it learned.");
+    expect(on).toContain('href="/help/what-yougrow-learned#holdback"');
+    readBrandPointers.mockResolvedValueOnce({ scopes: {}, fleetOptOut: { at: "2027-06-03T09:00:00.000Z" } });
+    expect(await renderPage()).toContain("Off since 3 Jun. Every image is made with what YouGrow learned.");
+  });
+
+  it("with LOOPS_ENABLED on, says step 5's words: off also leaves the brand out of the counts across brands", async () => {
+    versionsOn();
+    phase3On();
+    process.env.LOOPS_ENABLED = "true";
+    const on = await renderPage();
+    expect(on).toContain(
+      "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts and also stops the 1 in 20 images made without what YouGrow learned.",
+    );
+    expect(on).not.toContain("Turn off to always use what it learned.");
+    // How this works opens the help page's counts across brands, which shows while the loops are on.
+    expect(on).toContain('href="/help/what-yougrow-learned#counts-across-brands"');
+    readBrandPointers.mockResolvedValueOnce({ scopes: {}, fleetOptOut: { at: "2027-06-03T09:00:00.000Z" } });
+    expect(await renderPage()).toContain("Off since 3 Jun. This brand's counts stay with this brand.");
+  });
+
+  it("with only LOOPS_ENABLED on, shows the setting with words about the counts across brands alone, so a brand can leave them", async () => {
+    phase3On();
+    process.env.LOOPS_ENABLED = "true";
+    const on = await renderPage();
+    expect(on).toContain("Help check that learning works");
+    expect(on).toContain(
+      "YouGrow counts, across every brand, how often what it learns is used, kept and liked: counts only, never images, words or people. Turning this off leaves this brand out of those counts.",
+    );
+    // No image is held back while image style versions are off, so the words never name the 1 in 20.
+    expect(on).not.toContain("1 in 20");
+    expect(on).toContain('href="/help/what-yougrow-learned#counts-across-brands"');
+    expect(on).not.toContain("#holdback");
+    readBrandPointers.mockResolvedValueOnce({ scopes: {}, fleetOptOut: { at: "2027-06-03T09:00:00.000Z" } });
+    const off = await renderPage();
+    expect(off).toContain("Off since 3 Jun. This brand's counts stay with this brand.");
+    expect(off).not.toContain("Every image is made with what YouGrow learned.");
+  });
+
+  it("is read only for a member, and stays out when its read fails", async () => {
+    versionsOn();
+    phase3On();
+    requireAdminContext.mockResolvedValue({ ...CTX, role: "member" });
+    expect(await renderPage()).toContain("Only admins can change it.");
+    readBrandPointers.mockRejectedValueOnce(new Error("unavailable"));
+    requireAdminContext.mockResolvedValue(CTX);
+    expect(await renderPage()).not.toContain("Help check that learning works");
   });
 });

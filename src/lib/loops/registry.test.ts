@@ -8,8 +8,11 @@ import { MEANINGS } from "@/lib/metrics/meanings";
 import { typeById } from "@/lib/ontology/registry";
 import { sourceFiles } from "@/lib/ontology/storeScan";
 import { RESOURCES } from "@/lib/plans/resources";
+import { METERED_FEATURES } from "@/lib/plans/brandAccess";
+import { IMAGE_STYLES } from "@/lib/content/imageStyle/catalogue";
+import { learnsFromThumbs } from "@/lib/content/imageStyle/learning";
 import { DATA_SIGNAL_RULES } from "@/lib/types/dataSignal";
-import { BY_LEARNER, decisionKind, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, UNMETERED_CALLS, VENDOR, type Decision, type Loop } from "./registry";
+import { BY_LEARNER, decisionKind, IMAGE_STYLE_SCOPES, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, UNMETERED_CALLS, VENDOR, type Decision, type Loop } from "./registry";
 import { reasonProblems } from "./reason";
 import { LOOP_SWITCHES } from "./switches";
 import { SWITCHES_BEFORE_LOOPS } from "./testing/switchesBeforeLoops";
@@ -34,6 +37,14 @@ const GROUPS: Record<string, readonly string[]> = {
 };
 
 const LINES = Object.entries(LOOPS) as Array<[string, Decision]>;
+
+/**
+ * Plan keys that hold learning back, each with its reason. Learning is never metered (decision 1
+ * of the plan for steps 4 and 5): this one is from before the loops and leaves with step 7.
+ */
+const LEGACY_METERED_LEARNING: Record<string, string> = {
+  edit_vizzy_learning: "Memory Bank learning from edits came with its plan key before the loops, and the edits loop in step 7 takes the key away.",
+};
 
 /** The reason a line gives, whatever it decides. */
 function reasonOf(d: Decision): string {
@@ -184,10 +195,34 @@ describe("the learning registry", () => {
     }
   });
 
-  it("checks every loop that learns, today none, by its numbers, scopes, mode and switch", () => {
+  it("checks every loop that learns, the image kinds, by its numbers, scopes, mode and switch", () => {
     const off = switchesListedOff();
     for (const [kind, d] of LINES) expect(loopProblems(kind, d, off), kind).toEqual([]);
-    expect(LINES.filter(([, d]) => decisionKind(d) === "learns" || decisionKind(d) === "fleet")).toEqual([]);
+    // Step 4: the five image kinds learn one look per style from votes; nothing is fleet only yet.
+    const learning = LINES.filter(([, d]) => decisionKind(d) === "learns").map(([k]) => k);
+    expect(learning.sort()).toEqual(["blog_hero", "ebook_image", "email_block_image", "email_hero", "post_image"]);
+    for (const k of learning) {
+      expect(LOOPS[k as keyof typeof LOOPS], k).toEqual({
+        loop: { switch: "IMAGE_STYLE_VERSIONS_ENABLED", learner: "votes", scopes: IMAGE_STYLE_SCOPES, ...BY_LEARNER.votes, pool: "image_style" },
+      });
+    }
+    expect(LINES.filter(([, d]) => decisionKind(d) === "fleet")).toEqual([]);
+    // Customise and carousels never take a learned look; the learners themselves never learn.
+    for (const k of ["customize_image", "carousel", "images", "loop_learn"] as const) expect(decisionKind(LOOPS[k]), k).toBe("none");
+  });
+
+  it("learns images in one scope per painted style, and the brand look", () => {
+    const painted = IMAGE_STYLES.filter((s) => s.engine === "model").map((s) => `image_style.${s.id}`);
+    expect([...IMAGE_STYLE_SCOPES].sort()).toEqual([...painted, "image_style.brand"].sort());
+    for (const s of IMAGE_STYLES) expect(learnsFromThumbs(s.id), s.id).toBe(IMAGE_STYLE_SCOPES.includes(`image_style.${s.id}` as never));
+  });
+
+  it("keeps learning off the meter: loop_learn is counted and never capped, and no plan key meters learning but the one from before", () => {
+    expect(RESOURCES.model_tokens.purposes).toContain("loop_learn");
+    expect(RESOURCES.model_tokens.capped).toBe(false);
+    const learningKeys = METERED_FEATURES.filter((f) => /learn|loop/.test(f));
+    expect(learningKeys).toEqual(Object.keys(LEGACY_METERED_LEARNING));
+    for (const why of Object.values(LEGACY_METERED_LEARNING)) expect(reasonProblems(why)).toEqual([]);
   });
 
   it("would catch a loop line that breaks a rule (the check above is not empty by accident)", () => {
@@ -218,10 +253,10 @@ describe("the learning registry", () => {
     }
   });
 
-  it("has no loop switch yet, and holds each one to its rules: off, new, and read once in switches.ts", () => {
-    // Nothing learns through the loops in step 1. The image style loop (step 4) adds the first switch
-    // and changes this line.
-    expect(Object.keys(LOOP_SWITCHES)).toEqual([]);
+  it("has the image style switch, and holds each one to its rules: off, new, and read once in switches.ts", () => {
+    // The image style loop (step 4) adds the first switch. LOOPS_ENABLED is the platform's switch,
+    // never a loop's own, so it is not here (src/lib/loops/flags.test.ts).
+    expect(Object.keys(LOOP_SWITCHES)).toEqual(["IMAGE_STYLE_VERSIONS_ENABLED"]);
     const files = sourceFiles("src", ROOT);
     // The scan sees the source, in the same repo relative form as SWITCHES_FILE.
     expect(files).toContain(SWITCHES_FILE);

@@ -4,6 +4,8 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Competitor } from "@/lib/types/competitor";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import { loopWeekOf } from "@/lib/loops/count";
 import { advanceCompetitor, nextStep, type StepDeps } from "./steps";
 import { listChanges, listPosts, monitorCompetitor } from "./store";
 
@@ -124,6 +126,23 @@ describe("setting up a competitor", () => {
     expect(lost.status).toBe("needs_you");
     expect(lost.problem).toBe("no_sitemap");
     expect(deps.grounded).toHaveBeenCalled();
+  });
+
+  it("counts what the model made in each saved step, with LOOPS_ENABLED on (learning loops step 5)", async () => {
+    // A model that answers records its tokens, as gemini.ts does.
+    const answered: NonNullable<StepDeps["generate"]> = async (prompt, opts) => {
+      await opts.usage.recordModel(120, "m");
+      return prompt.includes("new posts") || prompt.includes("changed since") ? words : labels;
+    };
+    deps.generate = answered;
+    await watched(other);
+    expect(sumWeek(db, other.tenantId, loopWeekOf(new Date()))).toEqual({});
+
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    await watched();
+    const week = sumWeek(db, ctx.tenantId, loopWeekOf(new Date()));
+    // Robots.txt found the sitemap with no model; the labels step's answer is made once.
+    expect(week).toEqual({ c: { competitor_analysis: { competitor_analysis: { v0: { none: { made: 1 } } } } }, t: { competitor: { made: 1 } } });
   });
 
   it("uses what search finds when the usual addresses have nothing", async () => {

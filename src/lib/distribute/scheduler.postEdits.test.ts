@@ -64,7 +64,7 @@ async function scheduleDue(db: FakeFirestore, channel: "x" | "linkedin", extra: 
       body: POSTED,
       aiBody: AI,
       scheduledBy: "uid_1",
-      scheduledAt: FUTURE,
+      scheduledAt: FUTURE, made: { unstamped: "person_wrote" },
       ...extra,
     },
     db,
@@ -91,7 +91,7 @@ describe("schedulePost keeps Vizzy's draft and who scheduled it", () => {
     expect(db.raw(COLLECTION, id)).toMatchObject({ aiBody: AI, scheduledBy: "uid_1" });
     await schedulePost(
       ctx,
-      { workspaceId: "ws_1", contentPlanId: "plan_1", nodeId: "n_x", channel: "x", body: POSTED, scheduledAt: FUTURE },
+      { workspaceId: "ws_1", contentPlanId: "plan_1", nodeId: "n_x", channel: "x", body: POSTED, scheduledAt: FUTURE, made: { unstamped: "person_wrote" } },
       db,
     );
     // A re-arm without a draft (switch off at the route) clears it rather than keeping a stale one.

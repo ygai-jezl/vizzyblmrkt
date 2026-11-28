@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
+import { USED_WEEKS_MAX } from "@/lib/loops/used";
 import { COUNT_ROWS, countForCheck, countProductEventsExact, monthsBetween, productEventCount, purposeCount } from "./counted";
 import { aStoredTask, LUMEN_US } from "./testing/fixtures";
 import type { WorkBrand } from "./scope";
-import type { Measure, WorkCheck } from "./types";
-import { countedLine } from "./words";
+import { CheckSchema, COUNTED_WEEKS_MAX, type Measure, type WorkCheck } from "./types";
+import { countedLine, IMAGES_OFF_LINE, LOOPS_COUNT_NOTE } from "./words";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -190,6 +191,26 @@ describe("the purpose count (operators only)", () => {
     expect(await purposeCount("content_angle", ["2026-11"], world(12))).toBeNull();
   });
 
+  it("leaves out a brand that opted out of counts across brands, read from its lb: record, and floors on the rest", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const w = world(12);
+    const us = w.regionDb();
+    // Three brands turned the counts off in their learning setting: 9 organisations are left.
+    for (const id of ["ten_b0", "ten_b3", "ten_b7"]) us.seed("loop_days", `lb:${id}`, { tenantId: id, d: { scopes: {}, fleetOptOut: { at: "2026-11-02T09:00:00.000Z" } } });
+    // A brand whose record holds only its looks still counts.
+    us.seed("loop_days", "lb:ten_b1", { tenantId: "ten_b1", d: { scopes: {} } });
+    expect(await purposeCount("content_angle", ["2026-11", "2026-12"], w)).toEqual({ units: 9 * 150, brands: null });
+    expect(await purposeCount("content_angle", ["2026-11", "2026-12"], world(12))).toEqual({ units: 12 * 150, brands: 12 });
+  });
+
+  it("walks every brand's meter as before with the loops off, whatever the opt outs: no read across brands", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const w = world(12);
+    await purposeCount("content_angle", ["2026-11"], w);
+    expect(w.controlDb.collectionCalls("fleet_cells")).toBe(0);
+    expect(w.controlDb.collectionCalls("tenants")).toBeGreaterThan(0);
+  });
+
   it("covers the calendar months the check touches", () => {
     expect(monthsBetween("2026-11-20T00:00:00.000Z", "2027-01-04T00:00:00.000Z")).toEqual(["2026-11", "2026-12", "2027-01"]);
     expect(monthsBetween("2026-11-20T00:00:00.000Z", "2026-11-25T00:00:00.000Z")).toEqual(["2026-11"]);
@@ -326,5 +347,172 @@ describe("what a due measure's check counts", () => {
     expect(await countForCheck(aStoredTask({ ...done, measure: { ...used, counts: { none: "" } } }), lumen, deps, at)).toBeNull();
     expect(await countForCheck(aStoredTask({ ...done, measure: used }), undefined, deps, at)).toBeNull();
     expect(await countForCheck(aStoredTask({ ...done, measure: used, check: { ...check, setBy: "uid_nina", which: null } }), lumen, deps, at)).toBeNull();
+  });
+});
+
+describe("what a due measure's check counts with the learning loops on (step 5, 4.10)", () => {
+  // Done on Friday 20 Nov (2026-W47), due Friday 4 Dec (W49), first shown on Saturday 5 Dec: W47
+  // and W48 are closed, W49 isn't over.
+  const closedAt = "2026-11-20T10:00:00.000Z";
+  const due = "2026-12-04T08:00:00.000Z";
+  const now = new Date("2026-12-05T00:00:00.000Z");
+  const check: WorkCheck = { kind: "date", at: due, taskId: null, note: "", setBy: "measure", setAt: closedAt, which: "first", counted: null };
+  const usedOf = (counts: Extract<Measure, { kind: "used" }>["counts"], days = 14): Measure => ({ kind: "used", counts, look: { days }, setBy: "uid_nina", setAt: "x" });
+  const purpose = usedOf({ purpose: "content_angle" });
+  const taskOf = (measure: Measure, over: { closedAt?: string; check?: WorkCheck } = {}) =>
+    aStoredTask({ status: "done", closedAt: over.closedAt ?? closedAt, measure, check: over.check ?? check, hasCheck: true });
+
+  /** A control plane with the heartbeat's rows, and brands and meters a walk would read. */
+  function world(rows: Record<string, Record<string, unknown>>) {
+    const control = new FakeFirestore();
+    const us = new FakeFirestore();
+    for (const [id, n] of Object.entries(rows)) control.seed("fleet_cells", id, { n });
+    for (let i = 0; i < 12; i++) {
+      control.seed("tenants", `ten_b${i}`, { tenantName: `Brand ${i}`, rootDomain: `b${i}.example`, ownerId: "uid_x", status: "active", region: "us", allowedOrigins: [], createdAt: "x", updatedAt: "x" });
+      us.seed("usage_meters", `um_ten_b${i}_2026-11`, { tenantId: `ten_b${i}`, month: "2026-11", meters: { model_tokens: { total: 9, calls: 1, lostCalls: 0, byPurpose: { content_angle: 9 } } } });
+    }
+    return { control, us, deps: { controlDb: control, regionDb: () => us } };
+  }
+  const calls = (orgs: number, n: number) => ({ orgs: { content_angle: orgs }, calls: { content_angle: n } });
+  const line = (measure: Measure, counted: Awaited<ReturnType<typeof countForCheck>>) =>
+    countedLine({ part: measure as Extract<Measure, { kind: "used" }>, counted, brandName: "Lumen Notes", timeZone: "America/New_York", loopsOn: true });
+
+  beforeEach(() => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+  });
+
+  it("reads a purpose's uses from the closed weeks the check covers, never walking brands, and says the week not over yet", async () => {
+    const w = world({ "fh:_calls:2026-W47": calls(12, 640), "fh:_calls:2026-W48": calls(14, 1234), "fh:_calls:2026-W49": calls(15, 5000) });
+    const c = await countForCheck(taskOf(purpose), lumen, w.deps, now);
+    // 640 and 1,200 as each week shows, added up and rounded to 2 figures; W49 isn't read.
+    expect(c).toEqual({
+      n: 1800,
+      from: "2026-11-16T00:00:00.000Z",
+      to: "2026-11-29T23:59:59.999Z",
+      at: now.toISOString(),
+      weeks: { read: 2, shown: 2, orgs: 12, open: 1, openFrom: "2026-11-30T00:00:00.000Z", older: 0, beforeDone: true },
+    });
+    expect(w.control.collectionCalls("tenants")).toBe(0);
+    expect(w.us.collectionCalls("usage_meters")).toBe(0);
+    expect(w.us.collectionCalls("loop_days")).toBe(0);
+    expect(line(purpose, c)).toBe(
+      `Work counted about 1,800 AI calls for suggesting angles across brands in the 2 weeks from 16 Nov to 29 Nov, from at least 12 organisations a week. The first week includes days before Done. The week of 30 Nov isn't over yet, so it isn't counted. ${LOOPS_COUNT_NOTE}`,
+    );
+  });
+
+  it("counts a type and a LOOPS kind, which Work v1 couldn't, with an image kind counted as the image pool", async () => {
+    // Image kinds are counted only with image style versions on (decision 22).
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    const w = world({
+      "fh:_types:2026-W48": { orgs: { content_plan: 10 }, made: { content_plan: 64 } },
+      "fh:image_style:2026-W47": { orgs: 14, week: { orgs: 11 }, made: { orgs: 11 }, out: { learned: { made: 30 } } },
+      "fh:image_style:2026-W48": { orgs: 14, week: { orgs: 12 }, made: { orgs: 12 }, out: { learned: { made: 117 }, holdback: { made: 8 } } },
+    });
+    const type = usedOf({ type: "content_plan" });
+    const t = await countForCheck(taskOf(type), lumen, w.deps, now);
+    expect(t).toMatchObject({ n: 64, weeks: { read: 2, shown: 1, orgs: 10, open: 1, older: 0 } });
+    // The week Done fell in had no organisations, so nothing says it reaches back before Done.
+    expect(t?.weeks?.beforeDone).toBeUndefined();
+    expect(line(type, t)).toBe(
+      `Work counted about 64 content plan records made across brands in 1 of the 2 weeks from 16 Nov to 29 Nov, from 10 organisations. Each organisation counts up to 20 a week. The other week didn't have counts from 10 organisations yet, so it is left out. The week of 30 Nov isn't over yet, so it isn't counted. ${LOOPS_COUNT_NOTE}`,
+    );
+    const kind = usedOf({ loopKind: "post_image" });
+    const k = await countForCheck(taskOf(kind), lumen, w.deps, now);
+    // 30, and 117 and 8 made by both arms (130 as the week shows): 160.
+    expect(k).toMatchObject({ n: 160, weeks: { read: 2, shown: 2, orgs: 11, row: "image_style", beforeDone: true } });
+    expect(line(kind, k)).toMatch(/^Work counted about 160 images made of every image kind across brands in the 2 weeks from 16 Nov to 29 Nov, from at least 11 organisations a week\. Each organisation counts up to 20 a week\./);
+    const ownRow = usedOf({ loopKind: "next_up" });
+    const o = await countForCheck(taskOf(ownRow), lumen, w.deps, now);
+    expect(o?.weeks?.row).toBeUndefined();
+    expect(line(ownRow, o)).toMatch(/^Work counted things made for next up/);
+    expect(w.control.collectionCalls("tenants")).toBe(0);
+  });
+
+  it("hides the number below 10 organisations a week, as Work hides it", async () => {
+    const w = world({ "fh:_calls:2026-W47": calls(9, 640), "fh:_calls:2026-W48": calls(4, 1234) });
+    const c = await countForCheck(taskOf(purpose), lumen, w.deps, now);
+    expect(c).toEqual({
+      hidden: true,
+      from: "2026-11-16T00:00:00.000Z",
+      to: "2026-11-29T23:59:59.999Z",
+      at: now.toISOString(),
+      weeks: { read: 2, shown: 0, open: 1, openFrom: "2026-11-30T00:00:00.000Z", older: 0 },
+    });
+    const said = line(purpose, c);
+    expect(said).toBe(
+      `Work counted AI calls for suggesting angles across brands in the 2 weeks from 16 Nov to 29 Nov. How many isn't shown: no week had counts from 10 organisations yet. The week of 30 Nov isn't over yet, so it isn't counted. ${LOOPS_COUNT_NOTE}`,
+    );
+    expect(said).not.toMatch(/\b(?:9|4|640|1,2\d\d)\b/);
+  });
+
+  it("with none of its weeks over, reads nothing and says the week isn't over yet", async () => {
+    const w = world({ "fh:_calls:2026-W49": calls(15, 5000) });
+    const short = usedOf({ purpose: "content_angle" }, 2);
+    const at = "2026-12-03T13:00:00.000Z";
+    const c = await countForCheck(taskOf(short, { closedAt: "2026-12-01T10:00:00.000Z", check: { ...check, at, setAt: "2026-12-01T10:00:00.000Z" } }), lumen, w.deps, new Date("2026-12-04T09:00:00.000Z"));
+    expect(c).toEqual({ from: "2026-12-01T10:00:00.000Z", to: at, at: "2026-12-04T09:00:00.000Z", weeks: { read: 0, shown: 0, open: 1, openFrom: "2026-11-30T00:00:00.000Z", older: 0 } });
+    expect(w.control.collectionCalls("fleet_cells")).toBe(0);
+    expect(line(short, c)).toBe("Work counts AI calls for suggesting angles across brands in whole weeks, and the week of 30 Nov isn't over yet, so your read is the record.");
+  });
+
+  it("reads the newest 13 closed weeks at most, and says the older ones are left out", async () => {
+    // Done on 20 Aug (2026-W34): W34 to W48 are 15 closed weeks, so W34 and W35 are left out.
+    const rows: Record<string, Record<string, unknown>> = {};
+    for (let week = 34; week <= 48; week++) rows[`fh:_calls:2026-W${week}`] = calls(20, 100);
+    const w = world(rows);
+    const long = usedOf({ purpose: "content_angle" }, 106);
+    const c = await countForCheck(taskOf(long, { closedAt: "2026-08-20T10:00:00.000Z" }), lumen, w.deps, now);
+    expect(COUNTED_WEEKS_MAX).toBe(USED_WEEKS_MAX);
+    expect(c).toMatchObject({ n: 1300, from: "2026-08-31T00:00:00.000Z", to: "2026-11-29T23:59:59.999Z", weeks: { read: 13, shown: 13, orgs: 20, open: 1, older: 2 } });
+    expect(c?.weeks?.beforeDone).toBeUndefined();
+    expect(line(long, c)).toContain("in the 13 weeks from 31 Aug to 29 Nov, from at least 20 organisations a week. Work reads the newest 13 weeks, so the 2 weeks before them are left out.");
+  });
+
+  it("counts no image kind while image style versions are off, which count no images, and says so instead of a hidden count", async () => {
+    // LOOPS_ENABLED on alone: rows for the image pool could hold numbers, but this copy writes none.
+    const w = world({ "fh:image_style:2026-W48": { orgs: 14, week: { orgs: 12 }, made: { orgs: 12 }, out: { learned: { made: 117 } } } });
+    const kind = usedOf({ loopKind: "post_image" });
+    expect(await countForCheck(taskOf(kind), lumen, w.deps, now)).toBeNull();
+    expect(w.control.collectionCalls("fleet_cells")).toBe(0);
+    const said = countedLine({ part: kind as Extract<Measure, { kind: "used" }>, counted: null, brandName: null, timeZone: "UTC", loopsOn: true, imagesOff: true });
+    expect(said).toBe(IMAGES_OFF_LINE);
+    expect(said).toBe("Work can't count images while image learning is off on this copy, so your read is the record.");
+    // Words kinds are still counted.
+    expect(await countForCheck(taskOf(usedOf({ loopKind: "next_up" })), lumen, w.deps, now)).toMatchObject({ weeks: { read: 2 } });
+  });
+
+  it("counts no purpose while the usage meter is off, which keeps no calls, but still counts a type", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "false");
+    const w = world({ "fh:_calls:2026-W48": calls(14, 1234), "fh:_types:2026-W48": { orgs: { content_plan: 10 }, made: { content_plan: 64 } } });
+    expect(await countForCheck(taskOf(purpose), lumen, w.deps, now)).toBeNull();
+    expect(await countForCheck(taskOf(usedOf({ type: "content_plan" })), lumen, w.deps, now)).toMatchObject({ n: 64 });
+  });
+
+  it("with the loops off, counts no type or LOOPS kind, and a purpose walks the meters as Work v1 did", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "false");
+    const w = world({ "fh:_calls:2026-W48": calls(14, 1234), "fh:_types:2026-W48": { orgs: { content_plan: 10 }, made: { content_plan: 64 } } });
+    expect(await countForCheck(taskOf(usedOf({ type: "content_plan" })), lumen, w.deps, now)).toBeNull();
+    expect(await countForCheck(taskOf(usedOf({ loopKind: "next_up" })), lumen, w.deps, now)).toBeNull();
+    expect(await countForCheck(taskOf(purpose), lumen, w.deps, now)).toEqual({ units: 12 * 9, brands: 12, from: "2026-11-01T00:00:00.000Z", to: "2026-12-31T23:59:59.999Z", at: now.toISOString() });
+    expect(w.control.collectionCalls("fleet_cells")).toBe(0);
+  });
+
+  it("still reads a check counted before the loops' fields, as it read then", () => {
+    const old = {
+      ...check,
+      counted: { units: 900, hidden: true, from: "2026-11-01T00:00:00.000Z", to: "2026-11-30T23:59:59.999Z", at: "2026-12-05T00:00:00.000Z" },
+    };
+    const parsed = CheckSchema.parse(old);
+    expect(parsed.counted).toEqual(old.counted);
+    const said = "Work counted 900 tokens spent on suggesting angles in Nov 2026. How many brands used it stays hidden until they come from 10 organisations. The month totals include days before Done.";
+    expect(countedLine({ part: purpose as Extract<Measure, { kind: "used" }>, counted: parsed.counted ?? null, brandName: null, timeZone: "UTC", loopsOn: true })).toBe(said);
+    expect(countedLine({ part: purpose as Extract<Measure, { kind: "used" }>, counted: parsed.counted ?? null, brandName: null, timeZone: "UTC" })).toBe(said);
+    // A count from the loops reads as one after the loops go off, as the record it is.
+    const fromLoops = CheckSchema.parse({ ...check, counted: { n: 64, from: "2026-11-23T00:00:00.000Z", to: "2026-11-29T23:59:59.999Z", at: now.toISOString(), weeks: { read: 1, shown: 1, orgs: 10, open: 0, older: 0 } } });
+    const type = usedOf({ type: "content_plan" }) as Extract<Measure, { kind: "used" }>;
+    expect(countedLine({ part: type, counted: fromLoops.counted ?? null, brandName: null, timeZone: "UTC" })).toMatch(/^Work counted about 64 content plan records made across brands in the week of 23 Nov, from 10 organisations\./);
   });
 });

@@ -10,6 +10,7 @@ import { ApproveLanguagesButton } from "./ApproveLanguagesButton";
 import { MarkSeenButton } from "./MarkSeenButton";
 import { FollowUpButtons } from "../investors/FollowUpButtons";
 import { SignalRow } from "./SignalActions";
+import { GoBackRow } from "./GoBackRow";
 import { WorkRow } from "./WorkRows";
 import { forTenant } from "@/lib/tenant";
 import { programmeWord } from "@/lib/nav/terms";
@@ -85,6 +86,8 @@ export async function ReviewHub() {
                   item.work ? (
                     // Work's rows (WORK_ENABLED): members act on them too.
                     <WorkRow key={item.id} item={{ ...item, work: item.work }} />
+                  ) : item.goBack && ctx.role === "admin" ? (
+                    <GoBackRow key={item.id} item={{ ...item, goBack: item.goBack }} />
                   ) : item.signal && ctx.role === "admin" ? (
                     <SignalRow key={item.id} item={{ ...item, signal: item.signal }} programmes={programmes} programmeWord={programmeWord().one} />
                   ) : (
@@ -94,7 +97,14 @@ export async function ReviewHub() {
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{item.title}</p>
-                        {(item.dismissCheck || item.notNow) && item.details?.length ? (
+                        {item.goBack && item.details?.length ? (
+                          // A member sees a Go back card's lines in full, with Open.
+                          item.details.map((line) => (
+                            <p key={line} className="text-xs text-shell-muted text-pretty">
+                              {line}
+                            </p>
+                          ))
+                        ) : (item.dismissCheck || item.notNow) && item.details?.length ? (
                           // The strategy check's reasons, or the month's suggestion and what it stood on, each in full.
                           <ul className="mt-0.5 space-y-0.5 text-xs text-shell-muted">
                             {item.details.map((line) => (

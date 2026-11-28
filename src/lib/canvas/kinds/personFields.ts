@@ -37,7 +37,7 @@ const STATUS: Record<SuggestError, number> = {
   already_decided: 409,
 };
 
-export async function authorPersonFields({ ctx, input }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<CanvasAuthorOutcome> {
+export async function authorPersonFields({ ctx, input, made }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<CanvasAuthorOutcome> {
   if (!isVizzyFieldsEnabled()) return { ok: false, status: 503, error: "unavailable" };
   // Changing a value is admin-only on the person's page, so suggesting one through Vizzy is too.
   if (ctx.role !== "admin") return { ok: false, status: 403, error: "forbidden" };
@@ -49,7 +49,7 @@ export async function authorPersonFields({ ctx, input }: CanvasAuthorArgs, deps:
   if (Object.keys(req.data.changes).length > SUGGESTION_MAX_FIELDS) return { ok: false, status: 400, error: "too_many_fields" };
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
 
-  const r = await suggestFieldChanges(ctx, { personId: req.data.scope.personId, changes: req.data.changes, why: req.data.why ?? null }, deps);
+  const r = await suggestFieldChanges(ctx, { personId: req.data.scope.personId, changes: req.data.changes, why: req.data.why ?? null }, { ...deps, made });
   if (!r.ok) return { ok: false, status: STATUS[r.error], error: r.error, ...(r.fieldId ? { issues: [r.fieldId] } : {}) };
 
   const url = `${personHref(r.action.personId!)}#vizzy`;
@@ -74,6 +74,8 @@ export async function authorPersonFields({ ctx, input }: CanvasAuthorArgs, deps:
       note: "Suggested: nothing changes until someone confirms it on their page.",
       cta: "Open their page",
     },
+    // The same suggestion already waiting is not a new one; one in place of another is.
+    saved: r.outcome === "open" ? "none" : "created",
   };
 }
 

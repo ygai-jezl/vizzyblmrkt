@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Made } from "@/lib/types/loopStamp";
 import { forTenant, proposeAgentAction, transitionAgentAction, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { deterministicAgentActionId } from "@/lib/crm/identifiers";
@@ -118,7 +119,8 @@ async function openDrafts(ctx: TenantContext, personId: ContactPersonId, db?: Fi
 export async function draftNewPerson(
   ctx: TenantContext,
   input: { email?: string | null; phone?: string | null; firstName?: string | null; lastName?: string | null; fields?: Record<string, unknown> | null },
-  deps: { db?: FirestoreLike; nowMs?: number } = {},
+  /** `made`: the canvas route's stamp, kept on the draft (learning loops step 5). */
+  deps: { db?: FirestoreLike; nowMs?: number; made?: Made } = {},
 ): Promise<DraftResult> {
   const parsed = parseNewPerson({
     ...(input.email ? { email: input.email } : {}),
@@ -163,6 +165,7 @@ export async function draftNewPerson(
       dedupeKey,
       agent: "vizzy",
       action: NEW_PERSON_ACTION,
+      ...(deps.made ? { made: deps.made } : {}),
       target: { type: "person", id: personId },
       personId,
       proposal,

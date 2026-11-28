@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
@@ -107,5 +107,28 @@ describe("generateEmailLayout", () => {
     expect(await generateEmailLayout(base)).toBeNull();
     mocked.mockResolvedValue(JSON.stringify({ blocks: [] }));
     expect(await generateEmailLayout(base)).toBeNull();
+  });
+});
+
+describe("generateEmailLayout and the learned image look (learning loops step 4)", () => {
+  const kit = { learnedImageStyle: "Warm daylight on flour." };
+  beforeEach(() => {
+    mocked.mockReset();
+    mocked.mockResolvedValue(null);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  const prompt = () => mocked.mock.calls.at(-1)![0] as string;
+
+  it("with image style versions off, the kit's old look comes in as before", async () => {
+    await generateEmailLayout({ ...base, brandKit: kit });
+    expect(prompt()).toContain("Warm daylight on flour.");
+  });
+
+  it("with them on, a layout leaves the learned image look out", async () => {
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    await generateEmailLayout({ ...base, brandKit: kit });
+    expect(prompt()).not.toContain("Warm daylight on flour.");
   });
 });

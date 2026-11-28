@@ -6,6 +6,7 @@ import {
   isBlogHeroUiEnabled,
   isBrandImageStyleEnabled,
   isImageFormatsEnabled,
+  isImageStyleVersionsOn,
   isMoreStylesEnabled,
   isSiteFontsEnabled,
 } from "./flags";
@@ -62,5 +63,21 @@ describe("the image style switches", () => {
     for (const v of SWITCHES) {
       expect(valueIn("apphosting.yaml", v), v).toBe("false");
     }
+  });
+
+  it("image style versions need learning from image votes and the image style, and are listed off", () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    expect(isImageStyleVersionsOn()).toBe(false);
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    expect(isImageStyleVersionsOn()).toBe(false);
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    expect(isImageStyleVersionsOn()).toBe(true);
+    // Only the exact string turns it on.
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "TRUE");
+    expect(isImageStyleVersionsOn()).toBe(false);
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "");
+    expect(isImageStyleVersionsOn()).toBe(false);
+    expect(valueIn("apphosting.yaml", "IMAGE_STYLE_VERSIONS_ENABLED")).toBe("false");
   });
 });

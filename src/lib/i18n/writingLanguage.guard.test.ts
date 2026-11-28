@@ -80,6 +80,7 @@ const LEFT_AS_THEY_ARE: Record<string, string> = {
   "brand.generate_theme": READS,
   "content.style_profile_extract": READS,
   "content.style_profile_synthesize": "guidance for the image model",
+  "content.style_look_learn": "a learned image look, guidance for the image model",
   "content.post_patterns_synthesize": "guidance for other prompts, not copy",
   "content.trending_topics": "finds topics on the web for other prompts",
   "brand.competitor_find": "names competitors and their sites",
@@ -101,6 +102,13 @@ const LEFT_AS_THEY_ARE: Record<string, string> = {
   "onboarding.learn": "the welcome's own questions, in the words people answer with",
   "onboarding.voice": "the welcome's own voice call",
   "conversation.golden_data": "the waitlist voice chat, already in the visitor's launch language (languageDirective)",
+  // A deck stays in English for now: its checks, talk time and the words around its numbers read English and words
+  // split by spaces, and a change must keep the deck's own language. Decks follow the brand's language in a later piece.
+  "raise.deck_draft": "a deck stays in English until its checks, talk time and number words read other languages",
+  "raise.deck_revise": "keeps the language of the deck it changes, which is English for now",
+  "i18n.translate_email": "translates into the language it is given, which is not the brand's default",
+  "i18n.translate_launch": "translates into the language it is given, which is not the brand's default",
+  "i18n.translate_article": "translates into the language it is given, which is not the brand's default",
 };
 
 describe("which prompts are written in the brand's language", () => {

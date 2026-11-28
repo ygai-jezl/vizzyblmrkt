@@ -3,7 +3,8 @@ import { ideaWord } from "@/lib/nav/terms";
 import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import { dayIn } from "./schedule";
 import { stageById, stageLabel, type CompanyStage } from "./stages";
-import { dayOf, movesWhat, WORK_STATUS_LABEL } from "./words";
+import { isImageKind } from "@/lib/loops/imageKinds";
+import { dayOf, IMAGES_OFF_LINE, movesWhat, WORK_STATUS_LABEL } from "./words";
 import type { EntryState, Look, Measure, MeasureKind, RunsBetterWhat, ThenMeasure, WorkChangeField, WorkOrigin, WorkStatus, WorkWho } from "./types";
 
 /**
@@ -126,6 +127,8 @@ export const WORK_COPY = {
   thenLookHint: "Counted from the same Done, so it looks after the first.",
   outputsHint: "Work can't count outputs yet, so this sets no check for now.",
   usedNoneHint: "Nothing counts it yet, so when the check falls due your read is the record.",
+  loopsCountHint: "Work counts it from the learning loops' weekly counts across brands when the check falls due.",
+  meterOffHint: "Work can't count AI calls while the usage meter is off, so your read is the record.",
   movesHint: "A number from YouGrow's meanings, in your words. Work can't count it on the check yet, so your read is the record.",
   usedNone: "Nothing to count yet: your read is the record",
   productNeedsBrand: "A product event is counted for one brand, so tag the task with its brand to count one.",
@@ -165,6 +168,8 @@ export const WORK_COPY = {
   pastDayHint: "Read only. Newest first.",
   nothingInFlight: "Nothing in flight. Type what you're on, one line per workstream.",
   nothingInFlightPast: "Nothing was in flight that day.",
+  nothingLoggedToday: "Nothing logged today yet. Type what you're on, or carry over what was still open yesterday.",
+  carrying: "Carrying over…",
   noChecks: "No checks are due.",
   nothingMoved: "Nothing has moved yet today.",
   nothingMovedPast: "Nothing moved that day.",
@@ -183,6 +188,35 @@ export const WORK_COPY = {
   pastePlaceholder: "Paste the rows here, header row first.",
   deleteConfirm: "Delete this task? Its history stays in the Log.",
   makeIdeaHint: "Opens a new one with this title, and the task links to it.",
+  // Quick edit on the list (WORK_QUICK_EDIT_ENABLED): the open row under a task's row.
+  showAll: "Show all",
+  rowCheckLabel: "Check",
+  rowBlockedLabel: "Blocked by",
+  rowLinksLabel: "Links",
+  rowDecisionLabel: "The decision",
+  rowPickLabel: "The new pick",
+  rowApproveLabel: "The plan's approval",
+  saving: "Saving…",
+  saved: "Saved",
+  rowChanged: "Someone changed this task just now. Their change is showing, and your text is still in its box, so save again.",
+  rowChangedPick: "Someone changed this task just now. Their change is showing, so make your change again.",
+  rowChangedShort: "Someone changed this task just now.",
+  keptNote: "This task no longer matches your filters. It leaves the list when you close it.",
+  noSuchTask: "There's no task with that number that you can see.",
+  leftList: "That task left this list.",
+  openFull: "Open the full page",
+  closeRow: "Close",
+  closeRowHint: "Close (Esc)",
+  sortAgain: "Sort again",
+  opening: "Opening…",
+  keepEditing: "Keep editing",
+  discard: "Discard",
+  undo: "Undo",
+  putBack: "Put back what was there.",
+  clickToRename: "Click to rename",
+  adminsOnly: "Admins and owners only.",
+  noDescription: "No description yet.",
+  noNotes: "No notes yet.",
 } as const;
 
 // --- People ------------------------------------------------------------------------------------
@@ -351,6 +385,30 @@ export function measureHint(task: { status: WorkStatus }, m: Measure): string | 
   if (task.status === "done") return null;
   const n = m.look.days;
   return `${n === 1 ? "The 1 day starts" : `The ${n} days start`} when it's done. Then it asks: did it work? Better, Same, Worse or Too soon to tell.${m.then ? " The then waits for that read." : ""}`;
+}
+
+/** What Work can count for an operator's purpose, type or loop kind on this copy (FormOptions.counting). */
+export interface OperatorCounting {
+  /** LOOPS_ENABLED: a purpose, a type or a loop kind is counted from the learning loops' weekly counts. */
+  loops: boolean;
+  /** IMAGE_STYLE_VERSIONS_ENABLED: an image kind, and the image learner, are counted too. */
+  images: boolean;
+  /** The usage meter is on: a purpose's AI calls are kept to count. */
+  meter: boolean;
+}
+
+/**
+ * The hint under What it counts for an operator's purpose, type or loop kind (Used), as the check's
+ * line will say it (countedLine in ./words.ts): with the learning loops on, Work counts it from
+ * their weekly counts once the check falls due, a purpose only while the usage meter is on, and an
+ * image kind only while image learning is on. Null for any other choice, or with the loops off,
+ * where the picker keeps WORK_COPY.usedNoneHint.
+ */
+export function loopsCountHint(p: { counts: string; loopKind?: string }, counting: OperatorCounting | null | undefined): string | null {
+  if (!counting?.loops || (p.counts !== "purpose" && p.counts !== "type" && p.counts !== "loopKind")) return null;
+  if (p.counts === "purpose" && !counting.meter) return WORK_COPY.meterOffHint;
+  if (p.counts === "loopKind" && p.loopKind && (isImageKind(p.loopKind) || p.loopKind === "loop_learn") && !counting.images) return IMAGES_OFF_LINE;
+  return WORK_COPY.loopsCountHint;
 }
 
 /** A product event's hint: where it is counted from, and the 90 days. */
@@ -552,6 +610,16 @@ export function dayNWords(n: number, longer: boolean): string {
   return longer ? `Day ${n} or more` : `Day ${n}`;
 }
 
+/** Today's Carry over button: "Carry over 4 open from yesterday", the count it will log. */
+export function carryOverLabel(n: number): string {
+  return `Carry over ${n} open from yesterday`;
+}
+
+/** What Carry over did, kept on Today after the button leaves: none means someone carried them first. */
+export function carriedLine(n: number): string {
+  return n ? `Carried over ${plural(n, "workstream", "workstreams")} from yesterday.` : "Someone else carried these over first, so nothing more was logged.";
+}
+
 /** The Log's line under its title. */
 export function logSubLine(name: string): string {
   return `What ${name} worked on each day. People type their workstreams, and each one carries over until it's done.`;
@@ -627,4 +695,26 @@ export function importButton(n: number): string {
 /** "All 12 rows. The preview shows up to 20." */
 export function previewHint(total: number): string {
   return total <= 20 ? `All ${plural(total, "row", "rows")}.` : `${total} rows. The preview shows the first 20.`;
+}
+
+// --- Quick edit on the list --------------------------------------------------------------------
+
+/** "Newest 5 of 9", over History when the open row shows only the newest. */
+export function historyNewest(n: number, total: number): string {
+  return `Newest ${n} of ${total}`;
+}
+
+/** "Check has changes that aren't saved.", asked in the open row before it goes. */
+export function unsavedLine(label: string): string {
+  return `${label} has changes that aren't saved.`;
+}
+
+/** What the list says once a task was deleted from its open row. */
+export function deletedLine(ref: number, title: string): string {
+  return `Deleted #${ref} ${title}. Its history stays in the Log.`;
+}
+
+/** The open row's Close, for a screen reader. */
+export function closeTaskLabel(ref: number): string {
+  return `Close task #${ref}`;
 }

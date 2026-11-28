@@ -1,8 +1,19 @@
+import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import { isMemoryBankConfigured, learnFromEventTexts } from "@/lib/agents/memoryBank";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { editPreferencesFor, isLearningOff } from "@/lib/content/editor/learningChoice";
+import {
+  brandLearnFacts,
+  errorCode,
+  learnLogEntry,
+  onceTenant,
+  writeLearnLog,
+  type LearnLogEntry,
+  type LearnResult,
+  type TenantLoad,
+} from "@/lib/loops/learnLog";
 import { fencedContext } from "@/lib/agents/prompts/compose";
 import { changeRuns, wordDiff } from "@/lib/content/wordDiff";
 import { isLearnFromPostEditsEnabled } from "./flags";
@@ -11,9 +22,11 @@ import { isLearnFromPostEditsEnabled } from "./flags";
  * Vizzy learns how a person edits its LinkedIn and X posts (DISTRIBUTE_LEARN_FROM_EDITS_ENABLED).
  * Once a post they changed is published (so its text is public), one line in their own voice
  * goes to Memory Bank under their own scope (brand + person), exactly like Edit mode's: only
- * the words that changed, never the whole post. The same gates as Edit mode: the switch,
- * Memory Bank set up, the brand's learning access, and the person's own "Learn from my edits".
- * Server only.
+ * the words that changed, never the whole post. Gated like Edit mode: the switch, Memory Bank set
+ * up, the brand's learning access, and the person's own "Learn from my edits". Unlike Edit mode,
+ * a post always needs the learning key (edit_vizzy_learning) in any region, whatever
+ * EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED says, until step 7 moves post edits to a regional
+ * learner (ADR-0021). Server only.
  */
 
 /** The longest list of changed words sent for one post. */
@@ -51,14 +64,19 @@ export function postEditEventText(channel: string, aiBody: string, body: string)
 
 export interface LearnDeps {
   learn: typeof learnFromEventTexts;
-  canUse: (ctx: Pick<TenantContext, "tenantId">) => Promise<boolean>;
+  /** The brand's learning access; `load` reads the brand once for this and the log line. */
+  canUse: (ctx: Pick<TenantContext, "tenantId">, load?: TenantLoad) => Promise<boolean>;
   isOff: (ctx: TenantContext) => Promise<boolean>;
   configured: () => boolean;
+  /** Reads the brand, for its plan on the log line (defaults to getTenantById). */
+  load?: TenantLoad;
+  /** Where the loop_learn line goes (defaults to Cloud Logging through the console). */
+  log?: (entry: LearnLogEntry) => void;
 }
 
 const defaultDeps: LearnDeps = {
   learn: learnFromEventTexts,
-  canUse: (ctx) => brandCanUse(ctx, "edit_vizzy_learning"),
+  canUse: (ctx, load) => brandCanUse(ctx, "edit_vizzy_learning", load),
   isOff: isLearningOff,
   configured: isMemoryBankConfigured,
 };
@@ -76,26 +94,61 @@ export type LearnOutcome =
 /**
  * After a post is published: learn from what its scheduler changed in Vizzy's draft. Never
  * throws (a publish must not fail because of learning); the outcome says what happened.
+ *
+ * A post with something to learn (a LinkedIn or X post with Vizzy's draft, changed, and a person
+ * who scheduled it) logs one loop_learn line, learned or why it skipped: switch, not_configured,
+ * plan (not_included), off_by_person (person_off) or error (src/lib/loops/learnLog.ts, ADR-0021).
+ * A post with nothing to learn (no_draft, unchanged, no_person, another channel) logs none. The
+ * line names the brand, never the person or the words.
  */
 export async function learnFromPublishedPost(
   ctx: TenantContext,
   post: Pick<ScheduledPost, "channel" | "aiBody" | "body" | "scheduledBy">,
-  deps: LearnDeps = defaultDeps,
+  given: Partial<LearnDeps> = {},
 ): Promise<LearnOutcome> {
+  const deps: LearnDeps = { ...defaultDeps, ...given };
+  const load = onceTenant(deps.load ?? getTenantById);
+  const logLine = async (result: LearnResult) => {
+    try {
+      const facts = await brandLearnFacts(ctx, load);
+      // The line, and with LOOPS_ENABLED its count in the brand's week (writeLearnLog).
+      await (deps.log ?? writeLearnLog)(learnLogEntry("content_write", ctx.tenantId, facts, result, 1));
+    } catch {
+      // A log line is never worth failing a publish over.
+    }
+  };
   try {
-    if (!isLearnFromPostEditsEnabled() || !learnsFromPostEdits(post.channel)) return "off";
+    if (!learnsFromPostEdits(post.channel)) return "off";
+    if (!isLearnFromPostEditsEnabled()) {
+      // Logged only for a post that had something to learn; the answer is as before.
+      if (post.aiBody && post.scheduledBy && postEditEventText(post.channel, post.aiBody, post.body)) {
+        await logLine({ outcome: "skipped", reason: "switch" });
+      }
+      return "off";
+    }
     if (!post.aiBody) return "no_draft";
     const line = postEditEventText(post.channel, post.aiBody, post.body);
     if (!line) return "unchanged";
     if (!post.scheduledBy) return "no_person";
-    if (!deps.configured()) return "not_configured";
-    if (!(await deps.canUse(ctx))) return "not_included";
+    if (!deps.configured()) {
+      await logLine({ outcome: "skipped", reason: "not_configured" });
+      return "not_configured";
+    }
+    if (!(await deps.canUse(ctx, load))) {
+      await logLine({ outcome: "skipped", reason: "plan" });
+      return "not_included";
+    }
     const person: TenantContext = { ...ctx, userId: post.scheduledBy };
-    if (await deps.isOff(person)) return "person_off";
+    if (await deps.isOff(person)) {
+      await logLine({ outcome: "skipped", reason: "off_by_person" });
+      return "person_off";
+    }
     await deps.learn({ tenantId: ctx.tenantId, userId: post.scheduledBy }, [line]);
+    await logLine({ outcome: "learned", via: "learning_key" });
     return "learned";
   } catch (err) {
     console.warn("[distribute] learning from a post edit failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+    await logLine({ outcome: "skipped", reason: "error", code: errorCode(err) });
     return "off";
   }
 }
@@ -118,7 +171,7 @@ export async function postLearningFor(
 export async function postEditPreferencesFor(
   ctx: TenantContext,
   channel: string,
-  read: (ctx: TenantContext) => Promise<string[]> = editPreferencesFor,
+  read: (ctx: TenantContext) => Promise<string[]> = (c) => editPreferencesFor(c, "content_write"),
 ): Promise<string[]> {
   if (!isLearnFromPostEditsEnabled() || !learnsFromPostEdits(channel)) return [];
   return read(ctx).catch(() => []);

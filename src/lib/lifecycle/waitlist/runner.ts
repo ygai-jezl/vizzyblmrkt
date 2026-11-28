@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { CountBuffer } from "@/lib/loops/count";
+import { RunCache as LoopsRunCache } from "@/lib/loops/runCache";
 import { claimLifecycleSend, forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
@@ -15,7 +17,7 @@ import {
 } from "@/lib/types/lifecycle";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressed } from "@/lib/email/suppression";
-import { sendMetadata } from "@/lib/email/sends";
+import { countSendUnrecorded, sendMetadata } from "@/lib/email/sends";
 import { journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveSender } from "@/lib/email/sender";
@@ -43,6 +45,9 @@ import { isWaitlistEngineEnabled } from "./flags";
 import { pickWaitlistItem } from "./pick";
 import { liveWinners } from "./winners";
 import { personIdForSignup } from "@/lib/ontology/personRef";
+import { emailVersionFor, versionLanguage, type EmailVersion } from "@/lib/i18n/emailVersion";
+import { DEFAULT_LOCALE, normalizeLocale, resolveCampaignLocale, supportedLocalesFor } from "@/lib/i18n/locale";
+import { translationIdOf, type Translation } from "@/lib/types/translation";
 
 /**
  * The runner for WAITLIST journeys on the lifecycle engine (engine move D2): a
@@ -85,11 +90,18 @@ export class WaitlistRunCache {
   private readonly versions = new Map<string, Promise<LifecycleVersion | null>>();
   private readonly campaigns = new Map<string, Promise<Campaign | null>>();
   private readonly ranks = new Map<string, Promise<Map<string, number>>>();
+  private readonly translations = new Map<string, Promise<Translation | null>>();
+  /** Learning loops step 5 (4.1): the run's stamps, read once per kind, and its counts, written once when the run ends. */
+  readonly stamps: LoopsRunCache;
+  readonly counts: CountBuffer;
 
   constructor(
     private readonly ctx: TenantContext,
     private readonly db?: FirestoreLike,
-  ) {}
+  ) {
+    this.stamps = new LoopsRunCache({});
+    this.counts = new CountBuffer({ db });
+  }
 
   private memo<T>(map: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
     let p = map.get(key);
@@ -116,6 +128,10 @@ export class WaitlistRunCache {
   /** Waitlist rank by signup id (for `signup.rank` and the {{rank}} merge tag), once per launch per tick. */
   rankOf(campaignId: string) {
     return this.memo(this.ranks, campaignId, () => computeRanks(this.ctx, campaignId, this.db));
+  }
+  /** One journey email in one language (ASSET_TRANSLATIONS_ENABLED), read once per tick. */
+  translation(id: string) {
+    return this.memo(this.translations, id, () => forTenant(this.ctx, this.db).translations.getById(id));
   }
 }
 
@@ -144,10 +160,26 @@ export async function processWaitlistEnrolment(
   deps: WaitlistRunnerDeps = {},
   opts: { cache?: WaitlistRunCache; seed?: WaitlistEnrolment } = {},
 ): Promise<EnrolmentRunOutcome> {
+  if (opts.cache) return processWaitlistWith(ctx, enrolmentId, deps, { ...opts, cache: opts.cache });
+  // One enrolment on its own (Run next step now): its counts are written when it is done.
+  const cache = new WaitlistRunCache(ctx, deps.db);
+  try {
+    return await processWaitlistWith(ctx, enrolmentId, deps, { ...opts, cache });
+  } finally {
+    await cache.counts.flush();
+  }
+}
+
+async function processWaitlistWith(
+  ctx: TenantContext,
+  enrolmentId: string,
+  deps: WaitlistRunnerDeps,
+  opts: { cache: WaitlistRunCache; seed?: WaitlistEnrolment },
+): Promise<EnrolmentRunOutcome> {
   // The kill switch: nothing is touched while it's off, so everyone waits where they are.
   if (!isWaitlistEngineEnabled()) return "held";
   const clock = deps.now ?? Date.now;
-  const cache = opts.cache ?? new WaitlistRunCache(ctx, deps.db);
+  const cache = opts.cache;
   const repo = forTenant(ctx, deps.db);
   const nowMs = clock();
 
@@ -282,11 +314,26 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
       ? { pageUrl: "", apiUrl: "" }
       : unsubscribeLinks({ tenantId: ctx.tenantId, campaignId: campaign.id, signupId: signup.id, email: signup.email });
   const footer = journeyFooterValues({ tenant, campaign, unsubscribeUrl: unsub.pageUrl });
-  const email = compileJourneyEmail(
-    { subject: d.item.subject, body: d.item.body, heroImageUrl: d.item.heroImageUrl ?? null },
-    { signup, campaign, rank: s.rank, footer },
-    resolveJourneyEmailStyle(tenant, journey.emailStyle),
-  );
+  // The reader's language (ASSET_TRANSLATIONS_ENABLED): the approved translation of this email in
+  // the language they signed up in, else the launch's.
+  const base = normalizeLocale(resolveCampaignLocale(campaign, tenant)) ?? DEFAULT_LOCALE;
+  const reader = await emailVersionFor({
+    item: d.item,
+    base,
+    lang: versionLanguage(signup.locale, base, supportedLocalesFor(campaign, tenant)),
+    load: (l) => s.cache.translation(translationIdOf(journey.id, d.pool.id, d.item.id, l)),
+  });
+  const compile = (v: EmailVersion<typeof d.item>) =>
+    compileJourneyEmail(
+      { subject: v.item.subject, body: v.item.body, heroImageUrl: v.item.heroImageUrl ?? null },
+      { signup, campaign, rank: s.rank, footer },
+      resolveJourneyEmailStyle(tenant, journey.emailStyle),
+      undefined,
+      v.language,
+    );
+  let email = compile(reader);
+  // A translation whose subject comes out empty: the launch's version goes out instead.
+  if (reader.language && !email.subject.trim()) email = compile({ item: d.item, language: null });
 
   // Claim: the day's send slot + pendingSend, in one transaction.
   const atMs = clock();
@@ -311,6 +358,26 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   const shadow = mode === "shadow";
   // The person (ONTOLOGY_PERSON_IDS_ENABLED): on the send record and the send row, never in the metadata. Shadow mail is nobody's.
   const personId = shadow ? null : personIdForSignup(ctx.tenantId, signup);
+  // What made the email (LOOPS_ENABLED, learning loops step 5): when it went is YouGrow's, its
+  // words a person's or Vizzy's journey draft. Read once per run.
+  const made = await s.cache.stamps.stamp(ctx, "send_time");
+  // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s}: a canvas node's id alone takes this form past Mandrill's 250 bytes.
+  const sent = shadow
+    ? null
+    : await sendMetadata(
+        ctx,
+        {
+          tenantId: ctx.tenantId,
+          campaignId: campaign.id,
+          journeyId: journey.id,
+          nodeId: d.nodeId,
+          signupId: signup.id,
+          variantId: d.item.id,
+          recipientKind: "signup",
+        },
+        "waitlist_v2",
+        { db: deps.db, personId, made },
+      );
   const result = await (deps.send ?? sendEmail)({
     to,
     subject: email.subject,
@@ -322,32 +389,17 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
     ...(unsub.apiUrl ? { listUnsubscribe: { url: unsub.apiUrl, oneClick: true } } : {}),
     track: { opens: settings.tracking.opens, clicks: settings.tracking.clicks },
     // Shadow mail isn't attributed: opens in the operator's inbox aren't the person's.
-    ...(shadow
-      ? { tags: ["lifecycle-shadow"] }
-      : {
-          tags: ["journey", `node-${d.nodeId}`],
-          // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s}: a canvas node's id alone takes this form past Mandrill's 250 bytes.
-          metadata: await sendMetadata(
-            ctx,
-            {
-              tenantId: ctx.tenantId,
-              campaignId: campaign.id,
-              journeyId: journey.id,
-              nodeId: d.nodeId,
-              signupId: signup.id,
-              variantId: d.item.id,
-              recipientKind: "signup",
-            },
-            "waitlist_v2",
-            { db: deps.db, personId },
-          ),
-        }),
+    ...(!sent ? { tags: ["lifecycle-shadow"] } : { tags: ["journey", `node-${d.nodeId}`], metadata: sent.metadata }),
   }).catch(
     // sendEmail doesn't throw; if it ever does, the message may have gone out.
     (err): EmailResult => ({ sent: false, provider: "mandrill", reason: err instanceof Error ? err.message.slice(0, 120) : "error", ambiguous: true }),
   );
 
   if (result.sent || result.provider === "log" || result.ambiguous) {
+    // Counted once per email, in the run's buffer; shadow mail goes to the operator, not a person.
+    if (!shadow) s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
+    // Beside made, once the email went: a stamp its send record doesn't keep (4.2 row 4).
+    if (sent?.unrecorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts }, sent.unrecorded);
     // Recorded as the original engine records it (also for the log provider and
     // an ambiguous answer), so launch analytics count it the same way.
     if (!shadow) {
@@ -425,6 +477,8 @@ export async function drainWaitlistTenant(
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, due.length) }, worker));
+  // The run's counts, in one write for the brand (learning loops step 5).
+  await cache.counts.flush();
   return { due: due.length, outcomes, deferred };
 }
 

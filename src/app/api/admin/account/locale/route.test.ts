@@ -101,3 +101,48 @@ describe("PUT /api/admin/account/locale", () => {
     expect(control.updateTenantConfig).toHaveBeenCalledWith("ten_A", { defaultLocale: "en", supportedLocales: ["en", "fr"] });
   });
 });
+
+describe("where each language goes (PAGE_LANGUAGES_ENABLED)", () => {
+  function pages() {
+    on();
+    vi.stubEnv("ASSET_TRANSLATIONS_ENABLED", "true");
+    vi.stubEnv("PAGE_LANGUAGES_ENABLED", "true");
+  }
+  const withSites = (siteAddresses: Record<string, string>, translatedNote = false) =>
+    tenants.getTenantById.mockResolvedValue({ id: "ten_A", defaultLocale: "en", supportedLocales: ["en", "fr", "de"], languageSettings: { siteAddresses, translatedNote } });
+
+  it("gives the folders and the note only with the switch on", async () => {
+    withSites({ fr: "https://acme.example/fr/blog/" });
+    on();
+    expect("siteAddresses" in (await (await GET(req("GET"))).json())).toBe(false);
+    pages();
+    expect(await (await GET(req("GET"))).json()).toMatchObject({ pages: true, siteAddresses: { fr: "https://acme.example/fr/blog/" }, translatedNote: false });
+  });
+
+  it("lets an admin set a folder, ending it with a slash, and the note", async () => {
+    pages();
+    withSites({});
+    const res = await PUT(req("PUT", { defaultLocale: "en", supportedLocales: ["en", "fr", "de"], siteAddresses: { fr: "https://acme.example/fr/blog", de: "" }, translatedNote: true }));
+    expect(await res.json()).toMatchObject({ siteAddresses: { fr: "https://acme.example/fr/blog/" }, translatedNote: true });
+    expect(control.updateTenantConfig).toHaveBeenCalledWith("ten_A", expect.objectContaining({ languageSettings: expect.objectContaining({ siteAddresses: { fr: "https://acme.example/fr/blog/" }, translatedNote: true }) }));
+  });
+
+  it("refuses an address that isn't https, and a member who changes one", async () => {
+    pages();
+    withSites({ fr: "https://acme.example/fr/blog/" });
+    expect((await PUT(req("PUT", { defaultLocale: "en", supportedLocales: ["en", "fr"], siteAddresses: { fr: "http://acme.example/fr/" } }))).status).toBe(400);
+    session.getAdminContext.mockResolvedValue(member);
+    expect((await PUT(req("PUT", { defaultLocale: "en", supportedLocales: ["en", "fr", "de"], siteAddresses: { fr: "https://acme.example/blog/fr/" } }))).status).toBe(403);
+    // Sending them back unchanged, as a member's Save does, is fine.
+    expect((await PUT(req("PUT", { defaultLocale: "en", supportedLocales: ["en", "fr", "de"], siteAddresses: { fr: "https://acme.example/fr/blog/" } }))).status).toBe(200);
+  });
+
+  it("drops a language's folder when the language leaves the list, whoever saves", async () => {
+    pages();
+    withSites({ fr: "https://acme.example/fr/blog/", de: "https://acme.example/de/blog/" });
+    session.getAdminContext.mockResolvedValue(member);
+    const res = await PUT(req("PUT", { defaultLocale: "en", supportedLocales: ["en", "fr"], minReaders: 10 }));
+    expect(res.status).toBe(200);
+    expect(control.updateTenantConfig).toHaveBeenCalledWith("ten_A", expect.objectContaining({ languageSettings: expect.objectContaining({ siteAddresses: { fr: "https://acme.example/fr/blog/" } }) }));
+  });
+});

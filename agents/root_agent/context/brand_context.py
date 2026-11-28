@@ -17,6 +17,7 @@ ADK's ReadonlyContext is imported under TYPE_CHECKING so this module (and
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, Dict
 
 from ..prompts.system_instruction import ROOT_SYSTEM_INSTRUCTION
@@ -61,6 +62,17 @@ PERSON_IN_VIEW_BLOCK = (
 )
 
 
+DECK_IN_VIEW_BLOCK = (
+    "## The deck in view\n"
+    "That page is one deck on Content › Raise kit. For anything about \"this deck\" or \"this slide\" "
+    "(a message such as \"On slide 4: lead with the weekly growth\", its speaker notes, its numbers or "
+    "a slide to add, move or remove), delegate to the Raise Ops specialist (`raise_ops_agent`), not "
+    "Content Ops: only Raise Ops can read and change decks."
+)
+
+_DECK_ID = re.compile(r"^rd_[a-z0-9]{12}$")
+
+
 def build_dynamic_instruction(ctx: "ReadonlyContext") -> str:
     """Callable instruction. ADK invokes this each turn to build the system prompt."""
     state = getattr(ctx, "state", None) if ctx else None
@@ -87,6 +99,10 @@ def build_dynamic_instruction(ctx: "ReadonlyContext") -> str:
     # One person's page (the app sends `personId` only while their situation or fields can be read).
     if state and state.get("personId"):
         instruction = f"{instruction}\n\n{PERSON_IN_VIEW_BLOCK}"
+    # One deck's page (the app sends `raiseDocId` only while Vizzy can work on decks; "" once they leave).
+    deck = state.get("raiseDocId") if state else None
+    if isinstance(deck, str) and _DECK_ID.match(deck):
+        instruction = f"{instruction}\n\n{DECK_IN_VIEW_BLOCK}"
     return instruction
 
 

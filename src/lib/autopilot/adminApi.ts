@@ -11,7 +11,7 @@ import { AUTOPILOT_RUNNING, autopilotHolds } from "./planLock";
 import { nextUpDocId, type NextUpPick } from "@/lib/types/autopilot";
 import { addLearned, clearLearned, learnedLine, listLearned, removeLearned, type LearnedDeps } from "./learned";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
-import { dropPick, pickNextUp, readNextUp, type PickDeps } from "@/lib/nextUp/pick";
+import { dropPick, pickNextUp, readNextUp, usedPick, type PickDeps } from "@/lib/nextUp/pick";
 import type { AutopilotRun } from "@/lib/types/autopilot";
 import { advanceRun, type AdvanceDeps } from "./advance";
 import { createRun, draftsThisMonth, freshRunId, getRun, heldQuestionIds, readyToWrite, recentRuns, updateTrays } from "./runs";
@@ -23,6 +23,7 @@ import { lookupsThisMonth } from "@/lib/signals/store";
 import { AutopilotSettingsSchema } from "@/lib/types/autopilot";
 import type { Tenant } from "@/lib/types/tenant";
 import { fileSuggestions } from "@/lib/brandMap/filing";
+import { isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 
 /**
  * Admin APIs for the next article autopilot on Brand › Brand map. Routes call these after the
@@ -99,18 +100,24 @@ const Skip = z.object({
     .string()
     .trim()
     .regex(/^(q_[A-Za-z0-9]{6,40}|refresh:[A-Za-z0-9_-]{6,80}|combine:q_[A-Za-z0-9]{6,40})$/),
-  question: z.string().trim().min(1).max(300),
   reason: z.string().trim().max(200).optional(),
 });
 
-/** Not now: off the list, and kept on the Learned list with the reason given. */
+/**
+ * Not now: off the list, and kept on the Learned list with the reason given. The question's words
+ * are the pick's own, read here from the stored Next up, never taken from the request, so nothing
+ * a browser sends can be kept on the Learned list as if it were the question (learning loops step
+ * 4). A pick no longer on the list is not found.
+ */
 export async function skipPick(ctx: TenantContext, raw: unknown, deps: NextUpAdminDeps = {}): Promise<ApiResult> {
   const blocked = await nextUpGate(ctx, deps);
   if (blocked) return blocked;
   const parsed = Skip.safeParse(raw);
   if (!parsed.success) return { status: 400, body: { error: "invalid_input" } };
-  await addLearned(ctx, { kind: "skipped_pick", text: parsed.data.question, reason: parsed.data.reason ?? "", questionId: parsed.data.questionId, from: "person" }, deps);
-  const doc = await dropPick(ctx, parsed.data.questionId, deps);
+  const pick = (await readNextUp(ctx, deps))?.picks.find((p) => p.questionId === parsed.data.questionId);
+  if (!pick) return { status: 404, body: { error: "not_found" } };
+  await addLearned(ctx, { kind: "skipped_pick", text: pick.question, reason: parsed.data.reason ?? "", questionId: pick.questionId, from: "person" }, deps);
+  const doc = await dropPick(ctx, parsed.data.questionId, "declined", deps);
   return { status: 200, body: { nextUp: doc ?? (await readNextUp(ctx, deps)) } };
 }
 
@@ -165,7 +172,7 @@ export async function closePick(ctx: TenantContext, raw: unknown, deps: ClosePic
   const started = await (deps.review ?? startReview)(ctx, { plan, by: "person", question: { id: questionId, text: pick.question } }, { db: deps.db });
   if (!started.ok) return { status: started.status, body: { error: started.error } };
   await addLearned(ctx, { kind: "added_to_article", text: pick.question, reason: to.title, questionId, from: "person" }, deps);
-  const next = await dropPick(ctx, questionId, deps);
+  const next = await dropPick(ctx, questionId, "kept", deps);
   return { status: 200, body: { link: refreshHref({ planId: plan.id, workspaceId: plan.workspaceId }), started: started.started, nextUp: next ?? (await readNextUp(ctx, deps)) } };
 }
 
@@ -207,7 +214,11 @@ export async function startFind(ctx: TenantContext, raw: unknown, deps: NextUpAd
   const limited = deps.rateLimited ?? ((s: string) => isRateLimited(s, FIND_LIMIT));
   if (await limited(`tenant:${ctx.tenantId}`)) return { status: 429, body: { error: "rate_limited" } };
   const { questionId, question, subjectId, subjectName } = parsed.data;
-  const run = await createRun(ctx, { id: freshRunId(), mode: "find", trigger: "person", step: "find", question: { questionId, text: question, subjectId, subjectName } }, deps);
+  // Started from one of Next up's picks: the run keeps what the stored pick came from, never what the page sent.
+  const basedOn = isStrategyResultsEnabled() ? (await readNextUp(ctx, deps).catch(() => null))?.picks.find((p) => p.questionId === questionId)?.basedOn : undefined;
+  const run = await createRun(ctx, { id: freshRunId(), mode: "find", trigger: "person", step: "find", question: { questionId, text: question, subjectId, subjectName }, ...(basedOn ? { basedOn } : {}) }, deps);
+  // Started on one of Next up's picks: the pick counts kept once (LOOPS_ENABLED), as a run that takes it does.
+  await usedPick(ctx, questionId, deps);
   const after = (await advanceRun(ctx, run.id, { deadlineMs: Date.now() + PAGE_STEP_MS }, deps)) ?? run;
   return { status: 200, body: { run: runView(after) } };
 }

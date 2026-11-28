@@ -116,6 +116,10 @@ export const KEPT_OFF = {
     addon: null,
     why: "erasing archived fields' values needs plans on and an owner of the organisation with an admin row for the brand (docs/self-host.md, Erasing archived values)",
   },
+  LOOPS_ENABLED: {
+    addon: null,
+    why: "counts what every brand on this copy makes and keeps; turn it on after your own privacy page says so, and set LOOPS_OPERATOR_EMAILS to who may see the counts (docs/self-host.md, Loops counts stay inside this copy)",
+  },
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },
@@ -214,6 +218,10 @@ export const KEPT_OFF = {
   TRUSTED_CLIENT_IP_ENABLED: {
     addon: null,
     why: "measure the X-Forwarded-For shape your copy receives first (docs/self-host.md, Email and password sign-in)",
+  },
+  EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED: {
+    addon: null,
+    why: "Edit mode learning would come with Vizzy in Edit mode for brands in the agent's region, so a hold on edit_vizzy_learning in GRANTED_ONLY_FEATURES would keep back post edits only; with plans off and no hold it adds nothing (docs/self-host.md, Vizzy in Edit mode)",
   },
 };
 

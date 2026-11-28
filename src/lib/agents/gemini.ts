@@ -276,23 +276,35 @@ export async function* generateTextStream(
  * Generate text from a prompt PLUS one inline image (multimodal) — used to analyse
  * an Idea Board screenshot. `imageBase64` is the raw base64 (no data: prefix),
  * `mimeType` e.g. "image/png". Total request must stay under 20MB (callers cap the
- * screenshot at 8MB). Returns null on missing config / error.
+ * screenshot at 8MB). Returns null on missing config / error. With `timeoutMs`, ONE attempt,
+ * given up (and aborted) when the deadline passes, as generateTextWithFile does: the loops' lane
+ * profiles an image this way so a slow call never runs past the tick it shares.
  */
 export async function generateTextWithImage(
   prompt: string,
   imageBase64: string,
   mimeType: string,
-  opts: { usage: AiUsage },
+  opts: { timeoutMs?: number; usage: AiUsage },
 ): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
+  const signal = opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined;
   try {
-    const res = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: TEXT_MODEL,
       contents: [
         { role: "user", parts: [{ text: prompt }, { inlineData: { data: imageBase64, mimeType } }] },
       ],
+      ...(signal ? { config: { abortSignal: signal } } : {}),
     });
+    const res = signal
+      ? await Promise.race([
+          call,
+          new Promise<never>((_, reject) => {
+            signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+          }),
+        ])
+      : await call;
     await recordModel(opts.usage, res, TEXT_MODEL);
     return res.text ?? null;
   } catch (err) {
@@ -383,8 +395,8 @@ export type SearchLimited = UsageLimited;
  */
 export interface AiUsage {
   check(kind: "searches" | "images", units?: number): Promise<UsageLimited | null>;
-  /** `lost`: the call failed after it may have used tokens, so they couldn't be counted. */
-  recordModel(tokens: number, model: string, opts?: { lost?: boolean }): Promise<void>;
+  /** `lost`: the call failed after it may have used tokens, so they couldn't be counted. `sameCall`: another model in a use already counted. */
+  recordModel(tokens: number, model: string, opts?: { lost?: boolean; sameCall?: boolean }): Promise<void>;
   recordSearches(searches: number, opts?: { lost?: boolean }): Promise<void>;
   recordImages(images: number): Promise<void>;
   /**

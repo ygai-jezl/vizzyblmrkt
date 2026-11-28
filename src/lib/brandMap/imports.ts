@@ -1,5 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithFile, isGeminiConfigured } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { MAX_BRAND_PDF_BYTES, sniffPdf } from "@/lib/tenant/brandAsset";
@@ -182,6 +184,8 @@ export async function readImport(ctx: TenantContext, input: { fileName: string; 
   const { id, tenantId: _t, ...data } = record;
   void _t;
   await store.create("imp", id, data);
+  // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+  await countMade(ctx, "brand_map_research", (await learnedFor(ctx, "brand_map_research", { promptId: "brand.map_import" })).stamp, { type: "research_import", db: deps.db });
   return { ok: true, value: record };
 }
 

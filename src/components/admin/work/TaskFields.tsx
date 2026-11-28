@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileText, GitPullRequest, Lightbulb, Link2, Repeat, ToggleRight, X } from "lucide-react";
 import { Button, inputClass } from "@/components/admin/connect/ui";
 import { Chip } from "@/components/admin/people/Chip";
@@ -24,6 +24,7 @@ import { railLabel, typedHintText, WORK_COPY, WORK_STATUS_TONE, zoneHint } from 
 import { WORK_LIMITS, type TypedLink, type WorkLink } from "@/lib/work/types";
 import { WORK_STATUS_LABEL } from "@/lib/work/words";
 import type { OpenTaskOption } from "@/lib/work/screens";
+import { useInRow } from "./rowEditors";
 
 /**
  * The pieces the add page and the task page share: Connected to (typed links), Other links, the
@@ -69,6 +70,15 @@ export interface TypedLinksProps {
   ideaName: (brandId: string, ideaId: string) => string | undefined;
   /** This copy calls a launch an idea (isIdeaWordsEnabled(), from the screen). */
   ideaWords: boolean;
+  /** Told whether a link is half typed here, so the open row on Work's list can ask before it goes. */
+  onDirty?: (dirty: boolean) => void;
+}
+
+/** Calls `onDirty` when whether something is half typed changes. */
+function useDirty(dirty: boolean, onDirty?: (dirty: boolean) => void) {
+  useEffect(() => {
+    onDirty?.(dirty);
+  }, [dirty, onDirty]);
 }
 
 /** The kinds a task can connect: a pull request and a switch only with a connected repo; a loop line for operators beside this copy's own repo. */
@@ -79,7 +89,7 @@ export function typedKinds(o: { repos: TypedLinksProps["repos"]; operator: boole
 }
 
 /** Connected to: the exact links agents can follow, with one to add. */
-export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loopsRepo, ideaName, ideaWords }: TypedLinksProps) {
+export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loopsRepo, ideaName, ideaWords, onDirty }: TypedLinksProps) {
   const kinds = typedKinds({ repos, operator, loopsRepo, links });
   const KIND_WORDS = kindWords(ideaWords);
   const word = ideaWord(ideaWords);
@@ -88,6 +98,7 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
   const [problem, setProblem] = useState<string | null>(null);
   const kind = kinds.includes(draft.kind) ? draft.kind : kinds[0]!;
   const d = { ...draft, kind };
+  useDirty(!!(d.number || d.switchName || d.noneReason.trim() || d.planTitle.trim() || d.planUrl || d.planVersion.trim() || d.idea || d.loopKind), onDirty);
   const set = (patch: Partial<TypedLinkDraft>) => {
     setProblem(null);
     setDraft({ ...d, ...patch });
@@ -222,10 +233,11 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
 }
 
 /** Other links: an AI chat, a page, a doc. */
-export function FreeLinksEditor({ links, onChange, hasRepo }: { links: WorkLink[]; onChange: (links: WorkLink[]) => void; hasRepo: boolean }) {
+export function FreeLinksEditor({ links, onChange, hasRepo, onDirty }: { links: WorkLink[]; onChange: (links: WorkLink[]) => void; hasRepo: boolean; onDirty?: (dirty: boolean) => void }) {
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
+  useDirty(!!(url.trim() || label.trim()), onDirty);
   const add = () => {
     if (!url.trim()) return;
     const r = freeLinkOf(url, label);
@@ -278,6 +290,8 @@ export function FreeLinksEditor({ links, onChange, hasRepo }: { links: WorkLink[
 /** The tasks it waits for: up to 5, found by ref or title among the open ones. */
 export function BlockedByPicker({ refs, onChange, openTasks, id }: { refs: number[]; onChange: (refs: number[]) => void; openTasks: OpenTaskOption[]; id: string }) {
   const [query, setQuery] = useState("");
+  // In the open row on Work's list, Esc closes the list of tasks found first, then the editor.
+  const inRow = useInRow();
   const q = query.trim().toLowerCase().replace(/^#/, "");
   const results = q ? openTasks.filter((t) => !refs.includes(t.ref) && (String(t.ref).startsWith(q) || t.title.toLowerCase().includes(q))).slice(0, 5) : [];
   const byRef = (ref: number) => openTasks.find((t) => t.ref === ref);
@@ -310,9 +324,17 @@ export function BlockedByPicker({ refs, onChange, openTasks, id }: { refs: numbe
             placeholder="Find a task by ref or title"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onEnter(() => {
-              if (results[0]) pick(results[0].ref);
-            })}
+            onKeyDown={(e) => {
+              if (inRow && e.key === "Escape" && query) {
+                e.preventDefault();
+                e.stopPropagation();
+                setQuery("");
+                return;
+              }
+              onEnter(() => {
+                if (results[0]) pick(results[0].ref);
+              })(e);
+            }}
             className={inputClass}
           />
           {results.length ? (

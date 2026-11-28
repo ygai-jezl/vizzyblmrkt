@@ -111,6 +111,8 @@ export interface JourneyDetail {
     sendTracking?: boolean;
     /** Each person in a product journey opens their own page (AUDIENCE_PERSON_VIEW); only sent while on. */
     personView?: boolean;
+    /** Each email's language tabs (ASSET_TRANSLATIONS_ENABLED, 2+ languages, the brand's feature); only sent while on. */
+    translations?: boolean;
     /** The journey's own Email style in Settings and the preview (EMAIL_JOURNEY_STYLE_ENABLED); only sent while on. */
     journeyEmailStyle?: boolean;
     /** A journey style's gradient and header text draw (EMAIL_HEADER_OPTIONS_ENABLED); only sent with journey styles on. */

@@ -16,6 +16,7 @@ import {
   type BrandMapSuggestionFrom,
 } from "@/lib/types/brandMap";
 import { normalizeUrl } from "@/lib/content/blog/brief";
+import { countKindSignals } from "@/lib/loops/count";
 import { applyChange, changeKey, findName, fold, isSatisfied, newId } from "./changes";
 import { checkDecided, type MapIssue } from "./checks";
 import { isBrandMapEnabled, isBrandMapScaleEnabled } from "./flags";
@@ -552,7 +553,13 @@ export async function fileBrandMapSuggestions(
   }
 }
 
-/** Dismiss suggestions now (no Save needed): they leave the list and are never filed again. */
+/**
+ * Dismiss suggestions now (no Save needed): they leave the list and are never filed again. The
+ * ones research filed count declined under brand_map_research, in one write, where research
+ * counted them made (learning loops step 5). Suggestions keep no stamp yet, and those from other
+ * places count made, if at all, under the kind that made what they came with (an article, a
+ * competitor, a Vizzy draft), so only research's are counted here.
+ */
 export async function dismissBrandMapSuggestions(
   ctx: TenantContext,
   keys: string[],
@@ -562,10 +569,12 @@ export async function dismissBrandMapSuggestions(
   const wanted = keys.filter((k) => typeof k === "string" && k.length > 0 && k.length <= 200).slice(0, LIMITS.dismissed);
   if (!wanted.length) return { ok: false, status: 400, error: "no_keys" };
   try {
+    let researched = 0;
     const saved = await forTenant(ctx, deps.db).brandMaps.claim(brandMapDocId(ctx.tenantId), (current) => {
       const map = parseBrandMap(current);
       if (!map) throw new Unreadable();
       const drop = new Set(wanted);
+      researched = map.suggestions.filter((s) => drop.has(s.key) && s.from === "research").length;
       return {
         suggestions: map.suggestions.filter((s) => !drop.has(s.key)),
         dismissed: [...new Set([...wanted, ...map.dismissed])].slice(0, LIMITS.dismissed),
@@ -573,6 +582,7 @@ export async function dismissBrandMapSuggestions(
       };
     });
     if (!saved) return { ok: false, status: 404, error: "no_brand_map" };
+    if (researched) await countKindSignals(ctx, "brand_map_research", { declined: researched }, { db: deps.db });
     const map = parseBrandMap(saved);
     return map ? { ok: true, value: map } : { ok: false, status: 409, error: "map_unreadable" };
   } catch (err) {

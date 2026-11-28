@@ -1,4 +1,5 @@
 import type { TenantContext } from "@/lib/tenant";
+import type { Made } from "@/lib/types/loopStamp";
 import type { CanvasKindName } from "./names";
 
 /**
@@ -24,7 +25,10 @@ import type { CanvasKindName } from "./names";
  *  - `person_fields`: suggested changes to one person's fields (scope: the person, by
  *    our `ct_` id for them), which an admin confirms on their page or from Review;
  *  - `new_person`: the New person form filled in from the chat (scope: the whole brand),
- *    which an admin opens, checks and confirms, recording consent themselves.
+ *    which an admin opens, checks and confirms, recording consent themselves;
+ *  - `raise_deck`: a deck for investors or a pack for lenders, drafted or changed from the
+ *    chat (scope: the deck, by its `rd_` id, or a new one), each change a new draft version a
+ *    person opens on Content › Raise kit. Nothing is sent or shared.
  * Each kind owns its request shape, scope loading, content fill, validation,
  * persistence and the words it says back, behind one `authorDraft`, so the
  * agent endpoint stays generic.
@@ -45,7 +49,8 @@ export type CanvasScope =
   | { kind: "brand_map" }
   | { kind: "image_style" }
   | { kind: "person_fields"; personId: string }
-  | { kind: "new_person" };
+  | { kind: "new_person" }
+  | { kind: "raise_deck"; docId?: string | null };
 
 /** What the chat shows for a saved draft (a card with an "Open canvas" link). */
 export interface CanvasCard {
@@ -62,6 +67,9 @@ export interface CanvasCard {
   cta?: string;
 }
 
+/** What one canvas save wrote: a new draft, new words on one already counted, or nothing new. */
+export type CanvasSaved = "created" | "rewritten" | "none";
+
 export type CanvasAuthorOutcome =
   | {
       ok: true;
@@ -74,6 +82,15 @@ export type CanvasAuthorOutcome =
       /** Soft issues: the draft still saved, for the human to finish. */
       warnings: string[];
       card: CanvasCard;
+      /**
+       * What the call saved (learning loops step 5, decision 20: made counts once per saved
+       * record): `created`, a new draft or suggestion; `rewritten`, Vizzy's new words on a draft
+       * already counted (an invite wave, a plan's pieces, a journey's draft); `none`, nothing new
+       * (the person is already in People, or the same draft is already waiting), or nothing of
+       * the kind's own (a content plan, whose pieces count under their writers' kinds). The route
+       * counts made only for `created`.
+       */
+      saved: CanvasSaved;
     }
   | {
       ok: false;
@@ -91,6 +108,13 @@ export interface CanvasAuthorArgs {
   input: Record<string, unknown>;
   /** Natural-language ask from the operator. */
   brief: string;
+  /**
+   * What made the draft (learning loops step 5, 4.1): the route's `canvas.<kind>` stamp from
+   * learnedFor, `by: "vizzy"`, or `{ unstamped: "loops_off" }` with LOOPS_ENABLED off. Each kind
+   * keeps it on the draft it writes where that record has a `made` (keptMade), and the route
+   * counts it made once a new draft is saved (`saved: "created"`).
+   */
+  made: Made;
 }
 
 export interface CanvasKind<K extends CanvasKindName = CanvasKindName> {

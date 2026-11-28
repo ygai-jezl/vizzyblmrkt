@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-const { ImageStyleCard } = await import("./ImageStyleCard");
+const { ImageStyleCard, resetFailedLine } = await import("./ImageStyleCard");
 
 function render(props: Partial<Parameters<typeof ImageStyleCard>[0]> = {}): string {
   return renderToStaticMarkup(
@@ -34,5 +34,13 @@ describe("ImageStyleCard", () => {
     const member = render({ suggestion, canEdit: false });
     expect(member).not.toContain(">Review<");
     expect(member).toContain("Only an admin can change the image style.");
+  });
+
+  it("says why a Reset failed in the route's own words, falling back to the admin and retry lines", () => {
+    const seed = "Couldn't keep what YouGrow learned before resetting, so nothing changed. Try again.";
+    expect(resetFailedLine(503, { error: "seed_failed", message: seed })).toBe(seed);
+    expect(resetFailedLine(403, { error: "forbidden" })).toBe("Only an admin can change the image style.");
+    expect(resetFailedLine(500, null)).toBe("Couldn't reset. Try again.");
+    expect(resetFailedLine(500, { message: "  " })).toBe("Couldn't reset. Try again.");
   });
 });

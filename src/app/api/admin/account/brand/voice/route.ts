@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { keptFromTokens } from "@/lib/loops/handBack";
+import { tokensFromRequest } from "@/lib/loops/stampHeader";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandVoiceEnabled } from "@/lib/content/brandKit";
@@ -30,6 +32,9 @@ export async function PUT(req: Request) {
   const parsed = BrandVoiceSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   await setTenantBrandVoice(ctx.tenantId, parsed.data);
+  // The drafted voice's stamp, if the person saved one: checked here and counted kept, a refused
+  // token counted (learning loops step 5, decision 20). Off, nothing is read.
+  await keptFromTokens(ctx, ["brand_voice"], tokensFromRequest(req));
   return NextResponse.json({ brandVoice: parsed.data });
 }
 

@@ -17,6 +17,8 @@ import {
 } from "@/lib/types/aiOriginal";
 import { editMeasures } from "@/lib/content/editMeasures";
 import { isAiOriginalsEnabled } from "./flags";
+import { keepsAiDraft } from "./aiDraft";
+import { countDraftOutcome } from "@/lib/loops/count";
 
 /**
  * The AI original of each piece a writer makes (CONTENT_AI_ORIGINALS_ENABLED), kept in
@@ -69,7 +71,7 @@ export async function pinOriginal(
     node: Pick<ContentNode, "id" | "type" | "channel">;
     body: string;
     meta?: { metaTitle?: string; metaDescription?: string };
-    made?: MadeBy;
+    madeBy?: MadeBy;
   },
   deps: OriginalDeps = {},
 ): Promise<AiOriginalDoc | null> {
@@ -84,9 +86,9 @@ export async function pinOriginal(
     at,
     by: originalByOf(ctx),
     userId: ctx.userId ?? null,
-    stamp: stampOf(args.made),
-    sources: [...new Set(args.made?.sources ?? [])],
-    ...(args.made?.examples?.length ? { examples: args.made.examples.slice(0, 5) } : {}),
+    stamp: stampOf(args.madeBy),
+    sources: [...new Set(args.madeBy?.sources ?? [])],
+    ...(args.madeBy?.examples?.length ? { examples: args.madeBy.examples.slice(0, 5) } : {}),
   };
   const { doc } = await forTenant(ctx, deps.db).aiOriginals.upsert(
     aiOriginalId(plan.id, node.id),
@@ -124,16 +126,46 @@ export async function followCheck(
   return moved;
 }
 
+type ApprovedNode = Pick<ContentNode, "id" | "type" | "channel" | "body" | "made">;
+
 /**
  * A person approved the piece (or it was marked live): keep the AI original beside the approved
  * copy, with how they differ. The same approval kept twice (approved, then found live with the same
- * copy) is kept once. Returns the pair, or null when nothing was kept.
+ * copy) is kept once. Returns the pair, or null when nothing was kept. The first approval of an AI
+ * original also counts kept or edited against the piece's stamp (countApproval), so an article
+ * marked or found live counts as a canvas Approve does, and whichever comes first counts once.
  */
 export async function recordApproval(
   ctx: TenantContext,
-  args: { planId: string; node: Pick<ContentNode, "id" | "type" | "channel" | "body">; trigger: PairTrigger },
+  args: { planId: string; node: ApprovedNode; trigger: PairTrigger },
   deps: OriginalDeps = {},
 ): Promise<AiEditPair | null> {
+  const kept = await keepApproval(ctx, args, deps);
+  await countApproval(ctx, args.node, kept, deps);
+  return kept?.pair ?? null;
+}
+
+/**
+ * What a piece's approval counts against its stamp (learning loops step 5): kept or edited, by the
+ * words changed, once for each AI original, at its first approval. A LinkedIn or X post counts when
+ * it is published instead, where its words go public, so a post approved and then posted counts
+ * once. Never throws.
+ */
+async function countApproval(ctx: TenantContext, node: ApprovedNode, kept: { pair: AiEditPair; first: boolean } | null, deps: OriginalDeps): Promise<void> {
+  if (!kept?.first || keepsAiDraft(node.channel)) return;
+  await countDraftOutcome(ctx, node.made, { wordsChanged: kept.pair.measures.wordsChanged }, { db: deps.db });
+}
+
+/**
+ * recordApproval, saying too whether this approval answers the piece (`first`): the first pair
+ * kept for this AI original, unless a publish through Distribute answered it already
+ * (publishAnswers), so a piece counts once however often it is approved again.
+ */
+async function keepApproval(
+  ctx: TenantContext,
+  args: { planId: string; node: ApprovedNode; trigger: PairTrigger },
+  deps: OriginalDeps = {},
+): Promise<{ pair: AiEditPair; first: boolean } | null> {
   if (!isAiOriginalsEnabled() || !args.node.body.trim()) return null;
   const repo = forTenant(ctx, deps.db).aiOriginals;
   const id = aiOriginalId(args.planId, args.node.id);
@@ -153,7 +185,7 @@ export async function recordApproval(
       sections: isArticle(args.node),
     }),
   };
-  let kept: AiEditPair | null = null;
+  let kept: { pair: AiEditPair; first: boolean } | null = null;
   await repo.upsert(
     id,
     () => {
@@ -162,7 +194,7 @@ export async function recordApproval(
     (current) => {
       const top = current.pairs[0];
       if (top && top.final.body === pair.final.body && top.original.at === current.original.at) return null;
-      kept = pair;
+      kept = { pair, first: !current.pairs.some((p) => p.original.at === current.original.at) && current.publishedFor !== current.original.at };
       // Regenerations count from one approval to the next.
       return { pairs: [pair, ...current.pairs].slice(0, PAIRS_KEPT), regenerations: 0, updatedAt: at };
     },
@@ -177,7 +209,11 @@ export function newlyApproved(before: Pick<ContentPlan, "graph">, after: Pick<Co
   return after.graph.nodes.filter((n) => n.status === "approved" && was.get(n.id) !== "approved" && n.body.trim());
 }
 
-/** Keep each approval a plan save made (the canvas Approve). Never fails the save. */
+/**
+ * Keep each approval a plan save made (the canvas Approve). Never fails the save. A piece's first
+ * approval of its AI original also counts kept or edited against the piece's stamp, by the words
+ * changed (countApproval, learning loops step 5).
+ */
 export async function recordApprovals(
   ctx: TenantContext,
   args: { before: ContentPlan; after: ContentPlan | null },
@@ -186,13 +222,45 @@ export async function recordApprovals(
   if (!isAiOriginalsEnabled()) return 0;
   let n = 0;
   for (const node of newlyApproved(args.before, args.after)) {
-    const pair = await recordApproval(ctx, { planId: args.before.id, node, trigger: "approve" }, deps).catch((err) => {
+    const kept = await keepApproval(ctx, { planId: args.before.id, node, trigger: "approve" }, deps).catch((err) => {
       console.error("[ai originals] keeping an approval failed", err);
       return null;
     });
-    if (pair) n += 1;
+    if (kept) n += 1;
+    await countApproval(ctx, node, kept, deps);
   }
   return n;
+}
+
+/**
+ * A piece for a channel other than LinkedIn or X went out through Distribute (learning loops step
+ * 5): whether its publish answers it. Such a piece counts at the first approval of its AI original
+ * (countApproval), so when its current original has an approved pair the publish adds nothing.
+ * Otherwise the publish answers it and keeps that on the AI original (`publishedFor`), so an
+ * approval after it counts nothing more: the approval and the publish together count once. With
+ * the switch off, or with no AI original, no approval can count the piece, so the publish does.
+ * Callers ask only with the learning loops on. Never throws.
+ */
+export async function publishAnswers(ctx: TenantContext, args: { planId: string; nodeId: string }, deps: OriginalDeps = {}): Promise<boolean> {
+  if (!isAiOriginalsEnabled()) return true;
+  const repo = forTenant(ctx, deps.db).aiOriginals;
+  const id = aiOriginalId(args.planId, args.nodeId);
+  if (!(await repo.getById(id).catch(() => null))) return true;
+  let answers = true;
+  await repo
+    .upsert(
+      id,
+      () => {
+        throw new Error("ai original gone");
+      },
+      (current) => {
+        const at = current.original.at;
+        answers = !current.pairs.some((p) => p.original.at === at) && current.publishedFor !== at;
+        return answers ? { publishedFor: at, updatedAt: nowIso(deps) } : null;
+      },
+    )
+    .catch(() => null);
+  return answers;
 }
 
 export async function readOriginal(ctx: TenantContext, planId: string, nodeId: string, deps: OriginalDeps = {}): Promise<AiOriginalDoc | null> {

@@ -81,3 +81,12 @@ describe("content plan intake", () => {
     expect(IntakeSchema.safeParse({ ...intake(), strategy: { objective: "product_launch", hubUrl: "javascript:alert(1)" } }).success).toBe(false);
   });
 });
+
+describe("an article's languages from Create (PAGE_LANGUAGES_ENABLED)", () => {
+  it("keeps a blog article's chosen languages, [] included, and nothing for other hubs", () => {
+    expect(planFromIntake(intake({ topology: { hubChannel: "blog", spokeChannels: [], languages: ["fr", "de", "fr"] } })).topology.languages).toEqual(["fr", "de"]);
+    expect(planFromIntake(intake({ topology: { hubChannel: "blog", spokeChannels: [], languages: [] } })).topology.languages).toEqual([]);
+    expect(planFromIntake(intake({ topology: { hubChannel: "blog", spokeChannels: [] } })).topology).not.toHaveProperty("languages");
+    expect(planFromIntake(intake({ topology: { hubChannel: "newsletter", spokeChannels: [], languages: ["fr"] } })).topology).not.toHaveProperty("languages");
+  });
+});

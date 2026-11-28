@@ -21,6 +21,7 @@ export const KIND_LABEL: Record<SearchKind, string> = {
   repo_map: "Product map",
   image: "Image",
   learned: "Learned",
+  raise_doc: "Deck",
 };
 
 /** The groups the panel's filters and the card's counts use, in order. */
@@ -32,7 +33,16 @@ export const KIND_GROUPS: Array<{ key: string; label: string; kinds: SearchKind[
   { key: "knowledge", label: "Knowledge", kinds: ["knowledge", "repo_map"] },
   { key: "competitors", label: "Competitors", kinds: ["competitor"] },
   { key: "ideas", label: "Scrapbook and images", kinds: ["idea_board", "image"] },
+  { key: "decks", label: "Decks", kinds: ["raise_doc"] },
 ];
+
+/**
+ * The groups the Search card lists: a group whose feature has its own switch shows only while that
+ * switch is on, so the card looks as before with it off. The server passes what is on.
+ */
+export function shownGroups(on: { decks: boolean }): typeof KIND_GROUPS {
+  return KIND_GROUPS.filter((g) => g.key !== "decks" || on.decks);
+}
 
 export function groupOf(kind: SearchKind): string {
   return KIND_GROUPS.find((g) => g.kinds.includes(kind))?.key ?? "other";

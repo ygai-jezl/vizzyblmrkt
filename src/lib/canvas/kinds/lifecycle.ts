@@ -21,7 +21,7 @@ import { journeyTimeline, timelineText } from "@/lib/lifecycle/timeline";
 import { createLifecycleJourney, getLifecycleJourney, saveLifecycleDraft, withJourneyEmailStyle } from "@/lib/lifecycle/service";
 import type { GraphIssue } from "@/lib/lifecycle/graph";
 import type { ProductConnection } from "@/lib/types/productConnection";
-import { recordJourneyDraft } from "@/lib/agentRecord/drafts";
+import { recordJourneyDraft, savedFrom } from "@/lib/agentRecord/drafts";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -130,7 +130,7 @@ function dateStartTiming(start: DateStart, connection: { catalog: ProductConnect
 
 /** The kind's work, with injectable dependencies (tests pass a fake db and model). */
 export async function authorLifecycleDraft(
-  { ctx, input, brief }: CanvasAuthorArgs,
+  { ctx, input, brief, made }: CanvasAuthorArgs,
   deps: { db?: FirestoreLike; generate?: (p: string) => Promise<string | null> } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isLifecycleEnabled() || !isLifecycleChatAuthoringEnabled()) {
@@ -228,7 +228,7 @@ export async function authorLifecycleDraft(
 
   const { journey, issues } = saved.value;
   // The agent record: the draft as Vizzy left it (soft, never fails the save).
-  await recordJourneyDraft(ctx, "lifecycle_journey.draft", journey, { db: deps.db });
+  const recorded = await recordJourneyDraft(ctx, "lifecycle_journey.draft", journey, { db: deps.db, made });
   const { url, card: c } = card(journey, connection.name, draft, issues);
   const emails = c.stats[0]!.value;
   const splits = c.stats[1]!.value;
@@ -248,6 +248,9 @@ export async function authorLifecycleDraft(
         `saved as a draft in test mode. Open the canvas to review the copy and timing, then publish when you're happy — nothing sends until you do.`;
   return {
     ok: true,
+    // Vizzy's new draft of one whose open record it already counted is not a new journey; a
+    // person's journey, or one whose draft was already answered, is (savedFrom).
+    saved: savedFrom(recorded, Boolean(existing)),
     id: journey.id,
     status: journey.status,
     url,

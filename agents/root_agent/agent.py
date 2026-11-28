@@ -6,8 +6,8 @@ invokes it via `:streamQuery`, passing tenant/user context as a `[ctx:{...}]`
 message prefix (see callbacks/context_envelope.py) and the reasoning mode as a
 `[mode:fast|thinking]` prefix (see callbacks/chat_mode.py).
 
-It has root FunctionTools and three sub-agents (campaign_ops, lifecycle_ops,
-content_ops). Every tool calls back to the app's /api/agent/* routes with the
+It has root FunctionTools and four sub-agents (campaign_ops, lifecycle_ops,
+content_ops, raise_ops). Every tool calls back to the app's /api/agent/* routes with the
 signed `ctxToken` from the envelope; see README.md.
 
 Sessions + Memory Bank are provided by Agent Runtime. The engine runs as a
@@ -29,6 +29,7 @@ from .model_config import DEFAULT_MODEL
 from .sub_agents.campaign_ops.agent import campaign_ops_agent
 from .sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
 from .sub_agents.content_ops.agent import content_ops_agent
+from .sub_agents.raise_ops.agent import raise_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
 from .tools.insights_summary import get_insights_summary
 from .tools.audience_counts import get_audience_counts
@@ -47,12 +48,14 @@ from .tools.next_up import get_next_up
 from .tools.brand_strategy import get_brand_strategy
 from .tools.content_strategy import get_content_strategy
 from .tools.usage import get_usage
+from .tools.learning import get_learning
 from .tools.settings_history import get_settings_history
 from .tools.drafts import get_drafts
 from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
+from .tools.paste_list import paste_list_propose
 from .tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact
 from .tools.next_action import get_next_action
 from .tools.work import draft_work_decision, draft_work_log, get_work, suggest_work_task
@@ -91,6 +94,7 @@ root_agent = LlmAgent(
     # get_brand_strategy reads the brand's approved strategy, each claim with its proof (read only);
     # get_content_strategy reads the brand's approved content plan: pillars, the next weeks and the counts (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
+    # get_learning reads what YouGrow learned for the brand by kind, how its team answered what was made, and where learning is stuck (counts only, read only);
     # get_settings_history reads who changed the brand's fields, journeys, catalogs and team views, and any older version (read only);
     # get_drafts reads what became of the drafts Vizzy, research and the autopilot made, from the agent record (read only);
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
@@ -98,7 +102,8 @@ root_agent = LlmAgent(
     # get_setup_status/read_help_page answer "what should I set up first?"
     # and "how do I…?" from the brand's setup progress and the help pages;
     # new_person_propose fills in the New person form for an admin to confirm (never
-    # consent); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
+    # consent); paste_list_propose reads a pasted list into one Review card an admin adds (never
+    # consent; the code reads the rows); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
     # about the business (facts, quotes and conversations for admins), and suggest_business_fact
     # files something new it heard for an admin to keep in About your business; get_next_action reads
     # Home's Your next action and what became of its steps (read only, admins); get_work reads
@@ -134,6 +139,7 @@ root_agent = LlmAgent(
         get_brand_strategy,
         get_content_strategy,
         get_usage,
+        get_learning,
         get_settings_history,
         get_drafts,
         list_articles_due,
@@ -141,6 +147,7 @@ root_agent = LlmAgent(
         get_setup_status,
         read_help_page,
         new_person_propose,
+        paste_list_propose,
         get_business_profile,
         read_onboarding_conversation,
         suggest_business_fact,
@@ -151,6 +158,7 @@ root_agent = LlmAgent(
         draft_work_decision,
     ],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
-    # connected-product lifecycle journeys. Both save drafts only.
-    sub_agents=[campaign_ops_agent, lifecycle_ops_agent, content_ops_agent],
+    # connected-product lifecycle journeys; content_ops drafts content plans; raise_ops
+    # drafts and revises decks for investors and packs for lenders. All save drafts only.
+    sub_agents=[campaign_ops_agent, lifecycle_ops_agent, content_ops_agent, raise_ops_agent],
 )

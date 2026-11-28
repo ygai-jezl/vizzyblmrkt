@@ -6,6 +6,8 @@ import { forTenant } from "@/lib/tenant";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { getTemplate, createTemplate } from "@/lib/tenant/workspaceContent";
 import { deconstructTemplate } from "@/lib/content/deconstruct";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { isChannel } from "@/lib/content/channels";
 import type { ModuleSizeId, Template } from "@/lib/types/template";
@@ -81,6 +83,8 @@ export async function POST(
       // Skip a single spoke that fails to persist rather than failing the batch.
     }
   }
+  // Each spoke saved is counted made, in one write (LOOPS_ENABLED, learning loops step 5).
+  if (created.length) await countMade(ctx, "templates", (await learnedFor(ctx, "templates")).stamp, { type: "template", n: created.length });
 
   return NextResponse.json({ spokes: created });
 }

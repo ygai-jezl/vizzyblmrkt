@@ -4,7 +4,8 @@ import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
 import { updateBlogHero } from "@/lib/tenant/workspaceContent";
 import { BlogHeroSchema } from "@/lib/types/contentPlan";
 import { makeBlogHero } from "@/lib/content/blog/hero";
-import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
+import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
+import { isBlogHeroEnabled, isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
@@ -106,7 +107,7 @@ function card(plan: ContentPlan, ws: Pick<Workspace, "id" | "name">, failed: num
 }
 
 export async function authorContentPlanDraft(
-  { ctx, input, brief }: CanvasAuthorArgs,
+  { ctx, input, brief, made }: CanvasAuthorArgs,
   deps: ContentPlanDeps = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isContentChatAuthoringEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -122,7 +123,8 @@ export async function authorContentPlanDraft(
   const now = deps.now ?? Date.now;
   const started = now();
   // `quick`: one writing pass per piece — a second pass would not fit in the agent's request.
-  const fillOpts = { db: deps.db, generate: deps.generate, budgetMs: deps.budgetMs ?? 75_000, concurrency: 3, quick: true };
+  // Each piece is stamped by its own writer's kind, made by Vizzy.
+  const fillOpts = { db: deps.db, generate: deps.generate, budgetMs: deps.budgetMs ?? 75_000, concurrency: 3, quick: true, by: "vizzy" as const };
 
   if (req.data.mode === "refill") {
     const planId = req.data.scope.planId;
@@ -146,7 +148,8 @@ export async function authorContentPlanDraft(
       for (const id of req.data.nodeIds) {
         const node = plan.graph.nodes.find((n) => n.id === id)!;
         const next = [node.brief?.trim(), `Change: ${req.data.instructions}`].filter(Boolean).join("\n\n").slice(-2000);
-        await updateContentPlanNode(ctx, ws.id, plan.id, id, { brief: next }, deps.db);
+        // A brief is no words of the piece's, so the node keeps its words' stamp.
+        await updateContentPlanNode(ctx, ws.id, plan.id, id, { brief: next, made }, deps.db);
       }
     }
     const result = await fillPlanNodes(ctx, { workspace: ws, planId: plan.id, nodeIds: req.data.nodeIds }, fillOpts);
@@ -167,6 +170,8 @@ export async function authorContentPlanDraft(
         " Review them on the canvas; nothing is scheduled.",
       warnings: result.failed.map((id) => `${id}: couldn't be written`),
       card: c,
+      // The plan counts no made of its own; each piece counts under its own writer's kind.
+      saved: "rewritten",
     };
   }
 
@@ -186,12 +191,10 @@ export async function authorContentPlanDraft(
   const fields = planFromIntake(intake.data);
   // A subject and question Vizzy named by id are checked against the saved map before they're kept.
   if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog, { db: deps.db });
-  const created = await createContentPlan(
-    ctx,
-    ws.id,
-    { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) },
-    deps.db,
-  );
+  // The plan keeps no stamp of its own and counts no made: it only gathers pieces, and each piece
+  // is stamped and counted under its own writer's kind, as the autopilot's are (learning loops
+  // step 5). Nothing could answer a made plan, so it would only ever read as unused.
+  const created = await createContentPlan(ctx, ws.id, { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) }, deps.db);
   // A blog hub is researched while the architect lays out the plan (neither needs the
   // other). Research is fail-soft: without it the hub is written from the brand's own
   // knowledge alone.
@@ -264,6 +267,21 @@ export async function authorContentPlanDraft(
         ...(req.data.heroStyleId ? { styleOverride: req.data.heroStyleId } : {}),
         budgetMs: Math.min(40_000, HERO_DONE_BY_MS - elapsed),
         retry: false,
+        // With image style versions on (learning loops step 4), the brand context the article
+        // card's hero gets, with what was learned for the hero's style, read in the brand's own
+        // region. Off, Vizzy's hero is painted with no brand context, as before (decision 22).
+        ...(isImageStyleVersionsOn()
+          ? {
+              brandContextFor: (learned: string | null | undefined) =>
+                assembleBrandContext({
+                  brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice, workspaceBrandVoice: ws.brandVoice }),
+                  audience: ws.audience ?? null,
+                  brandKit: tenant?.brandKit ?? null,
+                  typography: tenant?.brandTypography ?? null,
+                  learnedImageStyle: learned,
+                }),
+            }
+          : {}),
       }).catch(() => null);
       if (made?.ok && made.hero.heroRef) hero = "made";
     }
@@ -315,6 +333,8 @@ export async function authorContentPlanDraft(
       " Nothing is scheduled.",
     warnings: result.failed.map((id) => `${id}: couldn't be written`),
     card: c,
+    // Its pieces count made under their writers' kinds as they are written (fillPlanNodes).
+    saved: "none",
   };
 }
 

@@ -86,13 +86,16 @@ export interface LiveArticle {
 
 /**
  * The brand's live blog articles, as the freshness watch looks at them: a blog hub with its live
- * mark and a published date, in a plan that isn't archived, within LIVE_ARTICLES.
+ * mark and a published date, in a plan that isn't archived, within LIVE_ARTICLES. A programme whose
+ * plans can't be read is passed over, unless `strict` (How it went's monthly look), when the read
+ * throws: a month added up from some of the articles would read as fewer articles.
  */
-export async function liveArticles(ctx: TenantContext, db?: FirestoreLike): Promise<LiveArticle[]> {
+export async function liveArticles(ctx: TenantContext, db?: FirestoreLike, opts: { strict?: boolean } = {}): Promise<LiveArticle[]> {
   const out: LiveArticle[] = [];
   const programmes = (await forTenant(ctx, db).workspaces.find({ where: [], limit: 200 })).filter((w) => !w.archivedAt).slice(0, LIVE_ARTICLES.MAX_PROGRAMMES);
   for (const ws of programmes) {
-    const plans = await listRecentContentPlans(ctx, ws.id, LIVE_ARTICLES.PLANS_PER_PROGRAMME, db).catch(() => [] as ContentPlan[]);
+    const read = listRecentContentPlans(ctx, ws.id, LIVE_ARTICLES.PLANS_PER_PROGRAMME, db);
+    const plans = opts.strict ? await read : await read.catch(() => [] as ContentPlan[]);
     for (const plan of plans) {
       if (plan.status === "archived" || plan.topology.hubChannel !== "blog") continue;
       const hub = plan.graph.nodes.find((n) => n.type === "hub" && n.channel === "blog");

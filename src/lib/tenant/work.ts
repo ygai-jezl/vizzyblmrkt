@@ -4,7 +4,8 @@ import { TenantIsolationError, TenantValidationError } from "./errors";
 import { provisionedRegions, regionStore, type OrganisationStores } from "./organisationConnections";
 import { allocateWorkRefs, deleteWorkRefs } from "./workRefs";
 import { organisationIdFor, organisationMembership } from "./organisations";
-import { planAgentTransition, readAgentActionTx, stageAgentTransition, type TransitionError } from "./agentActions";
+import { countAgentDecision } from "@/lib/loops/decisions";
+import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransitionOk, type TransitionError } from "./agentActions";
 import { retryOnceOnExists } from "./ontologyEvents";
 import type { CollectionLike, DocRefLike, FirestoreLike, QueryLike, TenantContext, TransactionLike } from "./types";
 import type { EventActor } from "@/lib/ontology/events";
@@ -271,7 +272,9 @@ export type SuggestedTaskResult =
  * of the brand whose chat made the suggestion (other_region otherwise); Firestore runs no
  * transaction across databases (ADR-0002). The task takes the suggestion's target id, so a second
  * accept finds it (exists) or finds the suggestion decided (wrong_state), and nothing is written
- * twice. Reads first: the suggestion, then the task's id.
+ * twice. Reads first: the suggestion, then the task's id. Once it is saved, the move counts once
+ * against the suggestion's stamp (learning loops step 5): kept for Add to Work, edited when Edit
+ * then add changed a field (src/lib/loops/decisions.ts).
  */
 export async function createSuggestedWorkTask(ctx: TenantContext, input: NewWorkTask, write: WorkWrite, accept: SuggestionAccept, stores: WorkStores = {}): Promise<SuggestedTaskResult> {
   if (!WORK_TASK_ID.test(input.id)) invalid("id");
@@ -285,8 +288,11 @@ export async function createSuggestedWorkTask(ctx: TenantContext, input: NewWork
   const task: WorkTask = { ...first.data, recent: withRecent([], [added]) };
   const store = regionStore(task.region, stores);
   const { id, ...doc } = task;
-  return retryOnceOnExists(() =>
+  // The move the saved attempt planned: a transaction that runs again plans it again.
+  let moved: AgentTransitionOk | null = null;
+  const out = await retryOnceOnExists(() =>
     store.runTransaction(async (txn): Promise<SuggestedTaskResult> => {
+      moved = null;
       const action = await readAgentActionTx(txn, store, ctx, accept.id);
       const existing = await txn.get(taskRef(store, id));
       if (!action || action.target.type !== "work_task" || action.target.id !== id) return { ok: false, error: "not_found" };
@@ -296,9 +302,19 @@ export async function createSuggestedWorkTask(ctx: TenantContext, input: NewWork
       txn.create(taskRef(store, id), doc as unknown as Record<string, unknown>);
       stageRow(txn, store, added);
       stageAgentTransition(txn, store, ctx, plan);
+      moved = plan;
       return { ok: true, task, rows: [added], action: plan.next };
     }),
   );
+  await countSavedMove(ctx, out.ok ? moved : null, stores);
+  return out;
+}
+
+/** Count a suggestion's or a draft's saved move against its stamp, in the brand's own region (src/lib/loops/decisions.ts). Never throws. */
+async function countSavedMove(ctx: TenantContext, moved: AgentTransitionOk | null, stores: WorkStores): Promise<void> {
+  if (!moved) return;
+  const db = stores.regionDb?.(ctx.region);
+  await countAgentDecision(ctx, moved.current, moved.next, db ? { db } : {});
 }
 
 /**
@@ -413,6 +429,44 @@ export async function appendWorkLog(rows: ReadonlyArray<NewWorkLogRow & { id?: s
   return parsed;
 }
 
+/**
+ * Append entries under ids the caller worked out from what each entry is (Carry over on Today: the
+ * organisation and the entry it carries), writing each only if no row has its id yet. One
+ * transaction per region reads every id first, then creates the ones not kept, so a second run,
+ * or two at once, writes each entry once. A kept id that is another organisation's is refused
+ * (TenantIsolationError). Answers the rows it wrote.
+ */
+export async function appendWorkLogOnce(rows: ReadonlyArray<Omit<WorkLogRowOf<"entry">, "id"> & { id: string }>, stores: WorkStores = {}): Promise<WorkLogRow[]> {
+  const parsed = rows.map((r) => {
+    if ((r as { kind: string }).kind !== "entry") invalid("log:only entries are appended once");
+    if (!WORK_LOG_ID.test(r.id)) invalid("log:id");
+    checkSource(r.source);
+    return parsedRow({ ...r });
+  });
+  if (new Set(parsed.map((r) => r.id)).size !== parsed.length) invalid("log:each id once");
+  const byRegion = new Map<Region, WorkLogRow[]>();
+  for (const r of parsed) byRegion.set(r.region, [...(byRegion.get(r.region) ?? []), r]);
+  const written: WorkLogRow[] = [];
+  for (const [region, list] of byRegion) {
+    const store = regionStore(region, stores);
+    const wrote = await retryOnceOnExists(() =>
+      store.runTransaction(async (txn) => {
+        const kept = await Promise.all(list.map((r) => txn.get(store.collection(WORK_LOG).doc(r.id))));
+        const fresh: WorkLogRow[] = [];
+        list.forEach((r, i) => {
+          const snap = kept[i]!;
+          if (!snap.exists) return void fresh.push(r);
+          if (snap.data()?.[ORG_FIELD] !== r.organisationId) throw new TenantIsolationError(`${WORK_LOG}/${r.id} belongs to another organisation`);
+        });
+        for (const r of fresh) stageRow(txn, store, r);
+        return fresh;
+      }),
+    );
+    written.push(...wrote);
+  }
+  return written;
+}
+
 /** How a person's save of a note or decision Vizzy drafted moves the draft, written with the row. */
 export interface DraftAccept {
   id: AgentActionId;
@@ -437,7 +491,8 @@ export type DraftedRowResult = { ok: true; row: WorkLogRow; action: AgentAction 
  *   this draft names the row's id, so a retry finds the row it wrote and only moves the draft.
  *
  * A draft decided already answers wrong_state, one that moved since it was read answers changed,
- * and nothing is written twice.
+ * and nothing is written twice. Once the draft's move is saved, it counts once against the draft's
+ * stamp (learning loops step 5): kept, or edited when the person changed a field of the note.
  */
 export async function saveDraftedWorkLog(ctx: TenantContext, input: NewWorkLogRow & { id: string }, accept: DraftAccept, stores: WorkStores = {}): Promise<DraftedRowResult> {
   if ((input as { kind: string }).kind !== "entry" && (input as { kind: string }).kind !== "decision") invalid("log:a draft saves an entry or a decision");
@@ -464,9 +519,12 @@ export async function saveDraftedWorkLog(ctx: TenantContext, input: NewWorkLogRo
     return parsedRow({ ...data, id: row.id });
   };
 
+  // The draft's move the saved attempt planned: a transaction that runs again plans it again.
+  let moved: AgentTransitionOk | null = null;
   if (row.region === ctx.region) {
-    return retryOnceOnExists(() =>
+    const out = await retryOnceOnExists(() =>
       rowStore.runTransaction(async (txn): Promise<DraftedRowResult> => {
+        moved = null;
         const plan = await planFor(txn, row);
         const existing = await txn.get(ref);
         await checkTask(txn);
@@ -474,9 +532,12 @@ export async function saveDraftedWorkLog(ctx: TenantContext, input: NewWorkLogRo
         if (existing.exists) return { ok: false, error: "wrong_state" };
         stageRow(txn, rowStore, row);
         stageAgentTransition(txn, actionStore, ctx, plan);
+        moved = plan;
         return { ok: true, row, action: plan.next };
       }),
     );
+    await countSavedMove(ctx, out.ok ? moved : null, stores);
+    return out;
   }
 
   // Another region: the draft must still be open, at its rev, before the row is written.
@@ -489,14 +550,18 @@ export async function saveDraftedWorkLog(ctx: TenantContext, input: NewWorkLogRo
     stageRow(txn, rowStore, row);
     return row;
   });
-  return retryOnceOnExists(() =>
+  const out = await retryOnceOnExists(() =>
     actionStore.runTransaction(async (txn): Promise<DraftedRowResult> => {
+      moved = null;
       const plan = await planFor(txn, kept);
       if (!plan.ok) return { ok: false, error: plan.error };
       stageAgentTransition(txn, actionStore, ctx, plan);
+      moved = plan;
       return { ok: true, row: kept, action: plan.next };
     }),
   );
+  await countSavedMove(ctx, out.ok ? moved : null, stores);
+  return out;
 }
 
 // --- Reads -------------------------------------------------------------------------------------

@@ -41,6 +41,8 @@ export const IntakeSchema = z.object({
   topology: z.object({
     hubChannel: z.enum(["newsletter", "blog", "ebook"]).default("newsletter"),
     spokeChannels: z.array(z.string().max(40)).max(8).default([]),
+    /** A blog article's other languages, chosen in Create (PAGE_LANGUAGES_ENABLED); absent: decided on approval. */
+    languages: z.array(z.string().max(10)).max(24).optional(),
   }),
   /** Blog hub only — what the operator already knows: the question the article answers,
    *  and whatever buyers ask. Research fills in the rest of the brief. */
@@ -104,7 +106,11 @@ export function planFromIntake(input: Intake): NewPlanFields {
       groundingScope: input.knowledge.groundingScope,
       proofAssets: input.knowledge.proofAssets,
     },
-    topology: { hubChannel: input.topology.hubChannel, spokeChannels },
+    topology: {
+      hubChannel: input.topology.hubChannel,
+      spokeChannels,
+      ...(input.topology.hubChannel === "blog" && input.topology.languages ? { languages: [...new Set(input.topology.languages)] } : {}),
+    },
     graph: { nodes: [], edges: [] },
     // Only a blog hub has a brief; an empty one is left off (research starts it).
     ...(blogBrief ? { blog: blogBrief } : {}),

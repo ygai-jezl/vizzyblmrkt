@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { CountBuffer } from "@/lib/loops/count";
+import { rootOf, withRoot } from "@/lib/loops/made";
+import { RunCache as LoopsRunCache } from "@/lib/loops/runCache";
+import type { Made } from "@/lib/types/loopStamp";
 import { claimLifecycleSend, forTenant, getTenantById, listAllTenants, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
@@ -18,13 +22,18 @@ import { effectiveBasis } from "@/lib/connect/profile";
 import type { ProductContext } from "@/lib/connect/protocol";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressedFor } from "@/lib/email/suppression";
-import { sendMetadata } from "@/lib/email/sends";
+import { countSendUnrecorded, sendMetadata } from "@/lib/email/sends";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { enrolmentSendMetadata } from "@/lib/email/mandrillWebhook";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
 import type { AiDraft } from "@/lib/types/lifecycle";
+import type { Translation } from "@/lib/types/translation";
+import { emailVersionFor, versionLanguage, type EmailVersion } from "@/lib/i18n/emailVersion";
+import { brandLanguages } from "@/lib/i18n/languageReaders";
+import { normalizeLocale, DEFAULT_LOCALE } from "@/lib/i18n/locale";
+import { translationIdOf } from "@/lib/types/translation";
 import { decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
 import { nextNodeId } from "./graph";
 import { nextWindowAt } from "./sendWindow";
@@ -126,12 +135,19 @@ export class RunCache {
   private readonly versions = new Map<string, Promise<LifecycleVersion | null>>();
   private readonly connections = new Map<string, Promise<ProductConnection | null>>();
   private readonly followers = new Map<string, Promise<Follower[]>>();
+  private readonly translations = new Map<string, Promise<Translation | null>>();
   readonly healthNoted = new Set<string>();
+  /** Learning loops step 5 (4.1): the run's stamps, read once per kind, and its counts, written once when the run ends. */
+  readonly stamps: LoopsRunCache;
+  readonly counts: CountBuffer;
 
   constructor(
     private readonly ctx: TenantContext,
     private readonly db?: FirestoreLike,
-  ) {}
+  ) {
+    this.stamps = new LoopsRunCache({});
+    this.counts = new CountBuffer({ db });
+  }
 
   private memo<T>(map: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
     let p = map.get(key);
@@ -158,6 +174,10 @@ export class RunCache {
   /** The active journeys that continue from this one (LIFECYCLE_JOURNEY_LINKS_ENABLED). */
   followersOf(journey: Pick<LifecycleJourney, "id" | "connectionId">) {
     return this.memo(this.followers, journey.id, () => followersOf(this.ctx, journey, this.db));
+  }
+  /** One journey email in one language (ASSET_TRANSLATIONS_ENABLED), read once per tick. */
+  translation(id: string) {
+    return this.memo(this.translations, id, () => forTenant(this.ctx, this.db).translations.getById(id));
   }
 }
 
@@ -191,8 +211,24 @@ export async function processEnrolment(
   deps: RunnerDeps = {},
   opts: { cache?: RunCache; seed?: LifecycleEnrolment } = {},
 ): Promise<EnrolmentRunOutcome> {
+  if (opts.cache) return processWith(ctx, enrolmentId, deps, { ...opts, cache: opts.cache });
+  // One enrolment on its own (Run next step now): its counts are written when it is done.
+  const cache = new RunCache(ctx, deps.db);
+  try {
+    return await processWith(ctx, enrolmentId, deps, { ...opts, cache });
+  } finally {
+    await cache.counts.flush();
+  }
+}
+
+async function processWith(
+  ctx: TenantContext,
+  enrolmentId: string,
+  deps: RunnerDeps,
+  opts: { cache: RunCache; seed?: LifecycleEnrolment },
+): Promise<EnrolmentRunOutcome> {
   const clock = deps.now ?? Date.now;
-  const cache = opts.cache ?? new RunCache(ctx, deps.db);
+  const cache = opts.cache;
   const repo = forTenant(ctx, deps.db);
   const nowMs = clock();
 
@@ -537,20 +573,36 @@ async function deliver(
   // Every version (standard, AI, test, shadow) wears the same Email style: the journey's own look
   // as last published (whatever version this enrolment is on), else the brand's; null = today's look.
   const style = resolveJourneyEmailStyle(tenant, journey.emailStyle);
+  // The reader's language (ASSET_TRANSLATIONS_ENABLED): the approved translation of this email in
+  // their own language, else the brand's. Test and shadow mail show what the person would get.
+  const base = normalizeLocale(tenant?.defaultLocale) ?? DEFAULT_LOCALE;
+  const languages = brandLanguages(tenant);
+  const versionIn = (lang: string | null) =>
+    emailVersionFor({ item, base, lang, load: (l) => s.cache.translation(translationIdOf(journey.id, d.pool.id, item.id, l)) });
+  const baseVersion: EmailVersion<typeof item> = { item, language: null };
+  let readerVersion = await versionIn(versionLanguage(user.locale, base, languages));
   const renderWith = (
     insight: ProductContext["insights"][number] | null,
     aiLine: string | null,
     subject?: string | null,
+    v: EmailVersion<typeof item> = readerVersion,
   ): RenderedEmail =>
     renderLifecycleEmail({
-      item: subject ? { ...item, subject } : item,
+      item: subject ? { ...v.item, subject } : v.item,
       values: buildRenderValues({ user, connection, rc, context, insight, aiLine, footer }),
       shadowFor: mode === "shadow" ? user.email : null,
       style,
+      language: v.language,
     });
 
   const standardInsight = pickInsight(context, usedInsightIds, nextStepOf(context, steps, connection.linkDomains)?.id ?? null);
-  const standard = renderWith(standardInsight, null);
+  let standard = renderWith(standardInsight, null);
+  // A translation that leaves a token without a value, or the subject empty, where the base doesn't:
+  // the base goes out instead, so nobody misses the email for it.
+  if (readerVersion.language && (standard.missing.length > 0 || !standard.subject)) {
+    readerVersion = baseVersion;
+    standard = renderWith(standardInsight, null);
+  }
   if (standard.missing.length > 0) return { kind: "exclude", reason: `missing ${standard.missing.join(", ")}` };
   if (!standard.subject) return { kind: "exclude", reason: "empty subject" };
 
@@ -561,11 +613,19 @@ async function deliver(
   const requireApproval = s.enrolment.requireApproval;
   const draftId = isAi ? draftDocId(s.enrolment.id, d.pool.id, item.id) : null;
   let aiEmail: { email: RenderedEmail; draftVersion: number } | null = null;
+  // What made the AI line, read with the draft: the email's stamp names it as its root.
+  let lineMade: Made | undefined;
   if (draftId) {
     const pre = await forTenant(ctx, deps.db).lifecycleDrafts.getById(draftId);
+    lineMade = pre?.made;
     const preVersion = decideSendVersion({ draft: pre, requireApproval, context, aiEnabled: aiOn });
     if (pre && preVersion.version === "ai") {
-      const email = renderWith(context?.insights.find((i) => i.id === preVersion.insightId) ?? null, preVersion.aiLine, preVersion.subject);
+      // The line's language picks its version: the line was written for the email it goes in.
+      const lineVersion = readerVersion.language || pre.language ? await versionIn(versionLanguage(pre.language ?? DEFAULT_LOCALE, base, languages)) : readerVersion;
+      const lineInsight = context?.insights.find((i) => i.id === preVersion.insightId) ?? null;
+      let email = renderWith(lineInsight, preVersion.aiLine, preVersion.subject, lineVersion);
+      // As for the standard email: a translation that can't fill its tokens never costs the email.
+      if (lineVersion.language && (email.missing.length > 0 || !email.subject)) email = renderWith(lineInsight, preVersion.aiLine, preVersion.subject, baseVersion);
       if (email.missing.length === 0 && email.subject) aiEmail = { email, draftVersion: pre.draftVersion };
     }
   }
@@ -635,6 +695,28 @@ async function deliver(
   const insightId = v?.version === "ai" ? v.insightId : standard.insightUsed ? (standardInsight?.id ?? null) : null;
   // The person as they are now (ONTOLOGY_PERSON_IDS_ENABLED): on the send record and the send row, never in the metadata.
   const personId = personIdForProductUser(ctx.tenantId, user, connection);
+  // What made the email (LOOPS_ENABLED, learning loops step 5): YouGrow picked when it went, in
+  // the journey's window, and its AI line, when one went out, is its root. Read once per run.
+  const made = withRoot(await s.cache.stamps.stamp(ctx, "send_time"), useAi ? rootOf(lineMade) : undefined);
+  // The send record and its short {t, s}, for an email that doesn't name its enrolment.
+  const sent =
+    mode === "shadow" || recorded
+      ? null
+      : await sendMetadata(
+          ctx,
+          {
+            tenantId: ctx.tenantId,
+            journeyId: journey.id,
+            nodeId: d.nodeId,
+            signupId: user.id,
+            variantId: item.id,
+            campaignId: "",
+            recipientKind: "product_user",
+            connectionId: connection.id,
+          },
+          "lifecycle",
+          { db: deps.db, personId, made },
+        );
 
   const result = await (deps.send ?? sendEmail)({
     to,
@@ -651,25 +733,9 @@ async function deliver(
       : {
           tags: ["lifecycle"],
           // Named by its enrolment: its opens and clicks belong to this entry, not to an earlier
-          // one's same email — and the whole of it fits what the provider keeps (250 bytes; the
+          // one's same email, and the whole of it fits what the provider keeps (250 bytes; the
           // older form is 240 for a seven-letter brand id, and is dropped whole once it's over).
-          metadata: recorded
-            ? enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id })
-            : await sendMetadata(
-                ctx,
-                {
-                  tenantId: ctx.tenantId,
-                  journeyId: journey.id,
-                  nodeId: d.nodeId,
-                  signupId: user.id,
-                  variantId: item.id,
-                  campaignId: "",
-                  recipientKind: "product_user",
-                  connectionId: connection.id,
-                },
-                "lifecycle",
-                { db: deps.db, personId },
-              ),
+          metadata: sent ? sent.metadata : enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id }),
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
   }).catch(
@@ -688,6 +754,15 @@ async function deliver(
       }
     : {};
   if (result.sent || result.provider === "log") {
+    // Counted once per email, in the run's buffer; shadow mail goes to the operator, not a person.
+    if (mode !== "shadow") {
+      s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
+      // An email that names its enrolment writes no send record, so no record keeps its stamp:
+      // counted `records_off` beside made, so coverage shows it (4.2 row 4). Otherwise what its
+      // send record didn't keep, if anything.
+      if (recorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts });
+      else if (sent?.unrecorded) await countSendUnrecorded(ctx, made, "send_time", { counts: s.cache.counts }, sent.unrecorded);
+    }
     if (result.sent && mode !== "shadow") {
       await recordEmailEvent(
         ctx,
@@ -785,6 +860,8 @@ export async function drainLifecycleTenant(
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, due.length) }, worker));
+  // The run's counts, in one write for the brand (learning loops step 5).
+  await cache.counts.flush();
 
   const webhooks =
     clock() < deadline

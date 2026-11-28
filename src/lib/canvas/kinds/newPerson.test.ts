@@ -10,6 +10,9 @@ import type { AgentActionId } from "@/lib/types/agentAction";
 import { authorNewPerson } from "./newPerson";
 import { getCanvasKind } from "../registry";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
 const by = { type: "member", id: "u_admin" } as const;
@@ -26,7 +29,7 @@ function textFieldsOn(on = true) {
   vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", on ? "true" : "false");
 }
 const author = (fields: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) =>
-  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, brief: "" }, { db, nowMs });
+  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, made: LOOPS_OFF, brief: "" }, { db, nowMs });
 
 beforeEach(async () => {
   __resetRateLimitState();
@@ -144,7 +147,8 @@ describe("the new_person kind", () => {
   it("points at the person already holding the address, and drafts nothing", async () => {
     db.seed("contacts", SAM, { tenantId: "ten_A", contactKey: "sam.okoro@example.com", email: "sam.okoro@example.com" });
     const r = await author({ email: "sam.okoro@example.com", firstName: "Samuel" });
-    expect(r).toMatchObject({ ok: true, status: "existing", url: `/admin/crm/people/${SAM}`, card: { title: "Already in People" } });
+    // Nothing new was drafted, so the canvas route counts nothing made (decision 20).
+    expect(r).toMatchObject({ ok: true, status: "existing", url: `/admin/crm/people/${SAM}`, card: { title: "Already in People" }, saved: "none" });
     expect(db.dump("agent_actions")).toEqual([]);
   });
 
@@ -159,9 +163,12 @@ describe("the new_person kind", () => {
     const again = await author({ phone: "+44 7700 900456", firstName: "Kim" });
     if (!first.ok || !again.ok) throw new Error("not saved");
     expect(again.id).toBe(first.id);
+    // The draft already waiting is nothing new to count made (decision 20); one in its place is.
+    expect([first.saved, again.saved]).toEqual(["created", "none"]);
     const newer = await author({ phone: "+44 7700 900456", firstName: "Kim", lastName: "Lee" });
     if (!newer.ok) throw new Error("not saved");
     expect(newer.id).not.toBe(first.id);
+    expect(newer.saved).toBe("created");
     expect(await getAgentAction(admin, first.id as AgentActionId, { db })).toMatchObject({ state: "declined", declined: { reason: "superseded" }, proposal: null });
   });
 

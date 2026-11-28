@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { ImageOff, ThumbsUp, ThumbsDown } from "lucide-react";
+import { ChevronDown, ImageOff, Info, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Modal } from "@/components/admin/email/Modal";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import { imageAssetProxyUrl } from "@/lib/content/brandKit";
@@ -12,6 +12,12 @@ import {
   type ImageModelSlug,
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { HOW_THIS_WAS_MADE } from "@/lib/loops/learnedWords";
+import type { ImageVoteView } from "@/lib/loops/learnedView";
+import { useImageStyleVersions } from "@/components/admin/imageStyle/useBrandImageStyle";
+import { useImageVote } from "./learnedClient";
+import { VoteWhy } from "./VoteWhy";
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -59,6 +65,11 @@ export function ImageDetailModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // Image style versions (learning loops step 4, screen 2): the why behind a vote, and how the image
+  // was made, shown only after a vote or under a closed "How this was made", so it can't sway one.
+  const versions = useImageStyleVersions(isBrandImageStyleUiEnabled());
+  const learning = useImageVote(versions, { asset: asset.id });
+  const [voted, setVoted] = useState(asset.brandVote != null);
 
   async function customise() {
     if (!instruction.trim() || busy) return;
@@ -131,7 +142,15 @@ export function ImageDetailModal({
             <Field label="Lineage" value={`Customised from ${asset.parentAssetId}`} />
           ) : null}
 
-          <BrandFitControls asset={asset} onFeedback={onFeedback} />
+          <BrandFitControls
+            asset={asset}
+            why={learning.view}
+            onFeedback={(a) => {
+              setVoted(a.brandVote != null);
+              onFeedback(a);
+            }}
+          />
+          {learning.view?.image?.made ? <HowThisWasMade line={learning.view.image.made} voted={voted} /> : null}
 
           <div className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
             <div className="text-xs uppercase tracking-wide text-neutral-400">Customise</div>
@@ -182,11 +201,15 @@ const RATING_ANCHORS: Record<number, string> = { 1: "On Brand", 5: "Good", 10: "
 function BrandFitControls({
   asset,
   onFeedback,
+  why,
 }: {
   asset: ImageAsset;
   onFeedback: (asset: ImageAsset) => void;
+  /** With image style versions on: the image's reason and note, and whether the row starts closed. */
+  why?: ImageVoteView | null;
 }) {
   const [vote, setVote] = useState<"up" | "down" | null>(asset.brandVote ?? null);
+  const [justVoted, setJustVoted] = useState(false);
   const [rating, setRating] = useState<number | null>(asset.brandRating ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,6 +231,7 @@ function BrandFitControls({
         setError(data.message ?? "Couldn't save — try again.");
         return;
       }
+      if (nextVote !== vote) setJustVoted(true);
       setVote(nextVote);
       setRating(nextVote === "up" ? nextRating : null);
       onFeedback(data.image);
@@ -290,7 +314,54 @@ function BrandFitControls({
           </div>
         </div>
       ) : null}
+      {why?.image ? (
+        <VoteWhy
+          key={`${asset.id}:${vote ?? "none"}`}
+          assetId={asset.id}
+          vote={vote}
+          reason={justVoted ? null : why.image.reason}
+          note={justVoted ? null : why.image.note}
+          scope={why.image.scope}
+          startClosed={why.startClosed}
+          justVoted={justVoted}
+        />
+      ) : null}
       {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+    </div>
+  );
+}
+
+/** How the image was made, from its stamp: in view after a vote, and under a closed button before one. */
+export function HowThisWasMade({ line, voted }: { line: string; voted: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (voted) {
+    return (
+      <div role="status" className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <Info size={14} className="mt-0.5 shrink-0 text-neutral-500" aria-hidden />
+        <span>
+          <span className="block text-xs text-neutral-600 dark:text-neutral-400">{HOW_THIS_WAS_MADE}</span>
+          {line}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="how-this-was-made"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between rounded-md border border-neutral-200 px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+      >
+        <span>{HOW_THIS_WAS_MADE}</span>
+        <ChevronDown size={14} className={open ? "rotate-180" : ""} aria-hidden />
+      </button>
+      {open ? (
+        <p id="how-this-was-made" className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+          {line}
+        </p>
+      ) : null}
     </div>
   );
 }

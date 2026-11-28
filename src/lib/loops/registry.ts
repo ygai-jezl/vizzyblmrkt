@@ -14,7 +14,9 @@ import type { LoopSwitch } from "./switches";
  *   learning are on;
  * - gap(why, revisit): it should learn and doesn't yet, with a date to look again;
  * - none(why): it should never learn;
- * - learns(...) and fleetOnly(...): it learns through the loops. No line does yet.
+ * - learns(...): it learns for each brand through the loops, behind its own switch
+ *   (src/lib/loops/switches.ts). The image kinds are the first, from step 4;
+ * - fleetOnly(...): it is counted for every brand and improved by pull request. No line does yet.
  *
  * A new AI purpose, canvas or connector rule, or a new key in RULE_DECISIONS or UNMETERED_CALLS,
  * fails npm run typecheck until it has its line here. src/lib/loops/registry.test.ts checks the lines. Pure and client safe: it imports
@@ -48,6 +50,8 @@ export const RULE_DECISIONS = {
   competitor_profile: { label: "What competitors write", file: "src/lib/competitors/profile.ts" },
   competitor_claim_match: { label: "Claims competitors now make", file: "src/lib/competitors/profile.ts" },
   strategy_check: { label: "Weekly strategy check", file: "src/lib/brandStrategy/checkRules.ts" },
+  strategy_month: { label: "How the strategy went each month", file: "src/lib/brandStrategy/monthRules.ts" },
+  strategy_suggest: { label: "The strategy's suggestion each month", file: "src/lib/brandStrategy/suggestRules.ts" },
   image_style_pick: { label: "Image style used", file: "src/lib/content/imageStyle/resolve.ts" },
   pattern_holdout: { label: "Post patterns holdout", file: "src/lib/distribute/feedback/patterns.ts" },
   waitlist_rank: { label: "Waitlist order", file: "src/lib/waitlist/scoring.ts" },
@@ -59,6 +63,8 @@ export const RULE_DECISIONS = {
   work_ready: { label: "Ready to start", file: "src/lib/work/service.ts" },
   work_measure_kind: { label: "Suggested kind of win", file: "src/lib/work/measureKind.ts" },
   investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
+  deck_outline: { label: "Deck sections by kind and stage", file: "src/lib/raise/docs/outlines.ts" },
+  paste_columns: { label: "Pasted columns read as fields", file: "src/lib/crm/paste/columns.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
 export type RuleDecision = keyof typeof RULE_DECISIONS;
@@ -96,7 +102,6 @@ export const LEARNED_STORES = {
   learned: "The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.",
   post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did, and where turned on the workflow emails and hub pieces a person approved, kept as examples.",
   vizzy_memory: "Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.",
-  brand_kit: "Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.",
   brand_map: "The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.",
   brand_question: "Each question a person dismissed stays on the brand map marked dismissed.",
   article_review: "An article's review keeps the fingerprints of the last 50 changes a person dismissed on it.",
@@ -104,7 +109,8 @@ export const LEARNED_STORES = {
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
-  brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
+  brand_strategy:
+    "The brand strategy keeps the newest 50 names a person marked Not a competitor, and the monthly suggestions a person put off with Not now with their reasons, beside the stars, ticks, groups and edits people made.",
   lifecycle_journey: "A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.",
 } as const satisfies Record<string, string>;
 
@@ -173,6 +179,23 @@ export const none = (why: string) => ({ none: why });
 /** Should learn and doesn't yet: why, and a date at most LOOP_RULES.revisitMaxMonths ahead to look again. */
 export const gap = (why: string, revisit: Day) => ({ gap: why, revisit });
 
+/**
+ * Where the image kinds learn: one scope per painted style (each a learned_pattern_versions
+ * channel), and the brand look, which a painted style with no look of its own uses. Drawn styles
+ * never learn. registry.test.ts checks it against the catalogue's model styles.
+ */
+export const IMAGE_STYLE_SCOPES = [
+  "image_style.illustration",
+  "image_style.editorial_photo",
+  "image_style.soft_3d",
+  "image_style.paper_collage",
+  "image_style.natural_photo",
+  "image_style.product_still_life",
+  "image_style.brand_character",
+  "image_style.brand",
+] as const;
+export type ImageStyleScope = (typeof IMAGE_STYLE_SCOPES)[number];
+
 const IMAGES_BY = "2027-01-31";
 const POSTS_BY = "2027-03-31";
 const LATER = "2027-05-01";
@@ -206,7 +229,7 @@ export const LOOPS = {
   content_hub: own("post_learning", "Where turned on, a newsletter or blog hub follows the hub pieces your team approved or put live, kept as examples, though an eBook hub reads none and edits to each draft teach it nothing yet."),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
-  edit_mode: own("vizzy_memory", "Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
+  edit_mode: own("vizzy_memory", "Where learning from edits is on for a brand, through its plan or, where this copy allows it, through Vizzy in Edit mode with its data where Vizzy runs, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
   ebook: gap("eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.", LATER),
   templates: none("It copies the shape of a piece your team picked into a reusable template, so the choice is already theirs."),
   brand_voice: none("The voice is drafted once from your website and then edited by a person, so no repeated choice exists to learn from."),
@@ -216,25 +239,28 @@ export const LOOPS = {
   email_copy: own("broadcast", "Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none."),
   journeys: gap("A journey draft is saved over by your team's edits, so what they changed is never kept or learned.", LATER),
   lifecycle_lines: gap("Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.", LATER),
+  translation: gap("A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.", LATER),
   competitor_analysis: none("It labels and summarises a competitor's own pages as they are, so there is no taste of yours in it to learn."),
   competitor_articles: none("It records what each competitor article says and asks, a fact about their page rather than a choice made for you."),
   next_up: own("learned", "Next up learns from the picks your team skips, kept with their reason on the Learned list."),
   judge: own("learned", "Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays."),
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
-  images: none("This is the image style learner itself, and it is judged by the images its learned look shapes."),
+  images: none("This is the image style learner from before versions, and where versions are on its calls move to the loops' own learner."),
+  loop_learn: none("The learners themselves, judged by the loops they feed."),
   vizzy_chat: gap(
-    "Vizzy's task suggestions and the notes it suggests in chat keep what it proposed beside what the person did with each one, but nothing learns from those choices until stamps and the votes learner land.",
+    "Vizzy's Work task suggestions and drafts and the notes it suggests in chat keep what it proposed beside what the person did with each one, and with the learning loops on Work's answers are counted kept, edited or dismissed, but nothing learns from those choices yet.",
     LATER,
   ),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
   next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
+  raise_write: gap("Vizzy keeps its own draft of each slide beside the version a person saves, but the next deck learns nothing from those changes yet.", LATER),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
-  blog_hero: own("brand_kit", "Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it."),
-  post_image: own("brand_kit", "Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it."),
-  email_block_image: own("brand_kit", "Where learning from image votes is turned on, images inside emails follow the look learned from your thumbs and ratings on brand images."),
-  email_hero: gap("Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.", IMAGES_BY),
-  ebook_image: own("brand_kit", "Where learning from image votes is turned on, eBook images follow the look learned from your thumbs and ratings on brand images."),
+  blog_hero: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
+  post_image: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
+  email_block_image: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
+  email_hero: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
+  ebook_image: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
   customize_image: none("It edits a photo your team supplied the way they asked, and a learned look would restage their real product."),
   carousel: none("Each carousel slide is a picture of the post's own words, so a learned photo look would fight the text it has to show."),
   get_from_google: none("A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn."),
@@ -243,16 +269,17 @@ export const LOOPS = {
 
   // ----- Canvases Vizzy fills (src/lib/canvas/names.ts) -----
   "canvas.journey": gap("Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.", LATER),
-  "canvas.lifecycle": gap("With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.", LATER),
+  "canvas.lifecycle": gap("With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept and counted, but not what they changed, so the next draft cannot get better yet.", LATER),
   "canvas.invite_wave": none("A launch sends only a few invite waves, so neither their size nor their copy learns, and a person sets the size and presses Send."),
   "canvas.content_plan": none("The plan only gathers pieces, and each piece, such as an article or a post, says how it learns under its own kind of writing."),
   "canvas.email_style": none("A brand sets its email look once and a person saves it, so there is no stream of repeated choices to learn a taste from."),
   "canvas.journey_style": none("A journey's own email look is a single choice a person saves on that journey, so nothing repeats that could be learned."),
   "canvas.person_plan": none("Each plan is about one named person and staff approve it, so learning from it would carry that person's details into plans for others."),
   "canvas.brand_map": own("brand_map", "A change a person dismissed is kept on the brand map and Vizzy does not file it again, though a buying situation a person asks Vizzy for in chat comes back as a suggestion."),
-  "canvas.image_style": gap("Vizzy suggests an image style without reading the thumbs on the brand's images, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.", IMAGES_BY),
+  "canvas.image_style": gap("Vizzy suggests an image style without reading the thumbs on the brand's images or the look each style learned, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.", IMAGES_BY),
   "canvas.person_fields": none("Each suggestion is a fact about one person that a teammate confirms or dismisses, so it is right or wrong rather than a taste."),
   "canvas.new_person": none("Vizzy copies details from the chat into the New person form, and a person checks the facts and records consent, so no taste is involved."),
+  "canvas.raise_deck": none("The deck only gathers slides, and the words on each slide are counted under Writing decks, which says how they learn."),
 
   // ----- Connector rules (src/lib/types/dataSignal.ts) -----
   rising_search: gap("A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.", LATER),
@@ -282,7 +309,9 @@ export const LOOPS = {
   competitor_profile: none("Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves."),
   competitor_claim_match: gap("A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.", LATER),
   strategy_check: gap("The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.", LATER),
-  image_style_pick: gap("Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.", IMAGES_BY),
+  strategy_month: none("How it went adds up plain counts anyone can check, each from a source it names, and chooses nothing for the brand, so it has nothing to learn."),
+  strategy_suggest: own("brand_strategy", "A suggestion your team put off with Not now stays away 60 days, or 90 for one about connecting a tool, and the reason they gave is kept with the strategy."),
+  image_style_pick: gap("Where image versions are on, each painted style learns its own look from votes, but which style an image uses is still the brand's pick or a fixed preset for its surface, and votes never change it.", IMAGES_BY),
   pattern_holdout: none("A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results."),
   waitlist_rank: none("The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own."),
   spintax_variant: gap("A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.", POSTS_BY),
@@ -293,6 +322,8 @@ export const LOOPS = {
   work_ready: gap("Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.", LATER),
   work_measure_kind: gap("The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.", LATER),
   investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
+  deck_outline: gap("Every new deck starts from YouGrow's shipped outline for its kind and stage, and which outlines led to meetings is not counted yet.", LATER),
+  paste_columns: none("Each column is read by its header the same way for every brand, and the list shows how every column was read before an admin adds a row."),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----
   waitlist_voice_chat: none("The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people."),
@@ -300,15 +331,29 @@ export const LOOPS = {
   search_rerank: none("The ranking model only reorders the same search results by how well each answers the words asked, so it holds no taste of yours to learn."),
 } as const satisfies Record<LoopKind, Decision>;
 
-/** Every number the loops use, each with its reason. Nothing reads them until the loops run. */
+/**
+ * Every number the loops use, each with its reason. The verdict (src/lib/loops/verdict.ts) reads
+ * some, its tests hold it to falseAlarm, registry.test.ts holds gap dates to revisitMaxMonths, and
+ * the rest wait for the loops to run.
+ */
 export const LOOP_RULES = {
   /** A rate leans toward the shipped default with the weight of 5 outputs, so a new brand starts at the default (as PRIOR_N0 does in reward.ts). */
   blendM: 5,
-  /** A verdict is read only at these outputs per side, then every 40, because reading daily turns 5% false alarms into about 26%. */
+  /** A verdict is read only at these outputs per side, then every lookEvery up to lastLook, because reading daily turns 5% false alarms into about 26%. */
   looks: [10, 20, 40],
+  /** After those looks the windows grow by 40 outputs a side, so a busy scope is read again without being read daily. */
+  lookEvery: 40,
+  /** The windows stop at 120 outputs a side, because every extra look adds a chance of a false same and longer windows reach back across seasons. */
+  lastLook: 120,
+  /** Each look reads a 97.5% range for the change, which keeps a change that did nothing near 1% false better or worse across all five looks. */
+  verdictZ: 2.24,
+  /** A change that did nothing may read better or worse, and a change of one band may read same, at most 5% of the time across all looks, when each output's outcome stands on its own. */
+  falseAlarm: 0.05,
+  /** Months until the holdback can read a band sized change are worked out at 80% power, the usual level for planning a test. */
+  holdbackPowerZ: 0.84,
   /** A scope's first 10 outputs never serve as a before window, so a cold start is never what a change is judged against. */
   warmUp: 10,
-  /** About 1 decision in 20 per scope leaves out shared defaults and items adopted without a card, so the fleet can check that learning helps. */
+  /** About 1 decision in 20 per scope leaves out defaults learned across brands and image styles adopted from votes, never a rule a person kept, so the fleet can check that learning helps. */
   holdbackOneIn: 20,
   /** At most 6 learned rule items reach a prompt, so the prompt never grows without limit. */
   ruleItems: 6,
@@ -332,12 +377,78 @@ export const LOOP_RULES = {
   quietDays: 30,
   /** A thing YouGrow made that is still unused 14 days later counts as unused, the guard for the edits learner. */
   unusedAfterDays: 14,
-  /** A kind and scope whose stage has not moved after 10 outputs counts as stalled in the weekly retro. */
+  /** A brand is stuck on a kind once 10 more of it are made while it stays at Stamped or at Signalled, so a busy brand's stall shows within days. */
   stallOutputs: 10,
-  /** Or after 14 days with no move, whichever comes first, so a quiet brand still shows a stall. */
-  stallDays: 14,
-  /** Counts across brands are shown only for groups of 10 or more organisations, so no one brand can be picked out. */
+  /** Or once it stays there 28 days, whichever comes first: the stages' own window, so a quiet brand's stall still shows. */
+  stallDays: 28,
+  /** Numbers of things across brands, shares and industry splits show only from 10 organisations, so no one brand can be picked out; counts of organisations (per step, stuck, by refusal reason and with a Go back card) show below 10 to the people who run the copy only, and never set defaults. */
   cellOrgs: 10,
   /** A gap's revisit date is at most 6 months ahead, so every gap is looked at again within two quarters. */
   revisitMaxMonths: 6,
+
+  // ----- The votes learner (src/lib/loops/learners/votes.ts, step 4) -----
+  /** A style's first look comes after 3 likes, with no share rule, because a brand that dislikes most images is the one whose default look is wrong. */
+  firstLookLikes: 3,
+  /** A later look needs 3 new likes since the look in use began, so each change rests on fresh votes. */
+  newLikes: 3,
+  /** A look holds at most until 40 of its votes count, the third look, so a quiet scope still moves on. */
+  lookHoldMax: 40,
+  /** A look liked at most once in its first 6 votes may change before its hold ends, so a look people plainly reject never waits 20 images. */
+  rejectedLook: { liked: 1, votes: 6 },
+  /** The learner proposes at most once a week per scope, so every change gets its own window. */
+  learnEveryDays: 7,
+  /** A look's words fit in 2000 characters, since image calls are priced per image and ruleTokens can't bound a look. */
+  lookChars: 2000,
+  /** A learner call starts only with 12 seconds left before the run's deadline, so it never runs past the tick it shares. */
+  learnStartMs: 12_000,
+  /** A learner call waits at most 15 seconds, and less when the deadline is nearer, then adopts nothing. */
+  learnCallMs: 15_000,
+  /** A run reads at most 2 images to profile them, one at a time, since each can hold about 16 MiB while it is read. */
+  laneProfiles: 2,
+  /** An image whose profile failed twice is left out of what a look learns from, so one bad file never blocks a style. */
+  profileTries: 2,
+
+  // ----- Outcomes and errors -----
+  /** A vote counts toward the check, and a remake toward the guard, only within 14 days of the image being made, so each outcome is fixed in the order images were made. */
+  outcomeDays: 14,
+  /** The card says learning failed only after 3 failed days in a row, so one bad day never alarms anyone. */
+  errorDays: 3,
+
+  // ----- The lane (src/lib/loops/tick.ts) -----
+  /** The lane visits at least 5 brands a run, so a copy with few brands is still visited about daily. */
+  laneBrandsMin: 5,
+  /** And at most 100, so one run never loads every brand at once. */
+  laneBrandsMax: 100,
+  /** At most 6 learner calls a run, a ceiling under the run's deadline, which decides first. */
+  laneLearnCalls: 6,
+  /** At most 2000 learner calls a day across a copy, the only bound on what learners spend, since learning is never metered. */
+  learnCallsPerDay: 2000,
+  /** Each verdict read takes at most 500 image rows, enough for the last look at 120 outputs with room for the images it leaves out. */
+  verdictRows: 500,
+  /** A run makes at most 2 verdict reads, one look's before and after windows, so it never holds more than 1000 image rows. */
+  laneVerdictReads: 2,
+  /** The lane logs that the fold is behind once the oldest week not yet folded is 42 days old, four weeks before its shards go. */
+  foldBehindDays: 42,
+
+  // ----- Storage (loop_days, src/lib/tenant/loops.ts) -----
+  /** A week's counters are split over 5 shards, so a busy brand's writes never queue on one document. */
+  shards: 5,
+  /** A week's shards are kept 70 days after the week ends, time enough to fold them. */
+  shardDays: 70,
+  /** A folded week is kept 2 years after it ends, so checks and results can reach back across seasons. */
+  foldedKeepDays: 730,
+
+  // ----- Stamps (src/lib/loops/stamp.ts) -----
+  /** A stamp handed to the browser is good for 7 days, time to save a draft later that week, and a copied one soon stops counting. */
+  stampTokenDays: 7,
+
+  // ----- Counts across brands (step 5) -----
+  /** An organisation counts at most 20 outputs a week for each kind and signal, however made, and each image style, scaled together so shares hold. */
+  orgOutputsCap: 20,
+
+  // ----- Cards -----
+  /** A kind whose cards were ignored more than half the time for 4 weeks drops to a notice, so learning stops asking people who don't answer. */
+  noticeOnly: { ignoredShare: 0.5, weeks: 4 },
+  /** A brand that gives no reason on 8 of 10 or more thumbs down over 4 weeks gets the reason row closed, so asking why never becomes a chore. */
+  reasonFatigue: { skipped: 0.8, downVotes: 10, weeks: 4 },
 } as const;

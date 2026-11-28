@@ -14,6 +14,8 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { JourneyGraph } from "@/lib/types/journey";
 import type { Tenant } from "@/lib/types/tenant";
 import { personIdForSignup } from "@/lib/ontology/personRef";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 
 function graph(
   nodes: Array<[string, "trigger" | "email" | "wait" | "condition", number?]>,
@@ -894,6 +896,14 @@ describe("processEmailJobs: the person on a waitlist journey's send (ONTOLOGY_PE
     const [send] = db.dump("email_sends");
     expect(send).toMatchObject({ engine: "waitlist", signupId: "s1", personId: person });
     expect(db.dump("email_events")).toEqual([expect.objectContaining({ type: "send", signupId: "s1", personId: person })]);
+  });
+
+  it("counts records_off beside made once the step went, with send records off (LOOPS_ENABLED)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
+    const db = world();
+    expect(await processEmailJobs(ctx, 25, db)).toMatchObject({ processed: 1, failed: 0 });
+    expect(sumWeek(db, "ten_P", loopWeekOf(new Date()))).toEqual({ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } });
   });
 
   it("writes none while the switch is off", async () => {

@@ -59,6 +59,7 @@ import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesCh
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
 import type { UsageMeterDoc } from "@/lib/types/usageMeter";
+import type { LoopDayDoc } from "@/lib/types/loopDay";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { FreshnessWatchDoc } from "@/lib/types/freshness";
 import type { ArticleReviewDoc, ArticleVersionsDoc, RefreshRecord } from "@/lib/types/articleRefresh";
@@ -73,6 +74,8 @@ import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
 import type { BusinessFact, OnboardingConversation } from "@/lib/types/onboarding";
 import type { NextActionRecord } from "@/lib/types/nextAction";
+import type { RaiseDoc } from "@/lib/raise/docs/types";
+import type { Translation } from "@/lib/types/translation";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -152,6 +155,30 @@ export class TenantCollection<T extends TenantScoped> {
   }
 
   /**
+   * find, reading only the named fields of each document (a projection), so a read of many rows
+   * holds only what its caller uses. The tenant predicate and the stored tenant id check apply as
+   * in find; a database without projections reads whole documents and keeps the named fields.
+   */
+  async findFields<K extends keyof T & string>(fields: readonly K[], opts: FindOptions = {}): Promise<Array<Pick<T, K | "id">>> {
+    let q = this.applyWhere(this.base(), opts.where);
+    for (const [field, dir] of opts.orderBy ?? []) q = q.orderBy(field, dir);
+    if (opts.startAfter != null) q = q.startAfter(...opts.startAfter);
+    if (opts.limit != null) q = q.limit(opts.limit);
+    const keep = [...new Set<string>([TENANT_FIELD, ...fields])];
+    if (q.select) q = q.select(...keep);
+    const snap = await q.get();
+    const out: Array<Pick<T, K | "id">> = [];
+    for (const d of snap.docs) {
+      const data = d.data() ?? {};
+      if (data[TENANT_FIELD] !== this.tenantId) continue; // defence in depth
+      const row: Record<string, unknown> = { id: d.id };
+      for (const f of fields) if (f in data) row[f] = data[f];
+      out.push(row as Pick<T, K | "id">);
+    }
+    return out;
+  }
+
+  /**
    * Aggregation count. Cheap per call (1 read per 1000 index entries) but it
    * scales with dataset size and needs a matching composite index. Do NOT use
    * it per-request on hot public paths (e.g. live leaderboard rank) — cache or
@@ -201,9 +228,14 @@ export class TenantCollection<T extends TenantScoped> {
     return { id, ...doc } as unknown as T;
   }
 
+  /**
+   * Update fields of a document this tenant owns. `remove` names top level fields to take off it
+   * (FieldValue.delete), such as a stamp the record no longer holds; identity fields are never removed.
+   */
   async update(
     id: string,
     patch: Partial<CreateInput<T>>,
+    opts: { remove?: ReadonlyArray<Exclude<keyof CreateInput<T> & string, "createdAt">> } = {},
   ): Promise<void> {
     const existing = await this.getById(id); // verifies tenant ownership
     if (!existing) {
@@ -220,7 +252,13 @@ export class TenantCollection<T extends TenantScoped> {
       createdAt: _c,
       ...rest
     } = patch as Record<string, unknown>;
-    await this.db.collection(this.name).doc(id).update(rest);
+    const removed = Object.fromEntries(
+      (opts.remove ?? [])
+        .map((k): string => k)
+        .filter((k) => k !== TENANT_FIELD && k !== "id" && k !== "createdAt" && !(k in rest))
+        .map((k) => [k, FieldValue.delete()]),
+    );
+    await this.db.collection(this.name).doc(id).update({ ...rest, ...removed });
   }
 
   /**
@@ -281,8 +319,10 @@ export class TenantCollection<T extends TenantScoped> {
    * nested map keys, never dotted paths, so a key may contain dots (a model id).
    */
   async increment(id: string, deltas: Record<string, unknown>, fields: Record<string, unknown> = {}): Promise<void> {
-    // "um_<tenantId>_<month>": the tenant's id whole, between separators, never a longer one's prefix.
-    if (!id || !(id.includes(`_${this.tenantId}_`) || id.startsWith(`${this.tenantId}_`))) {
+    // "um_<tenantId>_<month>", or "lw:<tenantId>:<week>:<shard>" (src/lib/tenant/loops.ts): the
+    // tenant's id whole, between separators, never a longer one's prefix. No tenant id holds a colon.
+    const t = this.tenantId;
+    if (!id || !(id.includes(`_${t}_`) || id.startsWith(`${t}_`) || id.includes(`:${t}:`))) {
       throw new TenantValidationError("increment() requires an id that carries the tenant's id");
     }
     const toIncrements = (obj: Record<string, unknown>): Record<string, unknown> =>
@@ -584,6 +624,8 @@ export interface TenantRepositories {
   brandStrategy: TenantCollection<BrandStrategyRecord>;
   /** The content strategy: one document per brand (`cst_<tenantId>`), parsed by src/lib/contentStrategy/store.ts. */
   contentStrategy: TenantCollection<ContentStrategyRecord>;
+  /** Decks for investors and packs for lenders (RAISE_KIT_ENABLED): one document per deck with its kept versions (src/lib/raise/docs/store.ts). */
+  raiseDocs: TenantCollection<RaiseDoc>;
   /** The authors a brand's articles are written under (role, bio, profile page), one per name. */
   brandAuthors: TenantCollection<BrandAuthor>;
   /** What we've seen: the brand's own first-hand notes (src/lib/brandNotes/store.ts). */
@@ -607,6 +649,8 @@ export interface TenantRepositories {
   autopilotRuns: TenantCollection<AutopilotRun>;
   /** Paid resources used per brand per month, such as web searches for research (src/lib/plans/meter.ts). */
   usageMeters: TenantCollection<UsageMeterDoc>;
+  /** The learning loops' counts and pointers, no words and no person (src/lib/tenant/loops.ts). */
+  loopDays: TenantCollection<LoopDayDoc>;
   /** Found live: when to look next and which addresses it checks (src/lib/content/blog/liveWatch.ts). */
   liveWatch: TenantCollection<LiveWatchDoc>;
   /** Found live: the brand's pages it already opened, hashed (src/lib/content/blog/liveWatch.ts). */
@@ -666,6 +710,11 @@ export interface TenantRepositories {
    * and the newest outcomes of its steps (./nextActionCards.ts and src/lib/nextAction/service.ts).
    */
   nextActionCards: TenantCollection<NextActionRecord>;
+  /**
+   * Journey emails in other languages (ASSET_TRANSLATIONS_ENABLED): one record per email and
+   * language, its draft and its approved words (./translations.ts, src/lib/i18n/).
+   */
+  translations: TenantCollection<Translation>;
 }
 
 /**
@@ -791,6 +840,8 @@ export function forTenant(
     brandStrategy: new TenantCollection<BrandStrategyRecord>(regionalDb, "brand_strategy", t),
     // The content strategy plans the same articles, from the brand map and the strategy → regional DB.
     contentStrategy: new TenantCollection<ContentStrategyRecord>(regionalDb, "content_strategy", t),
+    // A deck is the brand's own work about the business, drafted from the brand map and strategy beside it → regional DB.
+    raiseDocs: new TenantCollection<RaiseDoc>(regionalDb, "raise_docs", t),
     // An article's author (a person's name, role and bio) sits with the articles → regional DB.
     brandAuthors: new TenantCollection<BrandAuthor>(regionalDb, "brand_authors", t),
     // The brand's first-hand notes may name its customers → regional DB, with the content they inform.
@@ -814,6 +865,8 @@ export function forTenant(
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
     // What the brand used of paid resources this month: counts only, beside the work that used them.
     usageMeters: new TenantCollection<UsageMeterDoc>(regionalDb, "usage_meters", t),
+    // The learning loops' counts and pointers: no words and no person, beside the work they count.
+    loopDays: new TenantCollection<LoopDayDoc>(regionalDb, "loop_days", t),
     // Found live's working state about the brand's own site and articles: regional, beside them.
     liveWatch: new TenantCollection<LiveWatchDoc>(regionalDb, "live_watch", t),
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),
@@ -843,5 +896,7 @@ export function forTenant(
     businessFacts: new TenantCollection<BusinessFact>(regionalDb, "business_facts", t),
     // The card can hold the founder's words (its lines, a dismissal's reason): regional, beside the facts.
     nextActionCards: new TenantCollection<NextActionRecord>(regionalDb, "next_action_cards", t),
+    // A brand's own email words in another language: regional, beside the journeys they translate.
+    translations: new TenantCollection<Translation>(regionalDb, "translations", t),
   };
 }

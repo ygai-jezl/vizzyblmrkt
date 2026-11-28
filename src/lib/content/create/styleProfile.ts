@@ -40,6 +40,8 @@ export async function extractStyleProfile(input: {
   filename: string;
   /** The brand's usage: the call's tokens are counted. */
   usage: AiUsage;
+  /** Give the model call up after this long (the loops' lane, which shares the tick). */
+  timeoutMs?: number;
 }): Promise<StyleProfile | null> {
   const asset = await readWorkspaceAsset(input.tenantId, input.workspaceId, input.filename).catch(
     () => null,
@@ -50,7 +52,7 @@ export async function extractStyleProfile(input: {
     renderPrompt("content.style_profile_extract", {}),
     asset.bytes.toString("base64"),
     asset.contentType,
-    { usage: input.usage },
+    { usage: input.usage, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw);
@@ -80,8 +82,8 @@ export async function refreshExemplarStyle(ctx: TenantContext, assetId: string):
   await refreshLearnedImageStyle(ctx);
 }
 
-/** One-line summary of an exemplar's StyleProfile for the synthesis prompt. */
-function profileLine(a: ImageAsset): string | null {
+/** One-line summary of an exemplar's StyleProfile for the synthesis prompt (and the loops' votes learner). */
+export function profileLine(a: Pick<ImageAsset, "styleProfile">): string | null {
   const p = a.styleProfile;
   if (!p) return null;
   const bits = [

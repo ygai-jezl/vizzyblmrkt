@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { forgetPlanTranslations, queuePlanArticles } from "@/lib/i18n/articleTranslations";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
 import { forgetPlanExamples, forgetRemovedExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
@@ -14,6 +15,7 @@ import {
   deleteContentPlan,
 } from "@/lib/tenant/workspaceContent";
 import { BlogBriefSchema, ContentGraphSchema, ContentPlanStatus } from "@/lib/types/contentPlan";
+import { keptBasedOn } from "@/lib/brandStrategy/basedOn";
 import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
 import { articleAddressProblem } from "@/lib/content/blog/address";
 import { removePlanPageSoftly, syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
@@ -90,6 +92,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const problem = address ? articleAddressProblem(address) : null;
     if (problem) return NextResponse.json({ error: "invalid_address", reason: problem }, { status: 400 });
   }
+  // What the brief came from (STRATEGY_RESULTS_ENABLED) is the server's: the stored one stays, whatever a save sends.
+  if (rest.blog) rest.blog = keptBasedOn(rest.blog, plan.blog);
   await updateContentPlan(ctx, workspaceId, planId, { ...rest, ...(address !== undefined ? { hubUrl: address } : {}) });
   const updated = await getContentPlan(ctx, workspaceId, planId);
   await syncPlanPageSoftly(ctx, { workspaceId, planId, plan: updated });
@@ -103,6 +107,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
   // Each piece approved in this save keeps its AI original beside the approved copy (CONTENT_AI_ORIGINALS_ENABLED).
   await recordApprovals(ctx, { before: plan, after: updated });
+  // An approved article whose words changed queues its versions in other languages (PAGE_LANGUAGES_ENABLED).
+  await queuePlanArticles(ctx, { workspaceId, plan: updated });
   // Each workflow email and hub piece approved in this save becomes an example its writer follows (CONTENT_APPROVED_EXAMPLES_ENABLED).
   await keepApprovedExamples(ctx, { workspaceId, before: plan, after: updated });
   // A piece this save took off the canvas takes its example with it, even one kept before the switch went off.
@@ -128,6 +134,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
+  // Its article in other languages goes with it (PAGE_LANGUAGES_ENABLED), even ones made before the switch went off.
+  await forgetPlanTranslations(ctx, planId);
   // Its pieces kept as examples go with it, even ones kept before the switch went off.
   await forgetPlanExamples(ctx, { workspaceId, plan });
   await closeDraftRows(ctx, plan);

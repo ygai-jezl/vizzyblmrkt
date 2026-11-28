@@ -122,5 +122,13 @@
   "article.keyTakeaways": "À retenir",
   "article.bottomLine": "En conclusion",
   "article.sources": "Sources",
-  "article.aboutAuthor": "À propos de l'auteur"
+  "article.aboutAuthor": "À propos de l'auteur",
+  "email.footer.sentBy": "Cet e-mail vous a été envoyé par {{sender_brand}}.",
+  "email.footer.preferences": "Gérer mes préférences",
+  "email.footer.unsubscribe": "Se désabonner",
+  "email.footer.privacy": "Politique de confidentialité",
+  "email.steps.done": "{done} étapes sur {total} terminées",
+  "email.steps.more": "et {n} de plus",
+  "article.translatedNote": "Traduit de l’original et vérifié par notre équipe.",
+  "widget.language.viewIn": "Voir cette page en français"
 }

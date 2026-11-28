@@ -118,6 +118,8 @@ const FieldChangedPropertiesSchema = z.object({
 const RecordCreatedPropertiesSchema = z.object({
   object: z.enum(FIELD_OBJECTS),
   via: z.string().regex(/^[a-z_]{1,40}$/),
+  /** Where a pasted list came from (RAISE_PASTE_ENABLED). */
+  source: z.string().max(80).optional(),
 });
 
 const AgentPropertiesSchema = z.object({

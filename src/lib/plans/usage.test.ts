@@ -262,7 +262,8 @@ describe("organisationUsage", () => {
       month: "2026-11",
       meters: {
         model_tokens: { total: 9000, calls: 4, lostCalls: 1, byPurpose: { vizzy_chat: 6000, blog_write: 3000 }, byModel: { "gemini-3.8-flash": 9000 } },
-        images: { total: 3, calls: 3, lostCalls: 0, byPurpose: { blog_hero: 3 } },
+        // One image was the first remake of a held back image: counted, never toward the cap.
+        images: { total: 4, calls: 4, lostCalls: 0, byPurpose: { blog_hero: 3, loop_learn: 1 } },
         google_lookups: { total: 1, calls: 1, lostCalls: 0, byPurpose: { get_from_google: 1 } },
       },
       updatedAt: "2026-11-20T00:00:00.000Z",
@@ -279,7 +280,7 @@ describe("organisationUsage", () => {
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
     const row = (f: string) => s.monthly.find((r) => r.feature === f);
     expect(row("model_tokens")).toMatchObject({ label: "AI model use", used: 9000, limit: null, from: null, unit: "tokens", byModel: { "gemini-3.8-flash": 9000 } });
-    expect(row("images")).toMatchObject({ label: "Images made", used: 3, limit: 100_000, from: "default", byPurpose: { blog_hero: 3 } });
+    expect(row("images")).toMatchObject({ label: "Images made", used: 3, limit: 100_000, from: "default", byPurpose: { blog_hero: 3, loop_learn: 1 } });
     expect(row("next_up")).toMatchObject({ used: 1, byPurpose: { get_from_google: 1 } });
     // google_lookups is shown on Next up, never as a row of its own.
     expect(row("google_lookups")).toBeUndefined();

@@ -4,6 +4,8 @@ import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BrandMapChangeSchema, brandMapDocId, type BrandMapChange } from "@/lib/types/brandMap";
 import { changeKey } from "./changes";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import {
   decidedBrandMap,
   dismissBrandMapSuggestions,
@@ -164,6 +166,22 @@ describe("the brand map store", () => {
     expect(done.ok && done.value.suggestions).toEqual([]);
     expect(done.ok && done.value.dismissed).toEqual(["subject:audits"]);
     expect(done.ok && done.value.rev).toBe(0);
+  });
+
+  it("counts research's suggestions declined when dismissed, where research counted them made (learning loops step 5)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await fileBrandMapSuggestions(ctx, { from: "research", items: [{ change: change({ type: "add_subject", name: "Audits" }) }, { change: change({ type: "add_subject", name: "Reports" }) }] }, { db, nowMs: T0 });
+    await fileBrandMapSuggestions(ctx, { from: "vizzy", items: [{ change: change({ type: "add_subject", name: "Pricing" }) }] }, { db, nowMs: T0 });
+    await dismissBrandMapSuggestions(ctx, ["subject:audits", "subject:reports", "subject:pricing", "subject:gone"], { db, nowMs: T0 + 1 });
+    const week = sumWeek(db, ctx.tenantId, loopWeekOf(new Date())) as { c: Record<string, unknown> };
+    expect(week.c).toEqual({ brand_map_research: { brand_map_research: { v0: { none: { declined: 2 } } } } });
+    // Off, nothing is counted (decision 22).
+    vi.stubEnv("LOOPS_ENABLED", "");
+    const quiet = new FakeFirestore();
+    await fileBrandMapSuggestions(ctx, { from: "research", items: [{ change: change({ type: "add_subject", name: "Audits" }) }] }, { db: quiet, nowMs: T0 });
+    await dismissBrandMapSuggestions(ctx, ["subject:audits"], { db: quiet, nowMs: T0 + 1 });
+    expect(quiet.dump("loop_days")).toEqual([]);
   });
 
   it("treats a map that no longer reads as unreadable, never as absent, and writes nothing over it", async () => {

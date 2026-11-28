@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Made } from "@/lib/types/loopStamp";
 import { forTenant, proposeAgentAction, transitionAgentAction, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { deterministicAgentActionId } from "@/lib/crm/identifiers";
@@ -129,7 +130,8 @@ function decidedByAPerson(a: AgentAction): boolean {
 export async function suggestFieldChanges(
   ctx: TenantContext,
   input: { personId: string; changes: Record<string, unknown>; why?: string | null },
-  deps: { db?: FirestoreLike; nowMs?: number } = {},
+  /** `made`: the canvas route's stamp, kept on the suggestion (learning loops step 5). */
+  deps: { db?: FirestoreLike; nowMs?: number; made?: Made } = {},
 ): Promise<SuggestResult> {
   if (!isContactPersonId(input.personId)) return { ok: false, error: "person_not_found" };
   const personId = input.personId;
@@ -194,6 +196,7 @@ export async function suggestFieldChanges(
       dedupeKey,
       agent: "vizzy",
       action: PERSON_FIELDS_ACTION,
+      ...(deps.made ? { made: deps.made } : {}),
       target: { type: "person", id: personId },
       personId,
       proposal: { fields: proposed, why },

@@ -16,6 +16,8 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "programmes-and-knowledge": () => import("./pages/programmes-and-knowledge"),
   "brand-map": () => import("./pages/brand-map"),
   "write-and-schedule": () => import("./pages/write-and-schedule"),
+  "what-yougrow-learned": () => import("./pages/what-yougrow-learned"),
+  "raise-kit": () => import("./pages/raise-kit"),
   "connected-accounts": () => import("./pages/connected-accounts"),
   "connected-data": () => import("./pages/connected-data"),
   "shared-connections": () => import("./pages/shared-connections"),
@@ -28,6 +30,7 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "languages": () => import("./pages/languages"),
   "your-audience": () => import("./pages/your-audience"),
   "investors-and-funding": () => import("./pages/investors-and-funding"),
+  "paste-a-list": () => import("./pages/paste-a-list"),
   "history-and-restore": () => import("./pages/history-and-restore"),
   "troubleshooting": () => import("./pages/troubleshooting"),
 };

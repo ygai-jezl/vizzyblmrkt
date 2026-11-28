@@ -19,6 +19,7 @@ export const CANVAS_KIND_NAMES = [
   "image_style",
   "person_fields",
   "new_person",
+  "raise_deck",
 ] as const;
 
 export type CanvasKindName = (typeof CANVAS_KIND_NAMES)[number];

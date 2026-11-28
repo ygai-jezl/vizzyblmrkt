@@ -30,6 +30,8 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/launches\/[^/]+\/(journey|emails|broadcasts)/, "/help/launch-and-waitlist#welcome"],
   [/^\/admin\/launches\/[^/]+\/widget/, "/help/launch-and-waitlist#share"],
   [/^\/admin\/launches/, "/help/launch-and-waitlist"],
+  // Content › Raise kit exists only while RAISE_KIT_ENABLED is on, which is when its help page is served.
+  [/^\/admin\/raise/, "/help/raise-kit"],
   [/^\/admin\/workspace\/[^/]+\/curate\/grounding/, "/help/programmes-and-knowledge#knowledge"],
   [/^\/admin\/workspace\/[^/]+\/distribute/, "/help/write-and-schedule#schedule"],
   [/^\/admin\/workspace\/[^/]+\/weekly/, "/help/write-and-schedule#newsletter"],

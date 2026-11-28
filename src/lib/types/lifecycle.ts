@@ -4,6 +4,7 @@ import { EmailLayoutSchema } from "./emailLayout";
 import { ENTITY_KIND_RE } from "./productConnection";
 import { StoredJourneyStyleSchema } from "./tenant";
 import { ContactPersonIdSchema } from "@/lib/ontology/person";
+import { MadeSchema } from "./loopStamp";
 
 /**
  * Lifecycle journeys — branching email sequences for a CONNECTED PRODUCT's users
@@ -454,6 +455,14 @@ export const LifecycleJourneySchema = z.object({
    */
   startsOnDate: z.boolean().optional(),
   /**
+   * Set by publish while ASSET_TRANSLATIONS_ENABLED is on (or by Make versions): the translations
+   * lane (src/lib/i18n/translationsTick.ts) still has to check this journey's emails against its
+   * languages. The lane clears `translationsDue` once it has queued what they need, only when
+   * `translationsDueAt` hasn't moved since it read it, so a publish meanwhile isn't lost.
+   */
+  translationsDue: z.boolean().optional(),
+  translationsDueAt: z.string().nullable().optional(),
+  /**
    * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
    * signed up inside the window once the journey can first email everyone (its
    * mode or the environment's ceiling rose to live). Resumable: the cursor is the
@@ -769,6 +778,9 @@ export const AiDraftSchema = z.object({
   attestedTerms: z.array(z.string().max(120)).max(20).default([]),
   validationIssues: z.array(z.string().max(200)).max(20).default([]),
   previewHtml: z.string().max(200_000).nullable().optional(),
+  /** What made the AI line (LOOPS_ENABLED, learning loops step 5): the `lifecycle_lines` stamp,
+   *  written with the line by prepareDraft, its only writer. Each email it goes out in names it. */
+  made: MadeSchema.optional().catch(undefined),
   fallbackReason: FallbackReason.nullable().optional(),
   /** Bumped on every change; a decision must name the version it saw. */
   draftVersion: z.number().int().min(1),

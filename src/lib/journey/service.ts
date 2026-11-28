@@ -29,7 +29,8 @@ export function journeyIdFor(campaignId: string): string {
 }
 
 export type UpsertJourneyResult =
-  | { ok: true; journey: Journey }
+  /** `created`: the launch had no journey before this save. */
+  | { ok: true; journey: Journey; created: boolean }
   | { ok: false; error: "campaign_not_found" | "journey_active" };
 
 /**
@@ -75,7 +76,7 @@ export async function upsertJourneyDraft(
   }
 
   const journey = await repo.journeys.getById(id);
-  return { ok: true, journey: journey! };
+  return { ok: true, journey: journey!, created: !existing };
 }
 
 export type SetJourneyStateResult =

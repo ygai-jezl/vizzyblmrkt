@@ -3,6 +3,9 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { MeaningKey } from "@/lib/metrics/meanings";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { loopsSourceRepo } from "@/lib/loops/operators";
+import { isLoopsEnabled } from "@/lib/loops/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { teamMemberNames } from "@/lib/team/names";
 import type { Region } from "@/lib/types/tenant";
 import { isWorkVizzyEnabled } from "./flags";
@@ -12,9 +15,9 @@ import { logDay, type LogDayView } from "./log";
 import { meaningChoices, typedLinkWords } from "./form";
 import { dayIn, partOf } from "./schedule";
 import { countsProductEvent, eventLabelOf, eventLabelsFor } from "./counted";
-import { brandChoices, checkLineOf, countShownChecks, listTasks, loadTasks, taskPage, type WorkTaskPage } from "./service";
+import { brandChoices, checkLineOf, countShownChecks, listTasks, loadTasks, pickerReadOf, readTaskPage, shownOn, type WorkTaskPage } from "./service";
 import { brandForTask, brandIn, mapLimit, nowOf, workNameOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
-import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY } from "./screenWords";
+import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY, type OperatorCounting } from "./screenWords";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { stageLabel } from "./stages";
 import { suggestedMeasureText, suggestionOf } from "./suggestion";
@@ -124,11 +127,17 @@ export interface ListScreen extends WorkChrome {
   empty: boolean;
 }
 
-/** The one list with the filters in the address. A brand filter the person can't use is dropped, so a stale link still opens. */
-export async function listScreen(scope: WorkScope, params: URLSearchParams, deps: WorkDeps = {}): Promise<ListScreen> {
+/** The list's filters from the address, as the list uses them: a brand the person can't use is dropped, and the brand view has none. */
+export function listFiltersOf(scope: WorkScope, params: URLSearchParams): WorkFilters {
   let filters = filtersOf(params);
   if (filters.brand && filters.brand !== "none" && !brandIn(scope, filters.brand)) filters = { ...filters, brand: null };
   if (scope.view === "brand") filters = { ...filters, brand: null };
+  return filters;
+}
+
+/** The one list with the filters in the address. A brand filter the person can't use is dropped, so a stale link still opens. */
+export async function listScreen(scope: WorkScope, params: URLSearchParams, deps: WorkDeps = {}): Promise<ListScreen> {
+  let filters = listFiltersOf(scope, params);
   let r = await listTasks(scope, filters, deps);
   if (!r.ok) {
     filters = { ...filters, brand: null };
@@ -195,6 +204,8 @@ export interface FormOptions {
   operator: boolean;
   /** This copy's own repo, for the loop line (operators only, else null). */
   loopsRepo: string | null;
+  /** What Work can count for an operator's purpose, type or loop kind, for the picker's hint (operators only, else null). */
+  counting: OperatorCounting | null;
 }
 
 async function productsOf(b: WorkBrand, deps: WorkDeps): Promise<ProductOption[]> {
@@ -237,7 +248,7 @@ async function formOptions(scope: WorkScope, deps: WorkDeps, o: { self?: WorkTas
   const choices = brandChoices(scope);
   const now = nowOf(deps);
   const [loaded, ideas, products] = await Promise.all([
-    loadTasks(scope, { brandId: scope.view === "brand" ? scope.session.id : undefined, allClosed: false }, deps),
+    loadTasks(scope, pickerReadOf(scope), deps),
     ideaChoicesOf(scope, choices.brands, deps),
     mapLimit(choices.brands.slice(0, 5), 3, (b) => productsOf(b, deps)),
   ]);
@@ -265,6 +276,7 @@ async function formOptions(scope: WorkScope, deps: WorkDeps, o: { self?: WorkTas
     meanings: meaningChoices({ operator: scope.operator, current: o.current ?? null }),
     operator: scope.operator,
     loopsRepo: scope.operator ? own : null,
+    counting: scope.operator ? { loops: isLoopsEnabled(), images: isImageStyleVersionsOn(), meter: isUsageMeterEnabled() } : null,
   };
 }
 
@@ -395,7 +407,14 @@ async function draftedDecisionOf(scope: WorkScope, task: WorkTask, id: string | 
 
 /** One task the person sees, with what its forms offer, or null (not found, never forbidden). */
 export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps = {}, opts: { decisionDraft?: string | null } = {}): Promise<TaskScreen | null> {
-  const r = await taskPage(scope, ref, deps);
+  const r = await readTaskScreen(scope, ref, deps, opts);
+  return r && "unread" in r ? null : r;
+}
+
+/** The same, or the names of the regions that didn't answer when none that did holds the task. */
+async function readTaskScreen(scope: WorkScope, ref: number, deps: WorkDeps, opts: { decisionDraft?: string | null }): Promise<TaskScreen | { unread: string[] } | null> {
+  const r = await readTaskPage(scope, ref, deps);
+  if ("unread" in r) return { unread: r.unread.map((d) => d.name) };
   if (!r.ok) return null;
   const page = r.value;
   const task = page.task;
@@ -428,6 +447,30 @@ export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps =
     suggested,
     draftedDecision,
   };
+}
+
+// --- The open row on the list (WORK_QUICK_EDIT_ENABLED) ----------------------------------------
+
+/**
+ * The task opened in place on the list (`?open=<ref>`), read beside the list itself:
+ * - `task`: its screen, as the task page has it, but never a drafted decision (those open the
+ *   full page), with its row; `kept` when the list's filters leave it out, so the row stays, with
+ *   a note, until it is closed.
+ * - `unread`: no region that answered holds it, and these didn't answer.
+ * - `none`: no task with that ref that the person sees (never "forbidden").
+ */
+export type OpenRow =
+  | { kind: "task"; ref: number; screen: TaskScreen; row: WorkRow; kept: boolean }
+  | { kind: "unread"; ref: number; regions: string[] }
+  | { kind: "none"; ref: number };
+
+export async function openRow(scope: WorkScope, ref: number, filters: WorkFilters, deps: WorkDeps = {}): Promise<OpenRow> {
+  const r = await readTaskScreen(scope, ref, deps, {});
+  if (r === null) return { kind: "none", ref };
+  if ("unread" in r) return { kind: "unread", ref, regions: r.unread };
+  const now = nowOf(deps);
+  const row = rowOf(r.page, { timeZone: zoneForTask(scope, r.page.task), now, ideaName: (b, i) => r.ideaNames[`${b}:${i}`], ideaWords: isIdeaWordsEnabled() });
+  return { kind: "task", ref, screen: r, row, kept: !shownOn(filters, r.page, now) };
 }
 
 // --- The Log -----------------------------------------------------------------------------------

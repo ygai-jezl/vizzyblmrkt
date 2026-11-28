@@ -9,7 +9,11 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { ctx, seedConnection, seedLaunch, seedSignup } from "@/lib/invites/testing/fixtures";
 import { INVITE_LOCK_TEXT_FOR_VIZZY } from "@/lib/invites/lockText";
+import { learnedFor } from "@/lib/loops/read";
 import { authorInviteWaveDraft } from "./inviteWave";
+
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
 
 const write = vi.fn(async () => ({ subject: "You're in", body: "Hi {{first_name}}, Fernlight is ready for you." }));
 
@@ -30,7 +34,7 @@ function world(withProduct = true) {
   return db;
 }
 const author = (db: FakeFirestore, input: Record<string, unknown>, brief = "Keep it short") =>
-  authorInviteWaveDraft({ ctx, input, brief }, { db, write });
+  authorInviteWaveDraft({ ctx, input, made: LOOPS_OFF, brief }, { db, write });
 
 describe("invite_wave canvas kind", () => {
   it("is unavailable while invites are off, and says why a locked launch can't be invited", async () => {
@@ -73,14 +77,32 @@ describe("invite_wave canvas kind", () => {
   });
 
   it("falls back to the default invite copy, and edits an existing draft in place", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const { stamp } = await learnedFor(ctx, "canvas.invite_wave", { by: "vizzy" });
+    const stamped = (input: Record<string, unknown>) => authorInviteWaveDraft({ ctx, input, made: stamp, brief: "Keep it short" }, { db, write });
     const db = world();
     write.mockResolvedValueOnce(null as never);
-    const first = await author(db, { scope: { campaignId: "beta" } });
+    const first = await stamped({ scope: { campaignId: "beta" } });
     if (!first.ok) throw new Error("expected a draft");
     expect(db.raw("invite_waves", first.id)?.subject).toContain("{{product_name}}");
-    const edited = await author(db, { scope: { campaignId: "beta", waveId: first.id }, size: 1, subject: "Doors open", body: "Come in" });
-    expect(edited).toMatchObject({ ok: true, id: first.id });
+    const edited = await stamped({ scope: { campaignId: "beta", waveId: first.id }, size: 1, subject: "Doors open", body: "Come in" });
+    // Made counted once, when the wave was drafted; Vizzy's new words on it are a rewrite (decision 20).
+    expect(first).toMatchObject({ saved: "created" });
+    expect(edited).toMatchObject({ ok: true, id: first.id, saved: "rewritten" });
     expect(db.raw("invite_waves", first.id)).toMatchObject({ subject: "Doors open", size: 1 });
-    expect(await author(db, { scope: { campaignId: "beta", waveId: "wav_missing" } })).toMatchObject({ ok: false, status: 404 });
+    expect(await stamped({ scope: { campaignId: "beta", waveId: "wav_missing" } })).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("counts Vizzy's first words on a wave that keeps no stamp of its own as a new draft", async () => {
+    const db = world();
+    const first = await author(db, { scope: { campaignId: "beta" } });
+    if (!first.ok) throw new Error("expected a draft");
+    // Drafted with LOOPS_ENABLED off, so the wave keeps no stamp and nothing counted it made.
+    expect(db.raw("invite_waves", first.id)).not.toHaveProperty("made");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const { stamp } = await learnedFor(ctx, "canvas.invite_wave", { by: "vizzy" });
+    const again = await authorInviteWaveDraft({ ctx, input: { scope: { campaignId: "beta", waveId: first.id }, subject: "Doors open", body: "Come in" }, made: stamp, brief: "" }, { db, write });
+    expect(again).toMatchObject({ ok: true, id: first.id, saved: "created" });
+    expect(db.raw("invite_waves", first.id)).toMatchObject({ made: { kind: "canvas.invite_wave", by: "vizzy" } });
   });
 });

@@ -152,7 +152,10 @@ to see what it does, then run it without `DRY_RUN`. It makes a Memory Bank and l
 write only memories scoped to a brand. Put the id it prints in your settings as `VIZZY_MEMORY_BANK_ID`
 and set `EDIT_MODE_VIZZY_LEARNING_ENABLED` to `"true"`. Every brand gets it, and each person can switch
 it off. To keep it for some brands only, set `GRANTED_ONLY_FEATURES` to `edit_vizzy_learning` and grant
-brands with `scripts/grant-feature.ts`.
+brands with `scripts/grant-feature.ts`. `npm run selfhost` leaves `EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED`
+off. With it on, that hold covers post edits only: Edit mode learning then comes with Vizzy in Edit mode
+for brands that keep their data in the agent's region (`ROOT_AGENT_LOCATION`), so to keep Edit mode
+learning to some brands, add `edit_vizzy` to `GRANTED_ONLY_FEATURES` as well, or leave the switch off.
 
 **Competitors.** `COMPETITORS_ENABLED` and `NEXT_PUBLIC_COMPETITORS_ENABLED` add Brand › Competitors:
 a person types a competitor's website and presses Monitor, and the app reads that site's sitemap, then
@@ -581,6 +584,50 @@ come only from connections both members and Vizzy may read, so they also need
 `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more, for the time to
 live on `email_codes.ttl`, `email_code_guards.ttl` and `email_confirm_links.ttl` that removes old
 sign-in codes, their counts and the links sent in place of a code; it is safe to run again.
+
+**Upgrading to image style versions.** `IMAGE_STYLE_VERSIONS_ENABLED` keeps the look each painted
+image style learns from your team's thumbs up and down as versions in the brand's own database, with
+Undo, Pause and Forget on Brand › Image style (ADR-0028; the how-to is `/help/what-yougrow-learned`).
+It needs `BRAND_STYLE_LOOP_ENABLED` and `BRAND_IMAGE_STYLE_ENABLED`, and learns about once a day per
+brand on the lifecycle tick, so it needs the tick's Cloud Scheduler job too. A new copy has it on,
+and its core steps deploy the index file and set the time to live. On a copy set up before it, do
+these two first, because a later `--apply envfile` adds the switch as `"true"`:
+
+1. Deploy the index file, as for collected numbers above, never with `--force`:
+   `firebase deploy --only firestore:indexes --non-interactive --project <id>`. It adds the image
+   index read oldest first, `image_assets (tenantId, createdAt)` ascending, which the check on each
+   look needs, and exempts the learning counts (`loop_days.d`, `loop_days.ttlAt`, `loop_lane.d`),
+   each image's stamp (`image_assets.made`) and its team note (`image_assets.brandVoteNote`) from
+   indexing. Wait until the image index shows READY: `firebase firestore:indexes --project <id>`
+   (with `--database signups-eu` and `--database signups-asia` for the regions add-on).
+2. Run `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more (with
+   `signups-eu signups-asia` added for the regions add-on). It adds the time to live on
+   `loop_days.ttlAt`, which removes a week's learning counts 70 days after the week, or 2 years after
+   it once they are folded; `setup.sh verify <id>` shows it ACTIVE. Nothing reads the counts by their
+   age, so learning works before it is ACTIVE; old weeks just stay longer.
+
+Learning calls Gemini under its own purpose, Learning and checking it helps: once when someone votes
+on or uploads an image not yet described, and at most 2,000 times a day across your copy on the
+tick. None of it counts against a brand's allowance. Turned off, images go back to the look on the
+brand record as it was when the brand's looks were first copied into versions, less any that Forget
+or Reset cleared.
+
+**Upgrading to the learning loops.** `LOOPS_ENABLED` records what made each thing YouGrow makes,
+counts what each brand's team does with it, widens the loops lane on the lifecycle tick to every
+kind, and lets Vizzy read a brand's own counts with `get_learning` (ADR-0029; the how-to is
+`/help/what-yougrow-learned#counts-across-brands`). A new copy keeps it off, since it counts what
+every brand on the copy makes and keeps: turn it on in your settings file once your own privacy page
+says so, set `LOOPS_OPERATOR_EMAILS`, and on a copy with Vizzy run `--apply addon:vizzy` again so
+Vizzy has the new tool. **Loops counts stay inside this copy:** the weekly counts across brands
+(`fleet_cells`) and the lane's bookkeeping (`loop_lane`) are written to your own project's
+`(default)` database as counts of organisations, never images, words or people, and nothing is sent
+to YouGrow or to any other copy. Settings › Loops shows them only to the addresses in
+`LOOPS_OPERATOR_EMAILS`; left empty, no one sees them. A brand leaves them with Help check that
+learning works in Settings › General. If your copy holds other people's brands, say this in your
+privacy policy and DPA before you turn it on ([Your privacy policy, terms and DPA](#your-privacy-policy-terms-and-dpa)).
+On a copy set up before it, deploy the index file first, as for image style versions above, never
+with `--force`: it exempts the counts (`fleet_cells.n`) and each record's stamp
+(`email_sends.made`, `campaign_scheduled_posts.made` and `agent_actions.made`) from indexing.
 
 **Brand search takes over from the old vectors.** The brand map's duplicate checks, What we've seen's
 matching and the competitor article checks find things by meaning in `brand_map_vectors`, embedded

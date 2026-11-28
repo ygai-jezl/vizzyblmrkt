@@ -7,7 +7,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { numberKeys } from "@/lib/metrics/meanings";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { agentDraftWorkDecision, agentDraftWorkLog, agentGetWork, agentSuggestWorkTask, agentWorkPost, fromLine, NOTE } from "./agentApi";
-import { addLogEntry } from "./log";
+import { addLogEntry, carryOver } from "./log";
 import type { WorkResult } from "./result";
 import { addTask, editTask, recordDecision } from "./service";
 import { dismissSuggestion, proposeWorkSuggestion } from "./suggestions";
@@ -118,7 +118,29 @@ describe("get_work", () => {
     value(await addLogEntry(await w.scope(PEOPLE.sam), { workstream: "Pricing page", state: "doing", note: "Copy done" }, w.deps));
     const log = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps)).log;
     expect(log).toMatchObject({ today: true, inFlight: [{ workstream: "Pricing page", state: "In progress", note: "Copy done", since: "Day 1", by: "sam" }] });
-    expect(log.entries).toEqual([expect.objectContaining({ workstream: "Pricing page", by: "sam", drafted: false })]);
+    expect(log.entries).toEqual([expect.objectContaining({ workstream: "Pricing page", by: "sam", drafted: false, carried: false })]);
+    expect(log).not.toHaveProperty("carryOver");
+  });
+
+  it("reads Nothing logged yet with what Carry over would log, then the carried entries like any other", async () => {
+    value(await addLogEntry(await w.scope(PEOPLE.sam), { workstream: "Pricing page", state: "doing", note: "Copy done" }, w.deps));
+    value(await addLogEntry(await w.scope(PEOPLE.nina), { workstream: "Supplier calls", state: "waiting", brandId: null }, w.deps));
+    w.at("2026-11-21T15:00:00.000Z");
+    const before = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
+    expect(before.log).toMatchObject({ today: true, entries: [], carryOver: "Nothing is logged today yet. 2 workstreams are still open from yesterday: a person presses Carry over 2 open from yesterday on Today to log them for today." });
+    expect(bodyOf(await agentGetWork(SAM_AGENT, {}, w.deps)).log.carryOver).toBe("Nothing is logged today yet. 1 workstream is still open from yesterday: a person presses Carry over 1 open from yesterday on Today to log it for today.");
+    value(await carryOver(await w.scope(PEOPLE.nina), { day: "2026-11-21" }, w.deps));
+    const after = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
+    expect(after.log).not.toHaveProperty("carryOver");
+    expect(after.log.entries.map((e: Body) => [e.workstream, e.note, e.by, e.carried, e.drafted]).sort()).toEqual([
+      ["Pricing page", "Carried over from yesterday.", "nina", true, false],
+      ["Supplier calls", "Carried over from yesterday.", "nina", true, false],
+    ]);
+    expect(after.log.inFlight.map((f: Body) => [f.workstream, f.since, f.by]).sort()).toEqual([
+      ["Pricing page", "Day 2", "nina"],
+      ["Supplier calls", "Day 2", "nina"],
+    ]);
+    expect([...numberKeys(after)]).toEqual([]);
   });
 
   it("returns the suggestions waiting in Review, and those dismissed lately with why and whether Vizzy may come back", async () => {

@@ -4,6 +4,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { BlogArticleMetaSchema, BlogHeroSchema, type ContentPlan } from "@/lib/types/contentPlan";
 import { updateBlogHero, updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { checkLive, setArticleLive, titlesMatch } from "./live";
+import { articleBodyHash } from "./foundLive";
 import { sampleHub, samplePlan } from "./testing/samplePlan";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -52,6 +53,7 @@ describe("is the article live?", () => {
       by: "check",
       titleMatched: true,
       checkedAt: "2026-10-15T10:00:00.000Z",
+      bodyHash: articleBodyHash(plan.graph.nodes[0]!.body),
     });
     expect(db.raw("brand_map_pages", "p_plan_1")).toMatchObject({ state: "live", liveAt: "2026-10-15T10:00:00.000Z" });
   });
@@ -86,11 +88,12 @@ describe("is the article live?", () => {
       by: "check",
       titleMatched: true,
       checkedAt: "2026-10-15T00:00:00.000Z",
+      bodyHash: expect.any(String),
     });
     type Stored = { graph: { nodes: Array<{ body: string; blog: { metaTitle: string; live?: { at: string } } }> } };
     const hub = () => (db.raw(PLANS, "plan_1") as Stored).graph.nodes[0]!;
     // A fact check or a rewrite writes the node's meta afresh: the mark stays.
-    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }) }, db);
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }), made: { unstamped: "nothing_made" } }, db);
     expect(hub()).toMatchObject({ blog: { metaTitle: "New title", live: { at: "2026-01-10T00:00:00.000Z" } } });
     // A canvas save sends the whole graph, its own copy of the meta without the mark: the mark stays.
     const stale = samplePlan({}, sampleHub({ status: "approved", body: "edited" }));
@@ -184,7 +187,7 @@ describe("true dates with the live mark (BLOG_DATES_ENABLED)", () => {
     await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark", day: "2026-10-03" }, { db, now });
     const want = { published: { at: "2026-10-03", source: "person" as const } };
     // A fact check or a rewrite writes the meta afresh.
-    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }) }, db);
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }), made: { unstamped: "nothing_made" } }, db);
     expect(hub(db)).toMatchObject({ blog: { metaTitle: "New title", dates: want } });
     // A canvas save sends its own copy of the meta, without them.
     await updateContentPlan(ctx, "ws1", "plan_1", { graph: samplePlan({}, sampleHub({ status: "approved", body: "edited" })).graph }, db);
@@ -201,3 +204,38 @@ describe("true dates with the live mark (BLOG_DATES_ENABLED)", () => {
   });
 });
 
+
+describe("Found live and words that changed since", () => {
+  beforeEach(() => vi.stubEnv("BLOG_LIVE_WATCH_ENABLED", "true"));
+  const URL = "https://acme.example/blog/visibility";
+  // The page shows the article's words (the watch compares them with the article's).
+  const withText = (text: string) => async () => ({ title: `${TITLE} | Acme`, h1: TITLE, text });
+  const status = (db: FakeFirestore) => (db.raw(PLANS, "plan_1") as { graph: { nodes: Array<{ status: string; blog: { live?: { bodyHash?: string } } }> } }).graph.nodes[0]!;
+
+  it("approves an article the first time it is found live, and keeps which words it saw", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db, samplePlan({}, sampleHub({ status: "generated" })));
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: withText(plan.graph.nodes[0]!.body) });
+    expect(status(db).status).toBe("approved");
+    expect(status(db).blog.live?.bodyHash).toBe(articleBodyHash(plan.graph.nodes[0]!.body));
+  });
+
+  it("never approves words changed since an earlier live mark, however often it is checked, until a person says it's live", async () => {
+    const db = new FakeFirestore();
+    const before = sampleHub().body;
+    const live = { url: URL, at: "2026-10-01T00:00:00.000Z", by: "check" as const, titleMatched: true, bodyHash: articleBodyHash(before) };
+    const plan = seed(
+      db,
+      samplePlan({}, sampleHub({ status: "generated", body: `${before}\n\nA new paragraph from the refresh.`, blog: { ...BlogArticleMetaSchema.parse({}), live } })),
+    );
+    for (let i = 0; i < 2; i += 1) {
+      // The page still has the words from before the refresh, which match well enough.
+      const r = await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: withText(before) });
+      expect(r.ok && r.check?.matched).toBe(true);
+      expect(status(db).status).toBe("generated");
+      expect(status(db).blog.live?.bodyHash).toBe(articleBodyHash(before));
+    }
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark" }, { db, now });
+    expect(status(db).status).toBe("approved");
+  });
+});

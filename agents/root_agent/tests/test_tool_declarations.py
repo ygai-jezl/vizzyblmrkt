@@ -26,6 +26,7 @@ from root_agent_pkg.tools.next_up import get_next_up  # noqa: E402
 from root_agent_pkg.tools.brand_strategy import get_brand_strategy  # noqa: E402
 from root_agent_pkg.tools.content_strategy import get_content_strategy  # noqa: E402
 from root_agent_pkg.tools.usage import get_usage  # noqa: E402
+from root_agent_pkg.tools.learning import get_learning  # noqa: E402
 from root_agent_pkg.tools.settings_history import get_settings_history  # noqa: E402
 from root_agent_pkg.tools.drafts import get_drafts  # noqa: E402
 from root_agent_pkg.tools.articles_due import list_articles_due  # noqa: E402
@@ -39,6 +40,7 @@ from root_agent_pkg.tools.journey_style import get_journey_email_style, set_jour
 from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: E402
 from root_agent_pkg.tools.setup_help import get_setup_status, read_help_page  # noqa: E402
 from root_agent_pkg.tools.new_person import new_person_propose  # noqa: E402
+from root_agent_pkg.tools.paste_list import paste_list_propose  # noqa: E402
 from root_agent_pkg.tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact  # noqa: E402
 from root_agent_pkg.tools.next_action import get_next_action  # noqa: E402
 from root_agent_pkg.tools.work import draft_work_decision, draft_work_log, get_work, suggest_work_task  # noqa: E402
@@ -71,6 +73,7 @@ TOOLS = [
     get_brand_strategy,
     get_content_strategy,
     get_usage,
+    get_learning,
     get_settings_history,
     get_drafts,
     list_articles_due,
@@ -78,6 +81,7 @@ TOOLS = [
     get_setup_status,
     read_help_page,
     new_person_propose,
+    paste_list_propose,
     get_business_profile,
     read_onboarding_conversation,
     suggest_business_fact,
@@ -242,6 +246,19 @@ def test_lifecycle_ops_can_read_and_suggest_a_persons_fields():
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_root_agent_reads_its_own_learning_and_never_names_a_brand():
+    from root_agent_pkg.agent import root_agent
+
+    assert get_learning in root_agent.tools
+    props, required = _params(FunctionTool(get_learning)._get_declaration())
+    # Kinds, all kinds and days only: the brand comes from the session token.
+    assert set(props) == {"kinds", "all_kinds", "days"} and not required
+    doc = " ".join((get_learning.__doc__ or "").split())
+    assert "last 90 days" in doc and "learning kinds first" in doc
+    assert "never another brand's" in doc and "call get_image_style" in doc
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
 def test_lifecycle_ops_reads_the_investor_board_as_counts_with_no_parameters():
     from root_agent_pkg.sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
     from root_agent_pkg.sub_agents.lifecycle_ops.tools.raise_pipeline import get_raise_pipeline
@@ -292,6 +309,20 @@ def test_the_root_agent_fills_in_new_person_with_no_place_for_consent():
     assert new_person_propose in root_agent.tools
     props, required = _params(FunctionTool(new_person_propose)._get_declaration())
     assert set(props) == {"email", "phone", "first_name", "last_name", "fields"} and not required
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_root_agent_reads_a_pasted_list_with_no_place_for_consent_or_a_brand():
+    from root_agent_pkg.agent import root_agent
+
+    assert paste_list_propose in root_agent.tools
+    props, required = _params(FunctionTool(paste_list_propose)._get_declaration())
+    # The rows and where they are from: the brand comes from the session token, consent never.
+    assert set(props) == {"text", "source"} and required == ["text"]
+    doc = " ".join((paste_list_propose.__doc__ or "").split())
+    assert "The app's code reads the rows, not you" in doc
+    assert "you can never record that someone agreed" in doc
+    assert "never retype, reorder, add, complete or invent rows" in doc
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")

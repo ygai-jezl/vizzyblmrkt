@@ -17,6 +17,7 @@ import {
   type CompetitorGroupKind,
   type IsNotProposal,
   type NotCompetitor,
+  type NotNowReason,
   type Strategy,
   type StrategyClaim,
   type StrategyCompetitor,
@@ -26,10 +27,12 @@ import {
   type StrategyGoal,
   type StrategyMade,
   type StrategySource,
+  type StrategySuggestion,
 } from "@/lib/types/brandStrategy";
-import { isBrandStrategyEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { isBrandStrategyEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled, isStrategySuggestEnabled } from "./flags";
 import { approvedCopy, isNotCompetitor, liveCompetitors, sameCompetitor, type LiveCompetitor } from "./competitors";
 import { dismissedCheck, freshCheck } from "./checkRules";
+import { isNoteSuggestion, isReviewSuggestion, withHold } from "./suggestRules";
 
 export type {
   BrandStrategyDoc,
@@ -390,6 +393,68 @@ function reasonsSaid(check: NonNullable<BrandStrategyDoc["check"]>): string {
   return (check.open?.reasons ?? []).map((r) => `${r.kind} ${r.ref} ${r.count}`).join("; ");
 }
 
+/** What a decision about the month's suggestion names: its kind and what it was about ("stalled_focus:sit_x"). */
+const suggestionRef = (s: Pick<StrategySuggestion, "detail" | "about">) => `${s.detail.kind}:${s.about}`;
+
+/**
+ * Whether a strategy being approved no longer holds what a suggestion is about: its stalled focus
+ * situation is out of the focus, or its claim is gone or now has proof. Pure.
+ */
+export function suggestionSettledBy(s: Pick<StrategySuggestion, "detail">, approved: Pick<Strategy, "focusSituationIds" | "claims">): boolean {
+  const d = s.detail;
+  if (d.kind === "stalled_focus") return !approved.focusSituationIds.includes(d.id);
+  if (d.kind === "claim_no_proof") {
+    const c = approved.claims.find((x) => x.id === d.id);
+    return !c || Boolean(c.proof);
+  }
+  return false;
+}
+
+/** What made a proposal, without the suggestion it took as a note: once approved, that note is spent. Pure. */
+export function withoutNote(made: StrategyMade | null): StrategyMade | null {
+  if (!made) return null;
+  const { suggestion: _note, ...rest } = made;
+  void _note;
+  return rest;
+}
+
+/**
+ * A new content plan was approved (STRATEGY_SUGGEST_ENABLED): an open Behind plan suggestion about
+ * an earlier plan goes, since the entries it names are that plan's. Kept without moving `rev`.
+ * Answers whether one went.
+ */
+export async function settlePlanSuggestion(ctx: TenantContext, planAt: string, deps: StrategyDeps = {}): Promise<boolean> {
+  if (!isStrategySuggestEnabled()) return false;
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const s = parseBrandStrategy(current)?.suggestion;
+    if (!isReviewSuggestion(s) || s.detail.kind !== "behind_plan" || s.about === `plan:${planAt}`.slice(0, 64)) return null;
+    return { suggestion: null };
+  });
+  return Boolean(kept);
+}
+
+/**
+ * Not now on the month's suggestion (STRATEGY_SUGGEST_ENABLED), by its key, so a newer one is never
+ * put off by mistake: it leaves Review, that kind of suggestion about that thing stays away 60 days
+ * (90 for one about connecting or sharing a tool), and a `suggestion_dismissed` decision keeps the
+ * reason and the note. Kept without moving `rev`. Answers whether it was open.
+ */
+export async function dismissSuggestion(ctx: TenantContext, input: { key: string; reason: NotNowReason; note: string | null }, deps: StrategyDeps = {}): Promise<boolean> {
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const doc = parseBrandStrategy(current);
+    const s = doc?.suggestion;
+    if (!doc || !isReviewSuggestion(s) || s.key !== input.key) return null;
+    return {
+      suggestion: { ...s, state: "dismissed", dismissedAt: at },
+      suggestHolds: withHold(doc.suggestHolds, s, input.reason, at),
+      decisions: withDecisions(doc.decisions, [decision("suggestion_dismissed", suggestionRef(s), at, by, input.reason, input.note || null)]),
+    };
+  });
+  return Boolean(kept);
+}
+
 /**
  * Dismiss the weekly check's row (STRATEGY_CHECK_ENABLED): it stays quiet 30 days, then counts
  * from today. Kept without moving `rev`, with a `check_dismissed` decision. Answers whether a row
@@ -630,13 +695,23 @@ export async function approveStrategy(
     const starred = doc.draft.focusSituationIds.filter((id) => decided.has(id)).length;
     if (starred < Math.min(L.focusMin, decided.size)) throw new Refused(400, "too_few_focus", doc);
     const live = input.watched !== undefined ? liveCompetitors(doc.draft, input.watched, doc.finder.notCompetitors, doc.finder.monitoredFinds) : null;
-    const approved = StrategySchema.parse({ ...doc.draft, ...(live ? { ...approvedCopy(live), competitorsLive: true } : {}), at, by });
+    // The suggestion a Propose took as a note is spent once approved: neither copy keeps it, so a later
+    // hand edit approved while the same suggestion is open again never counts as acting on it.
+    const approved = StrategySchema.parse({ ...doc.draft, made: withoutNote(doc.draft.made), ...(live ? { ...approvedCopy(live), competitorsLive: true } : {}), at, by });
+    // A draft Propose made with the month's open suggestion as a note: approving it acts on it. Measure
+    // more is never a note: only connecting a tool, or Not now, settles it.
+    const on = isStrategySuggestEnabled();
+    const s = doc.suggestion;
+    const acted = on && isNoteSuggestion(s) && doc.draft.made?.suggestion === s.key ? s : null;
+    // Otherwise an open one about what this approval no longer holds goes.
+    const settled = on && !acted && isReviewSuggestion(s) && suggestionSettledBy(s, approved);
     return {
       approved,
       // The draft keeps its own finds: the approved copy is the list as it was, for the history.
       draft: live ? StrategySchema.parse({ ...approved, competitorGroups: doc.draft.competitorGroups, ungrouped: doc.draft.ungrouped, competitorsLive: false }) : approved,
       history: [...(doc.approved ? [doc.approved] : []), ...doc.history].slice(0, L.history),
-      decisions: withDecisions(doc.decisions, approveDecisions(doc.draft, at, by, live)),
+      decisions: withDecisions(doc.decisions, [...(acted ? [decision("suggestion_acted", suggestionRef(acted), at, by)] : []), ...approveDecisions(doc.draft, at, by, live)]),
+      ...(acted ? { suggestion: { ...acted, state: "acted" as const, actedAt: at } } : settled ? { suggestion: null } : {}),
       // The weekly check starts again from this approval; with it off, an old one is cleared so it can't come back.
       ...(isStrategyCheckEnabled() ? { check: freshCheck(at, doc.check) } : doc.check ? { check: null } : {}),
     };

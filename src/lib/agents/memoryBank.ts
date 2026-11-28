@@ -122,7 +122,8 @@ export async function learnFromEdits(
 }
 
 /** Learn from lines already written in the person's own voice (Edit mode's, or a post edit's).
- *  Same scope and request as learnFromEdits. */
+ *  Same scope and request as learnFromEdits. Throws memory_bank_404 when there is no bank at the
+ *  set id, so a wrong or deleted bank is never counted as learned (ADR-0021). */
 export async function learnFromEventTexts(
   ctx: Pick<TenantContext, "tenantId" | "userId">,
   texts: readonly string[],
@@ -130,12 +131,13 @@ export async function learnFromEventTexts(
 ): Promise<void> {
   const lines = texts.map((t) => t.trim()).filter(Boolean);
   if (!lines.length) return;
-  await call(io, "POST", "/memories:generate", {
+  const started = await call(io, "POST", "/memories:generate", {
     scope: memoryScope(ctx),
     directContentsSource: {
       events: lines.map((text) => ({ content: { role: "user", parts: [{ text }] } })),
     },
   });
+  if (started === null) throw new Error("memory_bank_404");
 }
 
 /** One of the person's memories, or null when there's none with that id in their scope. */

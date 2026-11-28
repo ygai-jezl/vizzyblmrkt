@@ -13,7 +13,7 @@
 
 import { isTableStart, readTable } from "../markdownTable";
 import type { Dateline } from "./dates";
-import { articleLabel, dateLineLanguage, otherLabels } from "./labels";
+import { articleLabel, dateLineLanguage, otherLabels, labelKeyOf } from "./labels";
 
 export type ArticleBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
@@ -449,7 +449,10 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>, dateline: Date
       // A short label names the kind of box ("key-facts", "answer"); a sentence in bold
       // (a call to action's opening line) is not a kind, so that box is a plain note.
       const short = plainInline(block.label).split(/\s+/).length <= 4;
-      const cls = (short && slugify(block.label)) || "note";
+      // A catalog label keeps its English class in every language ("key-facts" for "Points clés"),
+      // so a site's styles still find the box in a translated article.
+      const key = labelKeyOf(plainInline(block.label));
+      const cls = (key && slugify(articleLabel("en", key))) || (short && slugify(block.label)) || "note";
       return `<div class="callout ${cls}">\n<p class="callout-label"><strong>${renderInlineHtml(block.label)}</strong></p>\n${inner}\n</div>`;
     }
     case "code": {
@@ -459,6 +462,24 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>, dateline: Date
     default:
       return "<hr>";
   }
+}
+
+/** The ids the HTML gives the article's headings below the title, in order (renderArticleHtml's rule). */
+export function headingIds(markdown: string): string[] {
+  const ids = new Map<string, number>();
+  const out: string[] = [];
+  const walk = (blocks: ArticleBlock[]) => {
+    for (const b of blocks) {
+      if (b.kind === "heading" && b.level > 1) {
+        const base = slugify(plainInline(b.text)) || "section";
+        const seen = ids.get(base) ?? 0;
+        ids.set(base, seen + 1);
+        out.push(seen ? `${base}-${seen + 1}` : base);
+      } else if (b.kind === "callout") walk(b.blocks);
+    }
+  };
+  walk(parseArticle(markdown));
+  return out;
 }
 
 /** The article as clean, semantic HTML to paste into a CMS. Everything is escaped. */

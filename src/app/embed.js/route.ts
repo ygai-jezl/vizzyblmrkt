@@ -79,6 +79,8 @@ const LOADER = String.raw`(function () {
     add('buttonColor', el.getAttribute('data-vizzybl-button-color'));
     add('bgColor', el.getAttribute('data-vizzybl-bg-color'));
     add('fontColor', el.getAttribute('data-vizzybl-font-color'));
+    // The host page's language goes first in the widget's own choice (PAGE_LANGUAGES_ENABLED).
+    add('lng', el.getAttribute('data-vizzybl-lang'));
     // Pass the HOST page's UTM params through to the iframe so the view beacon
     // (which runs INSIDE the same-origin frame and can't read the parent's URL)
     // can attribute impressions to the campaign that drove the visit.

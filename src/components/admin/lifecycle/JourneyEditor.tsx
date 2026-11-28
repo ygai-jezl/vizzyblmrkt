@@ -8,6 +8,7 @@ import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Tabs, inputClass } from "../connect/ui";
 import { LifecycleCanvas } from "./LifecycleCanvas";
 import { PoolsEditor } from "./PoolsEditor";
+import { WhoGetsWhich, useTranslations } from "./LanguageTabs";
 import { SettingsPanel } from "./SettingsPanel";
 import { DeliveryPanel } from "./DeliveryPanel";
 import { EnrolmentsPanel } from "./EnrolmentsPanel";
@@ -80,6 +81,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const [staleFromChat, setStaleFromChat] = useState(false);
   // The Email style control was touched since the draft loaded (journey styles on).
   const [styleTouched, setStyleTouched] = useState(false);
+  // Its emails in other languages (ASSET_TRANSLATIONS_ENABLED): only when the brand sees them.
+  const translations = useTranslations(journeyId, Boolean(detail?.features.translations));
 
   const load = useCallback(async () => {
     const r = await api<JourneyDetail>(`/api/admin/lifecycle/journeys/${journeyId}`);
@@ -485,6 +488,9 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           }}
         />
       ) : null}
+      {tab === "content" && translations.view ? (
+        <WhoGetsWhich journeyId={journeyId} view={translations.view} canAct={!readOnly} onChanged={translations.reload} />
+      ) : null}
       {tab === "content" ? (
         <PoolsEditor
           pools={draft.pools}
@@ -501,6 +507,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           focusPoolId={focusPool}
           onFocusPool={setFocusPool}
           onChange={(pools) => edit({ pools })}
+          translations={translations.view ? { journeyId, view: translations.view, canAct: !readOnly, onChanged: translations.reload } : null}
         />
       ) : null}
       {tab === "settings" ? (

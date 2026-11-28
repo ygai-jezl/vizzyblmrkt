@@ -1,4 +1,10 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
+import { CountBuffer } from "@/lib/loops/count";
+import { countStamped } from "@/lib/loops/decisions";
+import { keptMade } from "@/lib/loops/made";
+import { isLoopsEnabled } from "@/lib/loops/flags";
+import { learnedFor } from "@/lib/loops/read";
+import type { Made } from "@/lib/types/loopStamp";
 import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fence, oneLine } from "@/lib/brandMap/lineChecks";
@@ -27,6 +33,8 @@ import { mayStartReview } from "@/lib/content/blog/refreshGate";
 import { MAX_CANDIDATES } from "./candidates";
 import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
+import { basedOnFor } from "@/lib/brandStrategy/basedOn";
+import { isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, skippedSlotQuestions } from "@/lib/contentStrategy/nextUp";
 import { PAGE_KIND_LABEL, ROADMAP_SHARE, type ContentPlan, type PickSlot } from "@/lib/types/contentStrategy";
 import { withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
@@ -305,6 +313,17 @@ function codePick(w: Weighed): NextUpPick {
   };
 }
 
+/**
+ * A pick with its focus and what it came from (STRATEGY_RESULTS_ENABLED). A roadmap candidate's
+ * focus situation is read from the same question in the free list, which carries it. Pure.
+ */
+export function withBasedOn(pick: NextUpPick, weighed: Weighed[], listed: Candidate[], strategy: Strategy | null, plan: ContentPlan | null): NextUpPick {
+  const c = weighed.find((w) => w.candidate.questionId === pick.questionId)?.candidate;
+  const situationId = c?.situationId ?? listed.find((q) => q.questionId === pick.questionId)?.situationId ?? null;
+  const basedOn = basedOnFor({ strategy, plan, situationId, slotId: pick.slot?.id ?? null });
+  return { ...pick, focus: Boolean(c?.focus || situationId), ...(basedOn ? { basedOn } : {}) };
+}
+
 async function eachLimited<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let i = 0;
@@ -325,12 +344,51 @@ export async function readNextUp(ctx: TenantContext, deps: Pick<PickDeps, "db"> 
   return forTenant(ctx, deps.db).nextUp.getById(nextUpDocId(ctx.tenantId));
 }
 
-/** Take one pick off the stored list (Not now, or picked for a run). */
-export async function dropPick(ctx: TenantContext, questionId: string, deps: Pick<PickDeps, "db"> = {}): Promise<NextUpDoc | null> {
-  return forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) =>
-    cur.picks.some((p) => p.questionId === questionId) ? { picks: cur.picks.filter((p) => p.questionId !== questionId) } : null,
-  );
+/**
+ * Take one pick off the stored list, saying why: `declined` for Not now, `kept` when it is used (a
+ * run takes it, or it is added to an article). Once it is off, the pick counts that against its
+ * stamp (learning loops step 5), so each pick counts once.
+ */
+export async function dropPick(ctx: TenantContext, questionId: string, as: "kept" | "declined", deps: Pick<PickDeps, "db"> = {}): Promise<NextUpDoc | null> {
+  let dropped: NextUpPick | undefined;
+  const doc = await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
+    dropped = cur.picks.find((p) => p.questionId === questionId);
+    return dropped ? { picks: cur.picks.filter((p) => p.questionId !== questionId) } : null;
+  });
+  if (doc && dropped) await countStamped(ctx, dropped.made, { [as]: 1 }, { db: deps.db });
+  return doc;
 }
+
+/**
+ * A person used one of Next up's picks by hand: Write it saved an article from it, or Find what
+ * buyers ask started on it. The pick stays on the list, as it did, and counts kept against its
+ * stamp once (learning loops step 5): the stamp comes off the stored pick in the same claim, so
+ * using it again, or a later drop (a run taking it, Not now), counts nothing more. With
+ * LOOPS_ENABLED off, or for a pick with no stamp, nothing is written. True when it counted. Never
+ * throws: a count never fails the work it counts.
+ */
+export async function usedPick(ctx: TenantContext, questionId: string, deps: Pick<PickDeps, "db"> = {}): Promise<boolean> {
+  if (!isLoopsEnabled() || !questionId) return false;
+  let used: Made | undefined;
+  try {
+    await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
+      used = cur.picks.find((p) => p.questionId === questionId)?.made;
+      if (!used) return null;
+      return { picks: cur.picks.map((p) => (p.questionId === questionId ? withoutMade(p) : p)) };
+    });
+  } catch (err) {
+    console.warn("[next up] counting a used pick failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+    return false;
+  }
+  if (!used) return false;
+  await countStamped(ctx, used, { kept: 1 }, { db: deps.db });
+  return true;
+}
+
+const withoutMade = ({ made: _made, ...rest }: NextUpPick): NextUpPick => {
+  void _made;
+  return rest;
+};
 
 /**
  * Choose the brand's next three articles and keep them. `deadlineMs` bounds the whole thing; the
@@ -493,6 +551,22 @@ export async function pickNextUp(
     }
   }
 
+  // How it went (STRATEGY_RESULTS_ENABLED): each pick says the strategy and plan it came from, and keeps its focus.
+  if (isStrategyResultsEnabled()) picks = picks.map((p) => withBasedOn(p, weighed, listed, strategy, plan));
+  // What made each pick (LOOPS_ENABLED, learning loops step 5): Next up, through the model or, for
+  // a pick filled in by code, without a prompt. Kept on the pick and counted made once saved.
+  const [byModel, byCode] = await Promise.all([
+    learnedFor(ctx, "next_up", { promptId: "next_up.pick" }),
+    learnedFor(ctx, "next_up"),
+  ]);
+  const madeOf = (p: NextUpPick): Made => (p.from === "gemini" ? byModel.stamp : byCode.stamp);
+  picks = picks.map((p) => {
+    const { made: _old, ...rest } = p;
+    void _old;
+    const made = keptMade(madeOf(p));
+    return made ? { ...rest, made } : rest;
+  });
+
   const closePicks = picks.some((p) => p.closeTo);
   const reviewsOpen = closePicks
     ? await (deps.reviewsOpen ?? (async (c) => isBlogRefreshEnabled() && (await mayStartReview(c, { db: deps.db, ...(deps.loadTenant ? { loadTenant: deps.loadTenant } : {}) })).ok))(ctx).catch(() => false)
@@ -509,5 +583,8 @@ export async function pickNextUp(
       : {}),
   };
   const { doc: saved } = await forTenant(ctx, deps.db).nextUp.upsert(nextUpDocId(ctx.tenantId), () => doc, () => doc);
+  const counts = new CountBuffer({ db: deps.db });
+  for (const p of picks) counts.made(ctx, "next_up", madeOf(p), { type: "next_up" });
+  await counts.flush();
   return { ok: true, doc: saved };
 }

@@ -466,19 +466,44 @@ export const FOOTER_MARKER = "data-vzb-footer";
 /** Footer inner HTML (no section band — renderBlock adds it from block.sectionBg).
  *  `withAddress` adds a `{{postal_address}}` line (lifecycle emails); a `style` with a
  *  theme sets it in the theme's body font (none = today's). */
-function renderFooterInner(opts: { withAddress?: boolean; style?: ResolvedEmailStyle | null } = {}): string {
+/**
+ * The footer's words in another language (ASSET_TRANSLATIONS_ENABLED), from the message catalog
+ * on the server (src/lib/i18n/emailVersion.ts). Absent: today's English, byte for byte.
+ */
+export interface FooterWords {
+  /** Keeps the {{sender_brand}} token. */
+  sentBy: string;
+  preferences: string;
+  unsubscribe: string;
+  privacy: string;
+}
+
+/** A journey email sent in another language: its code and direction, and the fixed words it carries. */
+export interface EmailLanguage {
+  lang: string;
+  dir: "ltr" | "rtl";
+  footer: FooterWords;
+  /** "{done} of {total} steps done" in that language. */
+  stepsDone: string;
+  /** "and {n} more" in that language. */
+  more: string;
+}
+
+function renderFooterInner(opts: { withAddress?: boolean; style?: ResolvedEmailStyle | null; words?: FooterWords | null } = {}): string {
   // `mc:disable-tracking` keeps Mandrill from rewriting these to click-tracking
   // redirects: the unsubscribe/preferences/privacy controls must be DIRECT links
   // (bulk-sender guidance), and tracking them would inflate journey click metrics.
   const link = (token: string, label: string) =>
     `<a href="${token}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">${label}</a>`;
   const address = opts.withAddress ? "<br />{{postal_address}}" : "";
-  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${fontFor(opts.style, "body")};font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.${address}<br />${link(
+  const w = opts.words;
+  const sentBy = w ? escapeHtml(w.sentBy) : "This email was sent by {{sender_brand}}.";
+  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${fontFor(opts.style, "body")};font-size:12px;line-height:1.7;color:#999999">${sentBy}${address}<br />${link(
     "{{manage_preferences_url}}",
-    "Manage preferences",
-  )} &nbsp;|&nbsp; ${link("{{unsubscribe_url}}", "Unsubscribe")} &nbsp;|&nbsp; ${link(
+    w ? escapeHtml(w.preferences) : "Manage preferences",
+  )} &nbsp;|&nbsp; ${link("{{unsubscribe_url}}", w ? escapeHtml(w.unsubscribe) : "Unsubscribe")} &nbsp;|&nbsp; ${link(
     "{{privacy_url}}",
-    "Privacy Policy",
+    w ? escapeHtml(w.privacy) : "Privacy Policy",
   )}</div>`;
 }
 
@@ -487,7 +512,7 @@ function renderFooterInner(opts: { withAddress?: boolean; style?: ResolvedEmailS
  *  `style` so a theme's body font reaches it. */
 export function renderFooter(
   sectionBg?: string | null,
-  opts: { withAddress?: boolean; style?: ResolvedEmailStyle | null } = {},
+  opts: { withAddress?: boolean; style?: ResolvedEmailStyle | null; words?: FooterWords | null } = {},
 ): string {
   return withSection(renderFooterInner(opts), sectionBg ?? null);
 }
@@ -496,9 +521,10 @@ export function renderFooter(
  * A plain, founder-style shell for `letter` lifecycle emails: no card, no hero and
  * no Email style band — it should read like a personal note, not a newsletter.
  */
-export function wrapLetter(inner: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
-  <div style="font-family:${FONT};font-size:15px;line-height:1.6;max-width:560px;margin:0 auto;padding:24px;color:#111">
+export function wrapLetter(inner: string, opts: { lang?: string | null; dir?: "ltr" | "rtl" | null } = {}): string {
+  const lang = langAttrs(opts);
+  return `<!doctype html><html${lang}><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
+  <div${lang} style="font-family:${FONT};font-size:15px;line-height:1.6;max-width:560px;margin:0 auto;padding:24px;color:#111">
     ${inner}
   </div>
 </body></html>`;

@@ -1,4 +1,6 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
@@ -128,7 +130,14 @@ export async function judgeItems(
     thinkingBudget: 256,
     usage: aiUsage(ctx, "judge", { db: deps.db }),
   }).catch(() => null);
-  return readVerdicts(raw, ask.items);
+  const verdicts = readVerdicts(raw, ask.items);
+  // Counted made as it is handed back, for the lookup or the autopilot to keep (LOOPS_ENABLED, learning loops step 5).
+  if (verdicts) {
+    const now = deps.now?.();
+    const { stamp } = await learnedFor(ctx, "judge", { promptId: "signals.judge_found" }, now ? { now } : {});
+    await countMade(ctx, "judge", stamp, { type: "brand_signal", db: deps.db, ...(now ? { now } : {}) });
+  }
+  return verdicts;
 }
 
 /** Judge a ready lookup. Null when there is nothing to judge or Gemini didn't answer in full. */

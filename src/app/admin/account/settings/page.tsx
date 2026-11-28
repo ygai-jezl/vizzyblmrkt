@@ -13,12 +13,17 @@ import { AboutYourBusiness } from "@/components/admin/onboarding/AboutYourBusine
 import { AccountSettings } from "@/components/admin/AccountSettings";
 import { SearchSettingsCard } from "@/components/admin/search/SearchSettingsCard";
 import { isSearchUiEnabled } from "@/lib/search/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { GoogleMarketCard } from "@/components/admin/signals/GoogleMarketCard";
 import { isBrandSignalsEnabled } from "@/lib/signals/flags";
 import { TimeZoneCard } from "@/components/admin/settings/TimeZoneCard";
 import { isBlogDatesEnabled } from "@/lib/brandMap/flags";
 import { SignInSecurityCard } from "@/components/admin/SignInSecurityCard";
 import { isPasswordSigninEnabled } from "@/lib/auth/flags";
+import { LearningSettingCard } from "@/components/admin/settings/LearningSettingCard";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { readBrandPointers } from "@/lib/tenant/loops";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +81,24 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
 }
 
 /**
+ * Settings › General › Learning (IMAGE_STYLE_VERSIONS_ENABLED or LOOPS_ENABLED): Help check that
+ * learning works, read from the brand's pointers in its region. A read that fails leaves the
+ * section out. With LOOPS_ENABLED on its words widen (step 5): off also leaves the brand out of the
+ * counts across brands, and with only LOOPS_ENABLED on that is all it does, so a brand can always
+ * leave the counts (decision 4).
+ */
+async function learningSetting(ctx: TenantContext): Promise<ReactElement | null> {
+  const versions = isImageStyleVersionsOn();
+  if (!versions && !isLoopsEnabled()) return null;
+  const pointers = await readBrandPointers(ctx).catch(() => {
+    console.warn("[settings] the learning setting didn't load");
+    return null;
+  });
+  if (!pointers) return null;
+  return <LearningSettingCard isAdmin={ctx.role === "admin"} offSince={pointers.fleetOptOut?.at ?? null} counts={isLoopsEnabled()} holdback={versions} />;
+}
+
+/**
  * Account-wide settings: content-language defaults. With nav v2 phase 3 this is
  * Settings › General, and also shows the brand's details (the ids and data region
  * that used to sit in the sidebar footer). With PASSWORD_SIGNIN_ENABLED it also
@@ -84,16 +107,16 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
  */
 export default async function AccountSettingsPage() {
   const ctx = await requireAdminContext();
-  const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} /> : null;
+  const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} decks={isRaiseKitEnabled()} /> : null;
   const market = isBrandSignalsEnabled() ? <GoogleMarketCard isAdmin={ctx.role === "admin"} /> : null;
   const zone = isBlogDatesEnabled() ? <TimeZoneCard isAdmin={ctx.role === "admin"} /> : null;
   const security = isPasswordSigninEnabled() ? <SignInSecurityCard /> : null;
   const phase3 = isNavV2Phase3Enabled();
   // One read of the brand, shared by Brand details and About your business.
   const tenant = phase3 || mayShowAbout(ctx) ? await getTenantById(ctx.tenantId).catch(() => null) : null;
-  const about = await aboutYourBusiness(ctx, tenant);
+  const [about, learning] = await Promise.all([aboutYourBusiness(ctx, tenant), learningSetting(ctx)]);
   if (!phase3) {
-    return about || search || market || zone || security ? (
+    return about || search || market || zone || security || learning ? (
       <div className="space-y-6">
         {about}
         <AccountSettings />
@@ -101,6 +124,7 @@ export default async function AccountSettingsPage() {
         {search}
         {market}
         {zone}
+        {learning}
       </div>
     ) : (
       <AccountSettings />
@@ -130,6 +154,7 @@ export default async function AccountSettingsPage() {
       {search}
       {market}
       {zone}
+      {learning}
       <AccountSettings />
     </div>
   );

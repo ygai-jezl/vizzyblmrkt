@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LearnRequestSchema, learningEventText, memoryLabel, wordChanges } from "./vizzyLearning";
+import { LearnRequestSchema, LearnSkippedSchema, learnCloseBody, learningEventText, memoryLabel, wordChanges } from "./vizzyLearning";
 
 describe("what goes to Memory Bank", () => {
   it("finds the words taken out and put in", () => {
@@ -46,5 +46,35 @@ describe("what goes to Memory Bank", () => {
   it("shows a memory without 'The user'", () => {
     expect(memoryLabel("The user keeps intros short.")).toBe("Keeps intros short.");
     expect(memoryLabel("Uses UK spelling.")).toBe("Uses UK spelling.");
+  });
+});
+
+describe("what Edit mode sends when it closes", () => {
+  const change = { instruction: "shorter", kind: "selection", outcome: "kept", before: "a long line", after: "a line" } as const;
+
+  it("sends the changes when Vizzy may learn from them", () => {
+    expect(learnCloseBody(true, true, [change])).toEqual({ entries: [change] });
+    const many = learnCloseBody(true, true, Array.from({ length: 25 }, () => ({ ...change, instruction: "x".repeat(1200) })));
+    expect(many && "entries" in many ? many.entries.length : 0).toBe(20);
+    expect(LearnRequestSchema.safeParse(many).success).toBe(true);
+  });
+
+  it("sends only how many there were when it may not, and nothing with none", () => {
+    for (const [available, learn] of [[false, true], [true, false], [false, false]] as const) {
+      const body = learnCloseBody(available, learn, [change, change]);
+      expect(body).toEqual({ skipped: 2 });
+      expect(JSON.stringify(body)).not.toContain("long line");
+    }
+    expect(learnCloseBody(false, true, Array.from({ length: 30 }, () => change))).toEqual({ skipped: 20 });
+    expect(learnCloseBody(true, true, [])).toBeNull();
+    expect(learnCloseBody(false, false, [])).toBeNull();
+  });
+
+  it("accepts a count alone, and nothing beside it", () => {
+    expect(LearnSkippedSchema.safeParse({ skipped: 3 }).success).toBe(true);
+    expect(LearnSkippedSchema.safeParse({ skipped: 0 }).success).toBe(false);
+    expect(LearnSkippedSchema.safeParse({ skipped: 21 }).success).toBe(false);
+    expect(LearnSkippedSchema.safeParse({ skipped: 1.5 }).success).toBe(false);
+    expect(LearnSkippedSchema.safeParse({ skipped: 2, instruction: "shorter" }).success).toBe(false);
   });
 });

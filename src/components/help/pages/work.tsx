@@ -1,14 +1,15 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { ideaWord } from "@/lib/nav/terms";
-import { isWorkVizzyEnabled } from "@/lib/work/flags";
+import { isWorkQuickEditEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { DRAFT_COPY } from "@/lib/work/draft";
-import { IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
+import { carriedLine, carryOverLabel, IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { DECLINE_WHY_CHOICES } from "@/lib/work/suggestion";
 import { WORK_REVIEW_COPY } from "@/lib/work/reviewCards";
-import { countedLine, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
+import { CARRIED_NOTE, countedLine, IMAGES_OFF_LINE, LOOPS_COUNT_NOTE, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -16,7 +17,11 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * know it worked, checks, import, and Work in Review. The lines about Vizzy suggesting tasks and
  * drafting Log notes and decisions show while Vizzy's Work tools are on (WORK_VIZZY_ENABLED, a server
  * switch: the How to drawer passes the shell's answer). "Make it an idea" is in the words people
- * read (ideaWords). Every business named is made up, and the words it quotes are the app's own.
+ * read (ideaWords). While the learning loops are on (LOOPS_ENABLED, a server switch the drawer gets
+ * as `loops`), it says an operator's counts come from the loops' weekly counts across brands. Every
+ * business named is made up, and the words it quotes are the app's own.
+ * With quick edit on (WORK_QUICK_EDIT_ENABLED, a server switch passed the same way), Your tasks
+ * says how a task opens in place on the list and how each field saves there.
  */
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -44,7 +49,7 @@ const CANT_COUNT = countedLine({
   timeZone: "Europe/London",
 });
 
-export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords = isIdeaWordsEnabled(), loops = isLoopsEnabled(), workQuickEdit = isWorkQuickEditEnabled() }: HelpBodyProps = {}) {
   const word = ideaWord(ideaWords);
   const reasons = DECLINE_WHY_CHOICES.map((r) => r.label);
   return (
@@ -96,7 +101,14 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           a description and notes, the stage, the brand, <strong>Must have</strong>, Connected to and Other links, what it waits
           for, a check and How we&apos;ll know it worked. Press <strong>Add task</strong>.
         </li>
-        <li>Open a task from the list to see its own page. All tasks takes you back.</li>
+        {workQuickEdit ? (
+          <li>
+            Click any part of a task&apos;s row to open it right there, under the row, with everything its page has. See{" "}
+            <strong>Change a task in the list</strong>, below.
+          </li>
+        ) : (
+          <li>Open a task from the list to see its own page. All tasks takes you back.</li>
+        )}
       </Steps>
       <UL>
         <li>
@@ -115,8 +127,9 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           all done, a To do task shows in Review under Ready to start.
         </li>
         <li>
-          On a task&apos;s page, press <strong>Edit</strong> beside Description to change the title, description and notes. A
-          command in the description written between backticks gets a <strong>Copy</strong> button.
+          On a task&apos;s {workQuickEdit ? "full page" : "page"}, press <strong>Edit</strong> beside Description to change the
+          title, description and notes{workQuickEdit ? "; in the list, click them instead" : ""}. A command in the description
+          written between backticks gets a <strong>Copy</strong> button.
         </li>
         <li>
           The line under the title says where the task came from, such as &quot;Added by you on 18 Nov.&quot; or &quot;Imported
@@ -132,6 +145,49 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           Admins and owners can press <strong>Delete task</strong>. Its history stays in the Log.
         </li>
       </UL>
+      {workQuickEdit ? (
+        <>
+          <H3>Change a task in the list</H3>
+          <UL>
+            <li>
+              Click a task&apos;s row and it opens under the row. One row is open at a time. Click the cell you want to change,
+              such as Status, Stage, Brand, Blocked by or Check, and that field is ready to use. The task&apos;s number, or the
+              title, opens it at its heading. Cmd or Ctrl click on the title opens its full page in a new tab, and{" "}
+              <strong>{WORK_COPY.openFull}</strong> goes there too.
+            </li>
+            <li>
+              Click the title to rename it: Enter saves, Esc puts the old title back, and an empty title isn&apos;t saved.
+              Click the description or the notes, or <strong>Edit</strong>, to change them: Enter is a new line, and clicking
+              elsewhere or Cmd+Enter (Ctrl+Enter on Windows) saves. Esc puts back what was there, with{" "}
+              <strong>{WORK_COPY.undo}</strong>.
+            </li>
+            <li>
+              Status and Must have save the moment you pick. Stage and Brand save half a second after your last pick, and a
+              link as you add or remove it. The check, Blocked by, How we&apos;ll know it worked and a decision save with{" "}
+              <strong>Save</strong>.
+            </li>
+            <li>
+              Make several changes in a row, as fast as you like: they save one after another. The line under the heading says
+              Saving…, then Saved, or what Work did besides, such as the check Done set.
+            </li>
+            <li>
+              <strong>{WORK_COPY.closeRow}</strong>, the task&apos;s number or Esc closes the row. Esc closes the innermost thing
+              first: a list of choices, then an editor, then the row. Closing, opening another row or changing a filter waits
+              for saves to finish, and an editor with changes asks first: &quot;Check has changes that aren&apos;t saved.&quot;
+              Press <strong>{WORK_COPY.keepEditing}</strong> or <strong>{WORK_COPY.discard}</strong>.
+            </li>
+            <li>
+              The list holds still while you work down it: changed rows stay where they are, new tasks appear on top, and{" "}
+              <strong>{WORK_COPY.sortAgain}</strong> shows beside the order line once anything would move. Changing a filter or
+              reloading the page sorts afresh.
+            </li>
+            <li>
+              A task that no longer matches your filters, such as one set Done under Status Open, stays where it is until you
+              close it, saying &quot;{WORK_COPY.keptNote}&quot;
+            </li>
+          </UL>
+        </>
+      ) : null}
       <H3>Who sees which tasks</H3>
       <UL>
         <li>In an organisation with one brand, everyone on the team sees every task.</li>
@@ -275,6 +331,16 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           A measure that counts one of your copy&apos;s own AI purposes, types or loop kinds is counted only for the people who
           run its learning loop. Everyone else, Vizzy too, reads &quot;{OPERATOR_COUNT_LINE}&quot;
         </li>
+        {loops ? (
+          <li>
+            For them, Work counts those from the learning loops&apos; weekly counts across brands, never brand by brand. It
+            reads whole weeks, Monday to Sunday, up to the newest 13, so a week that isn&apos;t over yet isn&apos;t counted. A
+            week shows a number only with counts from 10 organisations or more, brands that opted out are left out, and things
+            made count up to 20 for each organisation a week. Each of these counts ends &quot;{LOOPS_COUNT_NOTE}&quot; Images
+            are counted only while image learning is on for your copy; until then a count of an image kind reads &quot;
+            {IMAGES_OFF_LINE}&quot;
+          </li>
+        ) : null}
         <li>
           Set a measure on a task that is done already, and its check is set as Done would have set it, or for today if that
           day has passed. Change the days on a check still to come, and the check moves with them.
@@ -387,11 +453,18 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           drops off.
         </li>
         <li>
+          Before anyone has logged today, if something was still open yesterday, In flight says &quot;
+          {WORK_COPY.nothingLoggedToday}&quot; Press <strong>{carryOverLabel(4)}</strong> to log today&apos;s line for each
+          workstream still open yesterday, with its state and task, in your name and with the note {CARRIED_NOTE} The number
+          is how many it logs, and afterwards In flight says &quot;{carriedLine(4)}&quot; Press it twice, or two of you at
+          once, and each one is still logged once. If someone got there first, it says &quot;{carriedLine(0)}&quot;
+        </li>
+        <li>
           <strong>Checks due</strong>, <strong>Tasks that moved</strong> and <strong>Decisions made</strong> fill in from the
           tasks as people work on them.
         </li>
         <li>
-          <strong>Days</strong>, on the left, opens a past day. It is read only.
+          <strong>Days</strong>, on the left, opens a past day. It is read only, and nothing is carried over into it.
         </li>
         <li>
           A day is the brand&apos;s own day, in its time zone. The team logs up to 500 entries a day, and the Log is kept for as
@@ -498,6 +571,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <Checks>
         <li>The task is on the list with its number, and its page&apos;s History says who added it.</li>
         <li>On Today, Tasks that moved lists what changed, and In flight what you logged.</li>
+        <li>The next morning, Carry over logs what was still open, and In flight shows each with {CARRIED_NOTE}</li>
         <li>On the day a check falls due, the count next to Review in the sidebar goes up.</li>
       </Checks>
 
@@ -538,11 +612,19 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           [WORK_MESSAGES.import_busy, "Import the sheet again. A row whose ref was taken meanwhile is left out, with why."],
           [WORK_MESSAGES.tasks_full, "Delete done or dropped tasks you no longer need, then add it again."],
           [WORK_MESSAGES.entries_full, "Log the rest tomorrow. Tasks and decisions still save."],
+          [WORK_MESSAGES.carry_day_over, "Open the Log tab again, which opens on Today, then press Carry over there."],
+          [WORK_MESSAGES.carry_regions_down, "Press Carry over again in a minute. Nothing was logged, so nothing is logged twice."],
           [WORK_MESSAGES.changed, "Someone else changed the task meanwhile. Refresh the page and make your change again."],
           ...(workVizzy
             ? ([
                 [WORK_MESSAGES.suggestion_decided, "Someone on your team added or dismissed it a moment ago. Refresh Review."],
                 [DRAFT_COPY.logDraftGone, "Ask Vizzy to draft the note again, or type it in the Log box yourself."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(workQuickEdit
+            ? ([
+                [WORK_COPY.rowChanged, "Read their change in the row, then save your text again, or press Esc to put it back."],
+                [WORK_COPY.rowChangedPick, "Read their change in the row, then pick again if yours still holds."],
               ] as Array<[string, string]>)
             : []),
         ]}

@@ -10,15 +10,27 @@ import { COMPANY_STAGES, type CompanyStage } from "@/lib/work/stages";
 import { addedLine, WORK_COPY } from "@/lib/work/screenWords";
 import { WORK_LIMITS } from "@/lib/work/types";
 import { workCall, workErrorText } from "./api";
+import { useQuickGuard } from "./quickGuard";
 import { useFocusSwap } from "./useFocusSwap";
 
 /**
  * Quick add on the list: a title and an optional stage. The task is tagged with the brand the list
  * is filtered to, else where the server puts it (a member's own brand, a one brand organisation's
- * brand, or the whole business for an owner). The full form is on the add page.
+ * brand, or the whole business for an owner). The full form is on the add page. With quick edit on,
+ * Open it opens the new task in place on the list, and both links wait for the open row's saves.
  */
 export function QuickAdd({ brandId, open: startOpen = false }: { brandId?: string | null; open?: boolean }) {
   const router = useRouter();
+  const guard = useQuickGuard();
+  // With quick edit on, a link here waits for the open row's saves; a Cmd or Ctrl click still opens a new tab.
+  const held = (to: () => void) =>
+    guard
+      ? (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; button: number; preventDefault: () => void }) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+          e.preventDefault();
+          guard.leave(to);
+        }
+      : undefined;
   const [open, setOpen] = useState(startOpen);
   const [title, setTitle] = useState("");
   const [stage, setStage] = useState<CompanyStage | "">("");
@@ -83,7 +95,7 @@ export function QuickAdd({ brandId, open: startOpen = false }: { brandId?: strin
           {busy ? "Adding…" : "Add"}
         </Button>
         <Button onClick={() => setOpen(false)}>Cancel</Button>
-        <Link href="/admin/work/new" className="text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-800 dark:text-neutral-400">
+        <Link href="/admin/work/new" onClick={held(() => router.push("/admin/work/new"))} className="text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-800 dark:text-neutral-400">
           Open the full form
         </Link>
       </form>
@@ -95,7 +107,19 @@ export function QuickAdd({ brandId, open: startOpen = false }: { brandId?: strin
       {added ? (
         <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">
           {addedLine(added.ref, added.title)}{" "}
-          <Link href={`/admin/work/${added.ref}`} className="font-medium underline underline-offset-4">
+          <Link
+            href={`/admin/work/${added.ref}`}
+            onClick={
+              guard
+                ? (e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+                    e.preventDefault();
+                    guard.open(added.ref);
+                  }
+                : undefined
+            }
+            className="font-medium underline underline-offset-4"
+          >
             Open it
           </Link>
         </p>

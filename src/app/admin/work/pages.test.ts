@@ -3,8 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeWorld, PEOPLE, type World } from "@/lib/work/testing/world";
 import { LUMEN_EU, LUMEN_US } from "@/lib/work/testing/fixtures";
-import { addTask } from "@/lib/work/service";
+import { addTask, editTask } from "@/lib/work/service";
 import { addSuggestion, proposeWorkSuggestion } from "@/lib/work/suggestions";
+import { WORK_COPY } from "@/lib/work/screenWords";
+import { IMAGES_OFF_LINE } from "@/lib/work/words";
 
 // Work's four screens (WORK_ENABLED): the list, one task, the add page and the Log. Lumen [made up]
 // has Lumen Notes (United States, a repo selected) and Lumen Europe; Nina owns it and Sam is a
@@ -18,6 +20,15 @@ const { requireAdminContext, notFound } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth/session", () => ({ requireAdminContext }));
 vi.mock("@/lib/auth/adminAuth", () => ({ adminAuth: () => ({ getUsers: async () => ({ users: [] }) }) }));
+// Firebase Auth knows nobody here. The task page reads each brand's team names side by side, and
+// Vitest can hand one of two imports of a mocked module made at the same moment the real module,
+// which then spends seconds looking for a Google Cloud project (past the time a test gets on CI).
+// So the names lookup gets its own lookup that finds nobody, and never imports Firebase Auth.
+vi.mock("@/lib/team/names", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/team/names")>();
+  const nobody = async () => [];
+  return { ...real, teamMemberNames: (...[ctx, ids, opts]: Parameters<typeof real.teamMemberNames>) => real.teamMemberNames(ctx, ids, { ...opts, lookup: opts?.lookup ?? nobody }) };
+});
 vi.mock("next/navigation", () => ({ notFound, useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }), usePathname: () => "/admin/work" }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
@@ -56,6 +67,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+// Each of these tests draws a whole page, and the first to draw a part loads its modules then:
+// on CI's slower runners that can take longer than the 5 seconds a test gets by default.
+const WHOLE_PAGE = { timeout: 30_000 };
+
 describe("with WORK_ENABLED off", () => {
   it("every Work page is not found, before the session is read", async () => {
     vi.stubEnv("WORK_ENABLED", "");
@@ -67,7 +82,7 @@ describe("with WORK_ENABLED off", () => {
   });
 });
 
-describe("the Tasks tab", () => {
+describe("the Tasks tab", WHOLE_PAGE, () => {
   it("shows an owner one list across both brands, with the Brand column, Import and Add task", async () => {
     await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US, mustHave: true, stage: "billing_tax" });
     await add(PEOPLE.nina, { title: "Cookie notice in German", brandId: LUMEN_EU });
@@ -122,7 +137,97 @@ describe("the Tasks tab", () => {
   });
 });
 
-describe("one task", () => {
+describe("the Tasks tab with quick edit", WHOLE_PAGE, () => {
+  const reads = () => ["(default)", "signups-eu", "signups-asia"].reduce((n, id) => n + (dbs.map[id] as { collectionCalls: (c: string) => number }).collectionCalls("work_tasks"), 0);
+
+  it("off, draws today's list exactly, ignoring ?open and reading nothing more", async () => {
+    await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US, mustHave: true });
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "false");
+    let n = reads();
+    const plain = await list();
+    const plainReads = reads() - n;
+    n = reads();
+    const opened = await list({ open: "1" });
+    expect(reads() - n).toBe(plainReads);
+    expect(opened).toBe(plain);
+    expect(opened).not.toContain("wk-row-panel");
+    expect(opened).not.toContain("data-ref-button");
+    expect(opened).toContain('href="/admin/work/1"');
+  });
+
+  it("on, draws the task opened with ?open in place under its row, with everything its page has", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US, mustHave: true, description: "Prices for the Team plan." });
+    await add(PEOPLE.nina, { title: "Cookie notice in German", brandId: LUMEN_EU });
+    const closed = await list();
+    expect(closed).toContain('aria-expanded="false" data-ref-button="1"');
+    expect(closed).not.toContain('id="wk-row-panel"');
+    const page = await list({ open: "1" });
+    expect(page).toContain('aria-expanded="true" aria-controls="wk-row-panel" data-ref-button="1"');
+    expect(page).toContain('<section id="wk-row-panel"');
+    expect(page).toContain("Task #1 ");
+    expect(page).toContain("Prices for the Team plan.");
+    expect(page).toContain("Open the full page");
+    expect(page).toContain('aria-label="Quick fields"');
+    expect(page).toContain("Delete task");
+    // The other row stays closed, and the order line is today's.
+    expect(page).toContain('aria-expanded="false" data-ref-button="2"');
+    expect(page).toContain("Checks due first, then Must have, then last changed.");
+  });
+
+  it("on, words an operator's loop kind measure and its due check in the row as its page does, with the learning loops on", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+    const t = await add(PEOPLE.nina, { title: "Brighter post images", brandId: LUMEN_US, status: "done", measure: { kind: "used", counts: { loopKind: "post_image" }, look: { days: 7 } } });
+    // How we'll know it worked, as the page draws it, less where a click in the row lands.
+    const measureOf = (html: string) => {
+      const from = html.indexOf('<section aria-labelledby="wk-ms-h"');
+      expect(from).toBeGreaterThan(-1);
+      return html.slice(from, html.indexOf("</section>", from)).replace(/ data-qe="[^"]*"/g, "");
+    };
+    // Eight days after Done its check is due, and with image learning off an image kind isn't counted.
+    const due = `<strong>${WORK_COPY.measureDueTitle}</strong> Used: the post_image loop, 7 days after it&#x27;s done. ${IMAGES_OFF_LINE.replace(/'/g, "&#x27;")}`;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 8 * 86_400_000);
+      const page = await task(String(t.ref));
+      const row = await list({ open: String(t.ref) });
+      expect(page).toContain(due);
+      expect(row).toContain(due);
+      expect(measureOf(row)).toBe(measureOf(page));
+      expect(measureOf(row)).toContain("the post_image loop");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says there's no task with that number for one that isn't there, or one the person can't see", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US });
+    const eu = await add(PEOPLE.nina, { title: "Cookie notice in German", brandId: LUMEN_EU });
+    expect(await list({ open: "999" })).toContain("There&#x27;s no task with that number that you can see.");
+    as(PEOPLE.sam);
+    const sam = await list({ open: String(eu.ref) });
+    expect(sam).toContain("There&#x27;s no task with that number that you can see.");
+    expect(sam).not.toContain("Cookie notice in German");
+  });
+
+  it("keeps the only task, set Done under Open, as a kept row, never No tasks match", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    const t = await add(PEOPLE.nina, { title: "Register the business name", brandId: LUMEN_US });
+    const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };
+    const r = await editTask(await w.scope(PEOPLE.nina), t.ref, { status: "done" }, deps);
+    if (!r.ok) throw new Error(r.error);
+    expect(await list()).toContain("No tasks match these filters.");
+    const kept = await list({ open: String(t.ref) });
+    expect(kept).not.toContain("No tasks match these filters.");
+    expect(kept).toContain(`data-row="${t.ref}"`);
+    expect(kept).toContain("This task no longer matches your filters. It leaves the list when you close it.");
+  });
+});
+
+describe("one task", WHOLE_PAGE, () => {
   it("shows the task with its origin, links, decisions and measure, and a plan to approve", async () => {
     const t = await add(PEOPLE.nina, {
       title: "Invite people to a shared notebook",
@@ -169,7 +274,7 @@ describe("one task", () => {
   });
 });
 
-describe("the add page", () => {
+describe("the add page", WHOLE_PAGE, () => {
   it("offers pull requests and switches only where a repo is connected", async () => {
     const lumen = await html(NewPage({ searchParams: Promise.resolve({}) }));
     expect(lumen).toContain("Add a task");
@@ -185,7 +290,7 @@ describe("the add page", () => {
   });
 });
 
-describe("the Log", () => {
+describe("the Log", WHOLE_PAGE, () => {
   it("opens on Today with the box to log a workstream", async () => {
     const page = await log();
     expect(page).toContain("In flight");
@@ -202,7 +307,7 @@ describe("the Log", () => {
   });
 });
 
-describe("Edit then add", () => {
+describe("Edit then add", WHOLE_PAGE, () => {
   const newPage = (sp: Record<string, string>) => html(NewPage({ searchParams: Promise.resolve(sp) }));
   async function suggest(brandId: string | null = LUMEN_US) {
     const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };

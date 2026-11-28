@@ -35,6 +35,12 @@ interface LocaleConfig {
   canSetMinReaders?: boolean;
   /** Readers per language; null for one language, or when they couldn't be counted. */
   readers?: Record<string, number> | null;
+  /** ASSET_TRANSLATIONS_ENABLED: journey emails get a version for languages over the threshold. */
+  translations?: boolean;
+  /** PAGE_LANGUAGES_ENABLED: each language's folder on the brand's site, and the translated note. */
+  pages?: boolean;
+  siteAddresses?: Record<string, string>;
+  translatedNote?: boolean;
 }
 
 export function AccountSettings() {
@@ -48,6 +54,10 @@ export function AccountSettings() {
   const [minReaders, setMinReaders] = useState(DEFAULT_MIN_READERS);
   const [canSetMinReaders, setCanSetMinReaders] = useState(false);
   const [readers, setReaders] = useState<Record<string, number> | null>(null);
+  const [translations, setTranslations] = useState(false);
+  const [pages, setPages] = useState(false);
+  const [siteAddresses, setSiteAddresses] = useState<Record<string, string>>({});
+  const [translatedNote, setTranslatedNote] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -66,6 +76,10 @@ export function AccountSettings() {
           setMinReaders(data.minReaders ?? DEFAULT_MIN_READERS);
           setCanSetMinReaders(data.canSetMinReaders === true);
           setReaders(data.readers ?? null);
+          setTranslations(data.translations === true);
+          setPages(data.pages === true);
+          setSiteAddresses(data.siteAddresses ?? {});
+          setTranslatedNote(data.translatedNote === true);
         }
       } catch {
         if (active) setLoadError("Couldn't load your language settings.");
@@ -102,13 +116,14 @@ export function AccountSettings() {
       const res = await fetch("/api/admin/account/locale", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultLocale, supportedLocales, ...(oneList ? { minReaders } : {}) }),
+        body: JSON.stringify({ defaultLocale, supportedLocales, ...(oneList ? { minReaders } : {}), ...(pages ? { siteAddresses, translatedNote } : {}) }),
       });
       if (!res.ok) throw new Error("save_failed");
       const data = (await res.json()) as LocaleConfig;
       setDefaultLocale(data.defaultLocale);
       setSupportedLocales(data.supportedLocales);
       if (data.minReaders !== undefined) setMinReaders(data.minReaders);
+      if (data.siteAddresses) setSiteAddresses(data.siteAddresses);
       // The list may have changed: count again, so the table matches what was saved.
       if (oneList) {
         const fresh = await fetch("/api/admin/account/locale?readers=1").then((r) => (r.ok ? (r.json() as Promise<LocaleConfig>) : null)).catch(() => null);
@@ -224,6 +239,54 @@ export function AccountSettings() {
               readers.
             </p>
             {!canSetMinReaders ? <p className="text-xs text-neutral-500">Only an admin can change this number.</p> : null}
+            {translations ? (
+              <p className="text-xs text-neutral-500">
+                New versions are drafts. Until you approve them, readers get {languageName(defaultLocale)}. When you publish a change to a
+                journey email, its translations are updated and come back for you to check.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {pages && supportedLocales.length > 1 ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Where each language goes</p>
+            <p className="text-xs text-neutral-500">
+              Google wants each language at its own address. A folder like /fr/ is simplest. An article&apos;s version goes at its
+              language&apos;s folder and the article&apos;s slug, and you can change it on the article.
+            </p>
+            {supportedLocales
+              .filter((code) => code !== defaultLocale)
+              .map((code) => (
+                <label key={code} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="w-40 text-neutral-600 dark:text-neutral-400">{languageName(code)}</span>
+                  <input
+                    type="url"
+                    inputMode="url"
+                    placeholder={`https://yourbrand.com/${code}/blog/`}
+                    value={siteAddresses[code] ?? ""}
+                    disabled={!canSetMinReaders}
+                    onChange={(e) => {
+                      setSiteAddresses({ ...siteAddresses, [code]: e.target.value.slice(0, 300) });
+                      setStatus("idle");
+                    }}
+                    className="min-w-0 flex-1 rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900"
+                  />
+                </label>
+              ))}
+            <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+              <input
+                type="checkbox"
+                checked={translatedNote}
+                disabled={!canSetMinReaders}
+                onChange={(e) => {
+                  setTranslatedNote(e.target.checked);
+                  setStatus("idle");
+                }}
+              />
+              Add a line to translated articles, in their language: &ldquo;Translated from the original and checked by our team.&rdquo;
+            </label>
+            {!canSetMinReaders ? <p className="text-xs text-neutral-500">Only an admin can change where each language goes.</p> : null}
           </div>
         ) : null}
 

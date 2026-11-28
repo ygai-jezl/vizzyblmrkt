@@ -64,6 +64,7 @@ export async function authorPersonPlan(
   const url = personHref(productUserId);
   return {
     ok: true,
+    saved: "created",
     id: saved.value.id,
     status: "draft",
     url,

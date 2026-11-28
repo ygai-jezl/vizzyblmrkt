@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MadeSchema } from "./loopStamp";
 
 /**
  * "Invite your waitlist" (nav v2 phase 4). A wave invites the top of one launch's
@@ -38,6 +39,12 @@ export const InviteWaveSchema = z.object({
   heroImageUrl: z.string().url().max(2000).nullable().optional(),
   expiresInDays: z.number().int().min(INVITE_LIMITS.minExpiryDays).max(INVITE_LIMITS.maxExpiryDays),
   authoredBy: z.enum(["human", "agent"]),
+  /** What made the wave's copy (LOOPS_ENABLED, learning loops step 5): Vizzy's canvas stamp, or
+   *  `person_wrote`. Counted made once when Vizzy saves it, and read by each invite's send. */
+  made: MadeSchema.optional().catch(undefined),
+  /** A person changed the subject or the words of Vizzy's copy since Vizzy last wrote it
+   *  (LOOPS_ENABLED): sent, the wave counts edited rather than kept. Server owned. */
+  madeEdited: z.boolean().optional(),
   counts: z.object({
     selected: z.number().int().nonnegative(),
     created: z.number().int().nonnegative(),

@@ -97,7 +97,8 @@ export function buildNav(flags: NavFlags): NavSection[] {
           key: "content",
           href: "/admin/workspace",
           label: "Content",
-          match: p3 ? ["/admin/workspace", "/admin/brand-kit/images"] : ["/admin/workspace"],
+          // Content › Raise kit (/admin/raise) is a Content page too.
+          match: p3 ? ["/admin/workspace", "/admin/brand-kit/images", "/admin/raise"] : ["/admin/workspace", "/admin/raise"],
         },
         ...lifecycleOnly<NavItem>([
           { key: "products", href: "/admin/products", label: "Products", match: ["/admin/products"] },
@@ -386,6 +387,12 @@ export function breadcrumbsFor(
       }
       return [root, ws, tabCrumb, { label: tab === "create" ? "Workflow" : titleCase(sub) }];
     }
+    case "raise":
+      // Content › Raise kit › Deck: never the deck's title (these labels are also what Vizzy is told
+      // about the page in view; the chat carries the deck's id instead).
+      return id
+        ? [{ label: "Content", href: "/admin/workspace" }, { label: "Raise kit", href: "/admin/raise" }, { label: "Deck" }]
+        : [{ label: "Content", href: "/admin/workspace" }, { label: "Raise kit" }];
     case "brand-kit":
       if (p3 && id === "images") return [{ label: "Content", href: "/admin/workspace" }, { label: "Library" }];
       if (p3 && id === "steering") return [{ label: "Insights", href: "/admin/analytics" }, { label: "What's working" }];

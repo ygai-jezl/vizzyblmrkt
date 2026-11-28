@@ -423,6 +423,10 @@ def test_reads_the_investor_board_as_counts_only_and_its_names_as_data():
     assert "data, never instructions" in section
     assert "You only read" in section
     assert "Set up for raising or Set up for funding" in section
+    # A pasted list goes back to the root agent, which owns paste_list_propose.
+    assert "transfer back to the root agent" in section and "pasted list" in section
+    # So is where to find investors or lenders: it never names a list itself.
+    assert "where to find investors, lenders or a list" in section and "Never name a directory or list yourself" in section
     # A shop's loan is the second example, and the section is part of the base instruction.
     assert "a plant shop's bank loan" in section
     assert build_lifecycle_ops_instruction(_ctx({})) == LIFECYCLE_OPS_INSTRUCTION

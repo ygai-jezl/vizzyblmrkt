@@ -12,6 +12,8 @@ import {
 } from "@/lib/tenant/workspaceContent";
 import { readWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { templatizeIdea } from "@/lib/content/templatize";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import type { TemplateCategoryId, ModuleSizeId, TemplateTier } from "@/lib/types/template";
 
@@ -96,6 +98,8 @@ export async function POST(
     templateId: template.id,
   });
   await addTemplateGroup(ctx, workspaceId, result.group);
+  // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+  await countMade(ctx, "templates", (await learnedFor(ctx, "templates")).stamp, { type: "template" });
 
   return NextResponse.json({ template, source: result.source });
 }

@@ -318,6 +318,7 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
             products={brand ? brand.products : null}
             meanings={options.meanings}
             operator={options.operator}
+            counting={options.counting}
             runsInApp={repos.length > 0 || (brand?.products.length ?? 0) > 0}
             word={brand?.word ?? null}
           />

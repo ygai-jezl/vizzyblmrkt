@@ -5,6 +5,7 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { forgetReviewCount } from "@/lib/review/summary";
 import { agentDedupeKey, SignalRefSchema, type AgentAction, type AgentActionId, type DeclineWhy, type SignalRef } from "@/lib/types/agentAction";
+import type { Made } from "@/lib/types/loopStamp";
 import type { AddTaskBody } from "./inputs";
 import { ok, refuse, type WorkRefused, type WorkResult } from "./result";
 import { brandForTask, mapLimit, nowOf, type WorkDeps, type WorkScope } from "./scope";
@@ -90,6 +91,12 @@ export interface ProposeInput {
   task: unknown;
   /** What it was based on, as signal refs: up to 10 are kept on the task's origin. */
   evidence?: readonly SignalRef[];
+  /**
+   * What made it: Vizzy's route reads it under vizzy_chat, scope work_task (learning loops step 5).
+   * Kept only with LOOPS_ENABLED on (keptMade, in proposeAgentAction), so a person's Add to Work,
+   * Edit then add or Dismiss counts once against it where the suggestion closes.
+   */
+  made?: Made;
 }
 
 export type ProposeDone =
@@ -170,6 +177,7 @@ export async function proposeWorkSuggestion(scope: WorkScope, input: ProposeInpu
         // The pair (what Vizzy proposed, the task as added or why it was dismissed) is the label a
         // later edits learner reads, so it outlives the decision.
         clearDetailsOnClose: false,
+        ...(input.made ? { made: input.made } : {}),
         at: now.toISOString(),
       },
       { db },

@@ -11,6 +11,7 @@ import { PLAN_STATE_LABEL } from "@/lib/work/words";
 import { DRAFT_COPY } from "@/lib/work/draft";
 import type { DraftedDecision } from "@/lib/work/screens";
 import { workCall, workErrorText } from "./api";
+import { useRowEditor } from "./rowEditors";
 import { useFocusSwap } from "./useFocusSwap";
 
 type DecisionRow = WorkLogRowOf<"decision">;
@@ -195,6 +196,8 @@ export function DecisionForm({ taskRef, onClose }: { taskRef: number; onClose: (
   const [chosen, setChosen] = useState<number | null>(null);
   const [why, setWhy] = useState("");
   const { post, busy, error } = usePost(onClose);
+  // In the open row on Work's list, what's typed here is kept from being thrown away unasked.
+  useRowEditor("decision", { label: WORK_COPY.rowDecisionLabel, dirty: !!(question.trim() || options.some((o) => o.trim()) || why.trim() || chosen !== null), close: onClose });
   const filled = options.map((o) => o.trim()).filter(Boolean);
   const planAsked = isPlanApprovalQuestion(question);
   const ready = question.trim() && filled.length >= 2 && !planAsked;
@@ -263,6 +266,7 @@ function ChangePick({ taskRef, view, onClose }: { taskRef: number; view: Decisio
   const [chosen, setChosen] = useState<DecisionOptionId | null>(null);
   const [why, setWhy] = useState("");
   const { post, busy, error } = usePost(onClose);
+  useRowEditor(`pick:${view.id}`, { label: WORK_COPY.rowPickLabel, dirty: chosen !== null || !!why.trim(), close: onClose });
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
@@ -292,6 +296,7 @@ function ChangePick({ taskRef, view, onClose }: { taskRef: number; view: Decisio
 export function ApprovePlan({ taskRef, url, version, onClose }: { taskRef: number; url: string; version: string | null; onClose: () => void }) {
   const [why, setWhy] = useState("");
   const { post, busy, error } = usePost(onClose);
+  useRowEditor(`approve:${url}`, { label: WORK_COPY.rowApproveLabel, dirty: !!why.trim(), close: onClose });
   return (
     <div id="wk-approve" role="group" aria-labelledby="wk-approve-h" className="mt-2 space-y-2 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
       <p id="wk-approve-h" className="text-sm font-medium">

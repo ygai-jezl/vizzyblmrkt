@@ -9,6 +9,8 @@ import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
 import { aiUsage } from "@/lib/plans/meter";
 import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { imageScopeOf, learnedFor } from "@/lib/loops/read";
+import { countMade } from "@/lib/loops/count";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +57,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   const source = await getImageAsset(ctx, assetId);
   if (!source) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
+  // Customise never learns (its none line): a learned look would restage the team's real product.
+  // learnedFor gives arm none with no read, so its row is stamped and counted (learning loops step 4).
+  const { stamp } = await learnedFor(ctx, "customize_image", { scope: imageScopeOf(source.style) });
   const result = await customizeImageAsset({
     tenantId: ctx.tenantId,
     region: ctx.region,
@@ -62,6 +67,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     instruction: parsed.data.instruction,
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     usage: aiUsage(ctx, "customize_image"),
+    made: stamp,
   });
 
   if (!result.asset) {
@@ -71,5 +77,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status },
     );
   }
+  await countMade(ctx, "customize_image", stamp, { type: "image_asset" });
   return NextResponse.json({ image: result.asset });
 }

@@ -1,5 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -278,7 +280,7 @@ export async function matchSeen(
     ]);
   }
 
-  return BlogSeenSchema.parse({
+  const seen = BlogSeenSchema.parse({
     ...current,
     notes,
     near: weaker,
@@ -288,6 +290,11 @@ export async function matchSeen(
     matchedFor: question,
     matchedAt: now.toISOString(),
   });
+  // A match that found notes or questions is counted made as it is handed back for the brief (LOOPS_ENABLED, learning loops step 5).
+  if (strong.length || weaker.length || asks.length || questions?.length) {
+    await countMade(ctx, "seen_notes", (await learnedFor(ctx, "seen_notes", { promptId: "content.blog_note_match" })).stamp, { type: "content_plan", db: deps.db });
+  }
+  return seen;
 }
 
 const isAnswered = (q: BlogSeenQuestion) => q.answer.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT;

@@ -122,5 +122,13 @@
   "article.keyTakeaways": "Das Wichtigste",
   "article.bottomLine": "Fazit",
   "article.sources": "Quellen",
-  "article.aboutAuthor": "Über den Autor"
+  "article.aboutAuthor": "Über den Autor",
+  "email.footer.sentBy": "Diese E-Mail wurde von {{sender_brand}} gesendet.",
+  "email.footer.preferences": "Einstellungen verwalten",
+  "email.footer.unsubscribe": "Abmelden",
+  "email.footer.privacy": "Datenschutzerklärung",
+  "email.steps.done": "{done} von {total} Schritten erledigt",
+  "email.steps.more": "und {n} weitere",
+  "article.translatedNote": "Aus dem Original übersetzt und von unserem Team geprüft.",
+  "widget.language.viewIn": "Diese Seite auf Deutsch ansehen"
 }

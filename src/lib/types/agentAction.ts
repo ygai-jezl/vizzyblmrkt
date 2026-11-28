@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AGENT_NAMES, type AgentName } from "./agentNames";
+import { MadeSchema, type Made } from "./loopStamp";
 import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
 import type { ReviewKind } from "@/lib/review/summary";
 import {
@@ -72,13 +74,7 @@ export type DeclineReason = (typeof DECLINE_REASONS)[number];
 export const DECLINE_WHY = ["not_now", "not_for_us", "already_on_it", "wrong"] as const;
 export type DeclineWhy = (typeof DECLINE_WHY)[number];
 
-/**
- * The agents that propose. "lifecycle" is for the AI lines follow-up. "research" is brand map
- * research and learning from a repo, whoever pressed it (the record's requestedBy says who; agent
- * record, ADR-0026). "raise_followups" is YouGrow's follow-up rule on the investor and funding board.
- */
-export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle", "research", "raise_followups"] as const;
-export type AgentName = (typeof AGENT_NAMES)[number];
+export { AGENT_NAMES, type AgentName } from "./agentNames";
 
 // --- Signals -----------------------------------------------------------------------------------
 
@@ -223,6 +219,8 @@ export interface AgentAction {
   detailsClearedAt: string | null;
   /** Field ids already blanked after an erase. */
   blankedFieldIds: string[];
+  /** What made the suggestion when Vizzy drafted it on a canvas (LOOPS_ENABLED, learning loops step 5). */
+  made?: Made;
   createdAt: string;
   updatedAt: string;
 }
@@ -266,6 +264,7 @@ export const AgentActionSchema = z
     clearDetailsOnClose: z.boolean(),
     detailsClearedAt: Canonical.nullable(),
     blankedFieldIds: z.array(z.string().regex(USER_FIELD_ID)).max(AGENT_ACTION_LIMITS.fieldIds),
+    made: MadeSchema.optional().catch(undefined),
     createdAt: Canonical,
     updatedAt: Canonical,
   })

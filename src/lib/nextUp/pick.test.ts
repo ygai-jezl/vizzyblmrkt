@@ -7,8 +7,11 @@ import type { SearchOutcome } from "@/lib/search/query";
 import { addLearned, listLearned } from "@/lib/autopilot/learned";
 import { readLearned, skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
-import { goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { dropPick, goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, usedPick, type PickDeps } from "./pick";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { StrategySchema, type Strategy } from "@/lib/types/brandStrategy";
+import { ContentPlanSchema } from "@/lib/types/contentStrategy";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -140,6 +143,32 @@ describe("choosing Next up", () => {
     await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
   });
 
+  it("with How it went on, each pick says the strategy and plan it came from and keeps its focus; off, nothing is added", async () => {
+    const d = await setup();
+    const strategy = StrategySchema.parse({ focusSituationIds: ["sit_aaaaaa01"], at: "2026-11-25T10:00:00.000Z" });
+    const plan = ContentPlanSchema.parse({ at: "2026-11-26T10:00:00.000Z" });
+    const slot = { id: "slt_aaaaaa01", title: "Question 2?", pillar: null, kind: "guide", stage: "learn", action: "write", week: "2026-W49" } as const;
+    d.strategy = async () => strategy;
+    d.contentPlan = async () => plan;
+    d.roadmap = async () => [cand(2, { slot })];
+    d.candidates = async () => [cand(1, { focus: true, situationId: "sit_aaaaaa01" }), cand(2, { focus: true, situationId: "sit_aaaaaa01" }), cand(3)];
+    d.generate = vi.fn(async () => JSON.stringify({ picks: [1, 2, 3].map((n) => ({ n, because: `Pick ${n}: 2 of 7 answered.`, uses: [`${n}.1`] })) }));
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+    const off = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(off.ok && off.doc.picks.some((p) => "basedOn" in p || "focus" in p)).toBe(false);
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const on = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    const byId = new Map((on.ok ? on.doc.picks : []).map((p) => [p.questionId, p] as const));
+    expect(byId.get("q_aaaaaaa2")).toMatchObject({ focus: true, basedOn: { strategyAt: strategy.at, planAt: "2026-11-26T10:00:00.000Z", situationId: "sit_aaaaaa01", slotId: "slt_aaaaaa01" } });
+    expect(byId.get("q_aaaaaaa1")).toMatchObject({ focus: true, basedOn: { strategyAt: strategy.at, planAt: null, situationId: "sit_aaaaaa01", slotId: null } });
+    expect(byId.get("q_aaaaaaa3")).toMatchObject({ focus: false, basedOn: { strategyAt: strategy.at, planAt: null, situationId: null, slotId: null } });
+    // Nothing approved: no basedOn at all.
+    d.strategy = async () => null;
+    d.contentPlan = async () => null;
+    const none = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(none.ok && none.doc.picks.some((p) => "basedOn" in p)).toBe(false);
+  });
+
   it("weighs live articles due a refresh beside the questions, at most the brand's share of them, never filled in by code", async () => {
     const d = await setup();
     const refresh = (n: number): Candidate => ({
@@ -223,6 +252,48 @@ describe("choosing Next up", () => {
     expect((await listLearned(A, d))[0]).toMatchObject({ kind: "skipped_pick", questionId: "q_aaaaaaa1", reason: "not this quarter" });
     const again = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
     expect(again.ok && again.doc.picks.map((p) => p.questionId)).toEqual(["q_aaaaaaa2", "q_aaaaaaa3", "q_aaaaaaa4"]);
+  });
+
+  it("counts each pick once when it comes off the list: Not now as declined, used as kept (learning loops step 5)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const d = await setup();
+    d.generate = async () => null;
+    await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    await skipPick(A, { questionId: "q_aaaaaaa1", question: "Question 1?", reason: "not this quarter" }, { db: d.db, canUse: async () => true });
+    expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).not.toBeNull();
+    // A pick already off the list counts nothing more.
+    expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).toBeNull();
+    const week = sumWeek(d.db, A.tenantId, loopWeekOf(new Date())) as { c: Record<string, Record<string, unknown>> };
+    expect(week.c.next_up!.next_up).toEqual({ v0: { none: { made: 3, declined: 1, kept: 1 } } });
+  });
+
+  it("counts a pick a person uses by hand kept once, keeps it on the list, and counts nothing more when it comes off later", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const d = await setup();
+    d.generate = async () => null;
+    await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    // Write it on the first pick, then again, then Not now on it: one answer, kept.
+    expect(await usedPick(A, "q_aaaaaaa1", d)).toBe(true);
+    expect(await usedPick(A, "q_aaaaaaa1", d)).toBe(false);
+    expect((await readNextUp(A, d))!.picks.map((p) => p.questionId)).toContain("q_aaaaaaa1");
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    await skipPick(A, { questionId: "q_aaaaaaa1", reason: "written already" }, { db: d.db, canUse: async () => true });
+    // A question that isn't a pick counts nothing.
+    expect(await usedPick(A, "q_zzzzzzz9", d)).toBe(false);
+    const week = sumWeek(d.db, A.tenantId, loopWeekOf(new Date())) as { c: Record<string, Record<string, unknown>> };
+    expect(week.c.next_up!.next_up).toEqual({ v0: { none: { made: 3, kept: 1 } } });
+  });
+
+  it("with LOOPS_ENABLED off keeps picks as before, with no made, and never opens loop_days (decision 22)", async () => {
+    const d = await setup();
+    d.generate = async () => null;
+    const got = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(got.ok && got.doc.picks).toHaveLength(3);
+    for (const p of (await readNextUp(A, d))!.picks) expect(p).not.toHaveProperty("made");
+    expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).not.toBeNull();
+    expect(await usedPick(A, "q_aaaaaaa1", d)).toBe(false);
+    expect(d.db.collectionCalls("loop_days")).toBe(0);
   });
 
   it("says when there is nothing to choose from", async () => {

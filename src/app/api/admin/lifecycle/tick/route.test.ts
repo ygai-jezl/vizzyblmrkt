@@ -16,6 +16,8 @@ const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenan
 vi.mock("@/lib/competitors/articleTick", () => (loaded.add("competitor-articles"), articles));
 const strategyCheck = vi.hoisted(() => ({ runStrategyChecks: vi.fn(async () => ({ brands: 2, open: 1, failed: 0 })) }));
 vi.mock("@/lib/brandStrategy/check", () => (loaded.add("strategy-check"), strategyCheck));
+const strategyMonth = vi.hoisted(() => ({ runStrategyMonths: vi.fn(async () => ({ brands: 1, kept: 1, held: 0, failed: 0 })) }));
+vi.mock("@/lib/brandStrategy/month", () => (loaded.add("strategy-month"), strategyMonth));
 const search = vi.hoisted(() => ({ runSearchSweeps: vi.fn(async () => ({ scanned: 1, indexed: 2 })) }));
 vi.mock("@/lib/search/sweep", () => (loaded.add("search"), search));
 const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1, ready: 2, failed: 0, waiting: 1 })) }));
@@ -30,12 +32,16 @@ const refresh = vi.hoisted(() => ({ runRefreshReviews: vi.fn(async () => ({ bran
 vi.mock("@/lib/content/blog/refreshReview", () => (loaded.add("refresh"), refresh));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
+const loopsLane = vi.hoisted(() => ({ runLoopsLane: vi.fn(async () => ({ brands: 3, idle: 1, rows: 120, learned: 1, verdicts: 1, visited: [], reported: 0, late: 0, cells: 0, heapDeltaMiB: 2.5 })) }));
+vi.mock("@/lib/loops/tick", () => (loaded.add("loops"), loopsLane));
 const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
 vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
 const agentRecord = vi.hoisted(() => ({ runAgentRecordCatchUp: vi.fn(async () => ({ brands: 1, read: 4, closed: 2 })) }));
 vi.mock("@/lib/agentRecord/catchUp", () => (loaded.add("agent-record"), agentRecord));
 const raiseFollowups = vi.hoisted(() => ({ runRaiseFollowups: vi.fn(async () => ({ brands: 1, proposed: 2, acted: 0, cleared: 1, expired: 0 })) }));
 vi.mock("@/lib/raise/pipeline/followupsTick", () => (loaded.add("raise-followups"), raiseFollowups));
+const translations = vi.hoisted(() => ({ runTranslations: vi.fn(async () => ({ brands: 1, planned: 1, queued: 2, made: 2, failed: 0, capped: 0 })) }));
+vi.mock("@/lib/i18n/translationsTick", () => (loaded.add("translations"), translations));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
 const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
@@ -291,6 +297,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["competitors", "@/lib/competitors/tick", competitors],
     ["competitor-articles", "@/lib/competitors/articleTick", articles],
     ["strategy-check", "@/lib/brandStrategy/check", strategyCheck],
+    ["strategy-month", "@/lib/brandStrategy/month", strategyMonth],
     ["search", "@/lib/search/sweep", search],
     ["signals", "@/lib/signals/tick", signals],
     ["autopilot", "@/lib/autopilot/tick", autopilot],
@@ -299,9 +306,11 @@ describe("each job's code loads only when its switch is on", () => {
     ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
+    ["loops", "@/lib/loops/tick", loopsLane],
     ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
     ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
     ["raise-followups", "@/lib/raise/pipeline/followupsTick", raiseFollowups],
+    ["translations", "@/lib/i18n/translationsTick", translations],
   ];
 
   /**
@@ -369,6 +378,57 @@ describe("each job's code loads only when its switch is on", () => {
     expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
   });
 
+  it("runs the loops lane, the field erase, the strategy check and the agent record's catch-up side by side, each within its own budget", async () => {
+    for (const n of [
+      "LOOPS_ENABLED",
+      "SETTINGS_HISTORY_ENABLED",
+      "AUDIENCE_PERSON_LINKS_ENABLED",
+      "AUDIENCE_ONE_VIEW_ENABLED",
+      "ONTOLOGY_PERSON_IDS_ENABLED",
+      "AUDIENCE_FIELDS_ENABLED",
+      "PLANS_ENABLED",
+      "SETTINGS_ERASE_ENABLED",
+      "COMPETITORS_ENABLED",
+      "COMPETITOR_ARTICLES_ENABLED",
+      "BRAND_MAP_ENABLED",
+      "BRAND_STRATEGY_ENABLED",
+      "STRATEGY_COMPETITORS_ENABLED",
+      "STRATEGY_CHECK_ENABLED",
+      "AGENT_RECORD_ENABLED",
+    ]) {
+      vi.stubEnv(n, "true");
+    }
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      loops: { brands: 3, idle: 1, learned: 1, verdicts: 1 },
+      fieldErase: { jobs: 1, pages: 3 },
+      strategyCheck: { brands: 2, open: 1 },
+      agentRecord: { brands: 1, read: 4, closed: 2 },
+    });
+    expect([...loaded]).toEqual(expect.arrayContaining(["loops", "field-erase", "strategy-check", "agent-record"]));
+    const deadline = (fn: { mock: { calls: unknown[][] } }) => (fn.mock.calls.at(-1) as [{ deadlineMs: number }])[0].deadlineMs - before;
+    expect(deadline(loopsLane.runLoopsLane)).toBeLessThanOrEqual(20_000 + 1000);
+    expect(deadline(fieldErase.runFieldErase)).toBeLessThanOrEqual(20_000 + 1000);
+    expect(deadline(strategyCheck.runStrategyChecks)).toBeLessThanOrEqual(10_000 + 1000);
+    expect(deadline(agentRecord.runAgentRecordCatchUp)).toBeLessThanOrEqual(15_000 + 1000);
+  });
+
+  it("with LOOPS_ENABLED and image style versions off, never loads the loops lane while the others run", async () => {
+    for (const n of ["SETTINGS_HISTORY_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "PLANS_ENABLED", "SETTINGS_ERASE_ENABLED", "AGENT_RECORD_ENABLED"]) {
+      vi.stubEnv(n, "true");
+    }
+    const post = await freshRoute();
+    const body = await (await post(machine())).json();
+    expect(body).toMatchObject({ ok: true, fieldErase: { jobs: 1 }, agentRecord: { brands: 1 } });
+    expect(body).not.toHaveProperty("loops");
+    expect([...loaded]).toEqual(expect.arrayContaining(["agent-record", "field-erase"]));
+    expect([...loaded]).not.toContain("loops");
+    expect(loopsLane.runLoopsLane).not.toHaveBeenCalled();
+  });
+
   it("loads the board's follow-ups lane only with RAISE_FOLLOWUPS_ENABLED and what it needs on, within its budget, never on an admin's own call", async () => {
     for (const n of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "RAISE_PIPELINE_ENABLED"]) vi.stubEnv(n, "true");
     let post = await freshRoute();
@@ -390,6 +450,63 @@ describe("each job's code loads only when its switch is on", () => {
     const own = await post(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
     expect(await own.json()).toMatchObject({ ok: true, mode: "tenant" });
     expect(raiseFollowups.runRaiseFollowups).not.toHaveBeenCalled();
+  });
+
+  it("loads the translations lane only with ASSET_TRANSLATIONS_ENABLED and what it needs on, within its budget, never on an admin's own call", async () => {
+    for (const n of ["LANGUAGE_READERS_ENABLED", "CONTENT_LANGUAGE_ENABLED"]) vi.stubEnv(n, "true");
+    vi.stubEnv("ASSET_TRANSLATIONS_ENABLED", "true");
+    // The readers per language need the person records too: without them, no lane.
+    let post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).not.toContain("translations");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, translations: { brands: 1, made: 2 } });
+    expect(jobLines().some((l) => /^\[tick\] translations \d+ms$/.test(l))).toBe(true);
+    const [{ deadlineMs }] = translations.runTranslations.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(95_000 + 1000);
+    translations.runTranslations.mockClear();
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_a", region: "us", source: "idtoken", userId: "u_admin", role: "admin" });
+    post = await freshRoute();
+    const own = await post(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
+    expect(await own.json()).toMatchObject({ ok: true, mode: "tenant" });
+    expect(translations.runTranslations).not.toHaveBeenCalled();
+  });
+
+  it("loads How it went's monthly look only with STRATEGY_RESULTS_ENABLED and the strategy on, within its own 25 s budget, whatever Competitors says", async () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+    let post = await freshRoute();
+    expect(await (await post(machine())).json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+    expect([...loaded]).toEqual([]);
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", strategyMonth: { brands: 1, kept: 1, held: 0, failed: 0 } });
+    expect([...loaded]).toEqual(["strategy-month"]);
+    expect(jobLines().some((l) => /^\[tick\] strategy-month \d+ms$/.test(l))).toBe(true);
+    const [{ deadlineMs }] = strategyMonth.runStrategyMonths.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(25_000 + 1000);
+    expect(deadlineMs - before).toBeGreaterThan(20_000);
+    // A run that looked at no brand adds nothing, and one that fails never fails the call.
+    strategyMonth.runStrategyMonths.mockResolvedValueOnce({ brands: 0, kept: 0, held: 0, failed: 0 });
+    expect(await (await post(machine())).json()).toEqual({ ok: true, mode: "all_tenants" });
+    strategyMonth.runStrategyMonths.mockRejectedValueOnce(new Error("boom"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const failed = await post(machine());
+      expect(failed.status).toBe(200);
+    } finally {
+      warn.mockRestore();
+    }
+    // Off with the strategy off, whatever its own switch says.
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "false");
+    post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).toEqual([]);
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {
@@ -616,5 +733,58 @@ describe("the lifecycle tick with the password account clean-up", () => {
     expect(await res.json()).toMatchObject({ ok: true, mode: "tenant" });
     expect(runAuthCleanup).not.toHaveBeenCalled();
     expect(accounts.listUsers).not.toHaveBeenCalled();
+  });
+});
+
+describe("the lifecycle tick with the learning loops lane", () => {
+  /** Image style versions and the switches they need (isImageStyleVersionsOn). */
+  const versionsOn = () => {
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+  };
+
+  it("runs the lane for the scheduler with only image style versions and their switches on, within its own time", async () => {
+    versionsOn();
+    const before = Date.now();
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", loops: { brands: 3, idle: 1, learned: 1, verdicts: 1 } });
+    expect(runner.runLifecycleTick).not.toHaveBeenCalled();
+    const [{ deadlineMs }] = loopsLane.runLoopsLane.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 50);
+    expect(tickLines().some((line) => /^\[tick\] loops \d+ms brands=3 rows=120 heapDeltaMiB=2\.5$/.test(line))).toBe(true);
+  });
+
+  it("runs the lane for the scheduler with only LOOPS_ENABLED on, and says how many brand weeks it reported", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    loopsLane.runLoopsLane.mockResolvedValueOnce({ brands: 5, idle: 0, rows: 0, learned: 0, verdicts: 0, visited: [], reported: 5, late: 0, cells: 12, heapDeltaMiB: 1 });
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", loops: { brands: 5, idle: 0, learned: 0, verdicts: 0, reported: 5 } });
+    expect(runner.runLifecycleTick).not.toHaveBeenCalled();
+    expect(loopsLane.runLoopsLane).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays dark, never loading the lane, with IMAGE_STYLE_VERSIONS_ENABLED on but a switch it needs off", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    const res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+    expect(loopsLane.runLoopsLane).not.toHaveBeenCalled();
+  });
+
+  it("never fails the scheduler's call when the lane fails, and never runs for a signed-in admin", async () => {
+    versionsOn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    loopsLane.runLoopsLane.mockRejectedValueOnce(new Error("boom"));
+    const res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants" });
+    expect(warn.mock.calls.some(([line]) => String(line).startsWith("[loops] tick failed: "))).toBe(true);
+
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_A", region: "us", role: "admin" });
+    const admin = await POST(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
+    expect(admin.status).toBe(404);
+    expect(loopsLane.runLoopsLane).toHaveBeenCalledTimes(1);
   });
 });

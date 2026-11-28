@@ -120,6 +120,12 @@ export interface AiOriginalDoc {
   /** Times the piece was written again since its first AI original. */
   regenerations: number;
   pairs: AiEditPair[];
+  /**
+   * The AI original (its `original.at`) a publish through Distribute answered before any approval
+   * of it (learning loops step 5, publishAnswers): an approval of that original after it counts
+   * nothing more. Absent until then.
+   */
+  publishedFor?: string;
   updatedAt: string;
 }
 

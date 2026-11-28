@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { monthlyLimitWith } from "./limits";
-import { aiUsage, organisationUsageThisMonth, usageMeter, usageThisMonth, usedThisMonth } from "./meter";
+import { addCounts, aiUsage, countedTowardCap, organisationUsageThisMonth, UNCAPPED_PURPOSES, usageMeter, usageThisMonth, usedThisMonth } from "./meter";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 const B: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -13,6 +13,8 @@ const brand = (over: Partial<Tenant> = {}) => ({ id: "ten_A", featureLimits: {},
 
 beforeEach(() => {
   vi.stubEnv("USAGE_METER_ENABLED", "true");
+  // Calls by purpose are kept only for the loops' heartbeat, while LOOPS_ENABLED is on.
+  vi.stubEnv("LOOPS_ENABLED", "true");
   vi.spyOn(console, "info").mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -32,11 +34,40 @@ describe("the usage meter", () => {
       calls: 4,
       lostCalls: 1,
       byPurpose: { blog_research: 20, brand_map_research: 5 },
+      callsByPurpose: { blog_research: 2, brand_map_research: 1, trending: 1 },
     });
     expect(await usedThisMonth(A, "web_searches", { db, now: DEC })).toBe(0);
     await usageMeter(A, "web_searches", "blog_research", { db, now: DEC, tenant: brand() }).record(3);
     expect(await usedThisMonth(A, "web_searches", { db, now: DEC })).toBe(3);
     expect(await usedThisMonth(A, "web_searches", { db, now: NOV })).toBe(25);
+  });
+
+  it("counts calls by purpose in the same write, and adds them up across brands (learning loops step 5)", async () => {
+    const db = new FakeFirestore();
+    await Promise.all(Array.from({ length: 3 }, () => usageMeter(A, "model_tokens", "blog_write", { db, now: NOV, tenant: brand() }).record(900)));
+    await usageMeter(A, "model_tokens", "next_up", { db, now: NOV, tenant: brand() }).record(0, { lost: true });
+    await usageMeter(B, "model_tokens", "blog_write", { db, now: NOV, tenant: brand({ id: "ten_B" } as Partial<Tenant>) }).record(400);
+    // A call that spent nothing still counts as a use of its purpose.
+    expect((await usageThisMonth(A, { db, now: NOV })).model_tokens?.callsByPurpose).toEqual({ blog_write: 3, next_up: 1 });
+    expect((await organisationUsageThisMonth([A, B], { db, now: NOV }))?.model_tokens).toMatchObject({
+      total: 3100,
+      calls: 5,
+      byPurpose: { blog_write: 3100 },
+      callsByPurpose: { blog_write: 4, next_up: 1 },
+    });
+    // A month counted before calls by purpose adds as none, and a sum of two such months has none.
+    const old = { total: 5, calls: 1, lostCalls: 0, byPurpose: { trending: 5 } };
+    expect(addCounts(old, { ...old, callsByPurpose: { trending: 1 } }).callsByPurpose).toEqual({ trending: 1 });
+    expect("callsByPurpose" in addCounts(old, old)).toBe(false);
+  });
+
+  it("keeps no calls by purpose with LOOPS_ENABLED off, so the meter's record is what it was", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "");
+    const db = new FakeFirestore();
+    await usageMeter(A, "model_tokens", "blog_write", { db, now: NOV, tenant: brand() }).record(900);
+    const tokens = (await usageThisMonth(A, { db, now: NOV })).model_tokens;
+    expect(tokens).toMatchObject({ total: 900, calls: 1, byPurpose: { blog_write: 900 } });
+    expect(tokens).not.toHaveProperty("callsByPurpose");
   });
 
   it("adds up records made at the same time", async () => {
@@ -82,6 +113,7 @@ describe("the usage meter", () => {
       calls: 4,
       lostCalls: 1,
       byPurpose: { blog_write: 2500 },
+      callsByPurpose: { blog_write: 4 },
       byModel: { "gemini-3.8-flash": 2000, "gemini-3.8-pro": 500 },
     });
     // The stored doc nests the model id: no "gemini-3" map with an "8-flash" key inside it.
@@ -115,6 +147,22 @@ describe("the usage meter", () => {
     expect(await usageMeter(A, "google_lookups", "get_from_google", { db, now: NOV, tenant: zero }).check()).toBeNull();
   });
 
+  it("never caps learning: loop_learn images are counted, kept off the cap and never checked (learning loops step 4)", async () => {
+    const db = new FakeFirestore();
+    const capped = brand({ featureLimits: { images: 2 } } as Partial<Tenant>);
+    await aiUsage(A, "post_image", { db, now: NOV, tenant: capped }).recordImages(2);
+    const learning = aiUsage(A, "loop_learn", { db, now: NOV, tenant: capped });
+    expect(await learning.check("images")).toBeNull();
+    await learning.recordImages(1);
+    await learning.recordModel(900, "gemini-3.8-flash");
+    expect(await usedThisMonth(A, "images", { db, now: NOV })).toBe(2);
+    expect((await usageThisMonth(A, { db, now: NOV })).images).toMatchObject({ total: 3, byPurpose: { post_image: 2, loop_learn: 1 } });
+    expect(await usageMeter(A, "images", "post_image", { db, now: NOV, tenant: capped }).check()).toEqual({ limited: true, used: 2, limit: 2 });
+    expect(UNCAPPED_PURPOSES).toEqual(new Set(["loop_learn"]));
+    expect(countedTowardCap(undefined)).toBe(0);
+    expect(countedTowardCap({ total: 5, calls: 2, lostCalls: 0, byPurpose: { loop_learn: 9 } })).toBe(0);
+  });
+
   it("refuses an id that isn't this brand's", async () => {
     const db = new FakeFirestore();
     const { forTenant } = await import("@/lib/tenant");
@@ -129,6 +177,8 @@ describe("the usage meter", () => {
     await meter.record(9);
     expect(await meter.check()).toBeNull();
     expect(await usedThisMonth(A, "web_searches", { db, now: NOV })).toBe(0);
+    // Nor calls by purpose: off, every view of them has nothing to read.
+    expect(await usageThisMonth(A, { db, now: NOV })).toEqual({});
   });
 });
 

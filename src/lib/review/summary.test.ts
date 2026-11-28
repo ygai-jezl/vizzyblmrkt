@@ -23,10 +23,11 @@ import {
   REVIEW_ORDER,
   REVIEW_SECTIONS,
   strategyCheckItem,
+  strategySuggestItem,
   type ReviewItem,
 } from "./summary";
 import { freshCheck } from "@/lib/brandStrategy/checkRules";
-import type { StrategyCheck } from "@/lib/types/brandStrategy";
+import type { StrategyCheck, StrategySuggestion } from "@/lib/types/brandStrategy";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
@@ -396,6 +397,95 @@ describe("the weekly strategy check, in Review", () => {
     // No approved strategy: no row, whatever the record holds.
     db.seed("brand_strategy", "bst_ten_A", record("ten_A", false));
     expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});
+
+describe("the strategy's month, in Review", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  // A made-up physio clinic's suggestions.
+  const base = { month: "2026-12", raisedAt: "2027-01-02T00:10:00.000Z", keyWord: null, state: "open", actedAt: null, dismissedAt: null } as const;
+  const stalled: StrategySuggestion = {
+    ...base,
+    key: "sug_stall1",
+    about: "sit_aaaaaa02",
+    detail: {
+      kind: "stalled_focus",
+      id: "sit_aaaaaa02",
+      text: "Running knee in your 40s",
+      kinds: ["search"],
+      swap: { id: "sit_bbbbbb01", text: "Heel pain when you stand all day", by: "their_articles", count: 6, outcome: null, measure: null },
+    },
+    basedOn: { builtIn: ["articles", "their_articles"], measured: [{ kind: "search", connector: "Google Search Console" }] },
+    cantSee: [{ kind: "key_actions", why: "not_connected", connector: "Google Analytics 4", href: "/admin/account/connections/google-analytics" }],
+  };
+  const measure: StrategySuggestion = {
+    ...base,
+    key: "sug_visits1",
+    about: "key_actions",
+    keyWord: "bookings",
+    detail: { kind: "measure_more", outcome: "key_actions", why: "not_connected", connectors: [{ connectorId: "google-analytics", name: "Google Analytics 4", href: "/admin/account/connections/google-analytics" }] },
+    basedOn: { builtIn: ["connections"], measured: [] },
+    cantSee: [],
+  };
+
+  it("is one row with the suggestion and what it stood on, opening the Strategy tab, with Not now", () => {
+    expect(strategySuggestItem(stalled)).toEqual({
+      id: "strategy_suggest:sug_stall1",
+      kind: "strategy_suggest",
+      title: "Your strategy's month",
+      detail: `"Running knee in your 40s" has had no new article and no search clicks for 2 months, while the rest of your map moved. Swap it for "Heel pain when you stand all day": your competitors wrote 6 articles on it in the last 90 days.`,
+      details: [
+        `"Running knee in your 40s" has had no new article and no search clicks for 2 months, while the rest of your map moved.`,
+        `Swap it for "Heel pain when you stand all day": your competitors wrote 6 articles on it in the last 90 days.`,
+        "From your articles, your competitors' articles and Google Search Console. Connect Google Analytics 4 to weigh sign-ups too.",
+      ],
+      href: "/admin/brand-kit/map?tab=strategy",
+      action: "Review the strategy",
+      notNow: { key: "sug_stall1" },
+    });
+    // Measure more's link is the connector's Connect page, in the brand's own words.
+    expect(strategySuggestItem(measure)).toMatchObject({
+      details: ["Connect Google Analytics 4 so your strategy can tell which situations bring bookings."],
+      href: "/admin/account/connections/google-analytics",
+      action: "Connect Google Analytics 4",
+    });
+  });
+
+  it("is none for Working, or a suggestion acted on or put off", () => {
+    expect(strategySuggestItem(null)).toBeNull();
+    expect(strategySuggestItem({ ...stalled, state: "acted" })).toBeNull();
+    expect(strategySuggestItem({ ...stalled, state: "dismissed" })).toBeNull();
+    const working: StrategySuggestion = {
+      ...stalled,
+      detail: { kind: "working", outcome: "search", measure: "searchClicks", focusNow: 40, focusBefore: 23, restNow: 44, restBefore: 40 },
+    };
+    expect(strategySuggestItem(working)).toBeNull();
+  });
+
+  it("is read only with the switch on, from this brand's approved strategy, for members too", async () => {
+    const db = new FakeFirestore();
+    const record = (tenantId: string, approved: boolean, suggestion: StrategySuggestion) => ({
+      tenantId,
+      rev: 2,
+      draft: null,
+      approved: approved ? { at: "2026-10-20T09:00:00.000Z", focusSituationIds: ["sit_aaaaaa01"] } : null,
+      suggestion,
+    });
+    db.seed("brand_strategy", "bst_ten_A", record("ten_A", true, stalled));
+    db.seed("brand_strategy", "bst_ten_B", record("ten_B", true, measure));
+    for (const k of ["BRAND_MAP_ENABLED", "BRAND_STRATEGY_ENABLED", "STRATEGY_RESULTS_ENABLED"]) vi.stubEnv(k, "true");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    const member: TenantContext = { ...ctx, source: "idtoken", userId: "usr_member", role: "member" };
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items.map((i) => i.id)).toEqual(["strategy_suggest:sug_stall1"]);
+    // No approved strategy: no row, whatever the record holds.
+    db.seed("brand_strategy", "bst_ten_A", record("ten_A", false, stalled));
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+
+  it("comes right after the weekly check", () => {
+    expect(REVIEW_ORDER.indexOf("strategy_suggest")).toBe(REVIEW_ORDER.indexOf("strategy_check") + 1);
+    expect(REVIEW_SECTIONS.strategy_suggest.from).toEqual(["strategy_suggest"]);
   });
 });
 
@@ -936,9 +1026,9 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
         action: "Check",
       },
     ]);
-    // Beside the people suggestions, after the board's follow-ups (S2a).
+    // Beside the people suggestions: the board's follow-ups (S2a), then pasted lists (S2b).
     const at = REVIEW_ORDER.indexOf("person_suggestion");
-    expect(REVIEW_ORDER.slice(at, at + 3)).toEqual(["person_suggestion", "raise_followup", "business_fact"]);
+    expect(REVIEW_ORDER.slice(at, at + 4)).toEqual(["person_suggestion", "raise_followup", "paste_batch", "business_fact"]);
     expect(REVIEW_SECTIONS.business_fact.title).toBe("About your business");
   });
 

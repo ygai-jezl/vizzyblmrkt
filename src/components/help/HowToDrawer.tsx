@@ -52,15 +52,23 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     join: shell?.join ?? false,
     work: shell?.work ?? false,
     workVizzy: shell?.workVizzy ?? false,
+    workQuickEdit: shell?.workQuickEdit ?? false,
     ideas: shell?.ideas ?? false,
     ideaWords: shell?.ideaWords ?? false,
     onboarding: shell?.onboarding ?? false,
     onboardingVoice: shell?.onboardingVoice ?? false,
     settingsHistory: shell?.settingsHistory ?? false,
     nextActionCard: shell?.nextActionCard ?? false,
+    loops: shell?.loops ?? false,
+    imageVersions: shell?.imageVersions ?? false,
     agentRecord: shell?.agentRecord ?? false,
     languageReaders: shell?.languageReaders ?? false,
     raiseFollowUps: shell?.raiseFollowUps ?? false,
+    raiseKit: shell?.raiseKit ?? false,
+    paste: shell?.paste ?? false,
+    vizzyPaste: shell?.vizzyPaste ?? false,
+    assetTranslations: shell?.assetTranslations ?? false,
+    pageLanguages: shell?.pageLanguages ?? false,
   };
 }
 

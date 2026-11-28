@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { stampHeaders } from "@/lib/loops/stampHeader";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ClipboardPaste, MessageCircle, RefreshCw, X } from "lucide-react";
 import { useShell } from "@/components/admin/nav/ShellProvider";
@@ -58,11 +59,11 @@ const SOURCE_LABEL: Record<BrandNoteSource, string> = {
 type Filter = "all" | "suggested" | "unused" | "open" | "ready" | "resting" | "used_up" | BrandNoteKind;
 type Prefill = { nonce: number; kind?: BrandNoteKind; subjectId?: string };
 
-async function send(url: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+async function send(url: string, method: string, body?: unknown, extra: Record<string, string> = {}): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
   try {
     const res = await fetch(url, {
       method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: body === undefined ? undefined : { "Content-Type": "application/json", ...extra },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { ok: res.ok, status: res.status, data: ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown> };
@@ -1104,6 +1105,9 @@ function PasteNotes({ subjects, onAdded }: { subjects: NoteSubject[] | null; onA
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [found, setFound] = useState<Candidate[] | null>(null);
+  // The split's stamp token, sent with the first note added from it, as the split is one made
+  // thing whose save counts kept once (learning loops step 5).
+  const [stampToken, setStampToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "find" | "add">(null);
   const [error, setError] = useState<string | null>(null);
   const ticked = found?.filter((f) => f.tick) ?? [];
@@ -1136,20 +1140,25 @@ function PasteNotes({ subjects, onAdded }: { subjects: NoteSubject[] | null; onA
       subjectIds: suggestSubjects(f.text, subjects ?? [], 2).map((s) => s.id),
     }));
     setFound(list);
+    setStampToken(typeof r.data.stampToken === "string" ? r.data.stampToken : null);
   }
 
   async function add() {
     setBusy("add");
     setError(null);
     const added: BrandNote[] = [];
+    let token = stampToken;
     for (const f of ticked) {
-      const r = await send("/api/admin/brand-kit/notes", "POST", { text: f.text, kind: f.kind, subjectIds: f.subjectIds, canName: f.canName, source: "paste" });
+      const r = await send("/api/admin/brand-kit/notes", "POST", { text: f.text, kind: f.kind, subjectIds: f.subjectIds, canName: f.canName, source: "paste" }, stampHeaders([token]));
       if (!r.ok || !r.data.note) {
         setError(`${added.length ? `Added ${added.length}. ` : ""}${problem(r.status, r.data)}`);
         break;
       }
       added.push(r.data.note as BrandNote);
+      // Counted once: the notes after it go without the token.
+      token = null;
     }
+    if (added.length) setStampToken(null);
     setBusy(null);
     if (added.length) onAdded(added);
     if (added.length === ticked.length) {

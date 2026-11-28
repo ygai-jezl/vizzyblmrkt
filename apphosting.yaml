@@ -347,6 +347,18 @@ env:
     availability:
       - RUNTIME
 
+  # == Learning loops ==
+  # The learning loops' platform switch (learning loops step 5): everything YouGrow makes records
+  # what made it and is counted for its brand, the loops lane covers every kind, a weekly heartbeat
+  # counts organisations across brands (counts only, never images, words or people; brands that
+  # opted out send nothing), and Settings > Loops shows those counts to the people
+  # LOOPS_OPERATOR_EMAILS names. Image learning has its own switch, IMAGE_STYLE_VERSIONS_ENABLED.
+  # Off: nothing else is stamped or counted, and nothing is counted across brands, as before.
+  - variable: LOOPS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
   # == Work ==
   # Work (ADR-0020): one list of tasks across the organisation's brands and regions, and a daily
   # log, at /admin/work. Needs the work_tasks and work_log indexes READY. Off: no Work in the
@@ -360,6 +372,12 @@ env:
   # /api/agent/work) and the Work starters in Ask Vizzy. Needs WORK_ENABLED and a Vizzy deploy with
   # the tools; before that deploy the tools aren't there, and off they answer that Work isn't on.
   - variable: WORK_VIZZY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Quick edit on Work's list: a task opens in place under its row, with everything its page has, and
+  # saves each change in turn. Needs WORK_ENABLED. Off: the list is today's and ignores ?open.
+  - variable: WORK_QUICK_EDIT_ENABLED
     value: "false"
     availability:
       - RUNTIME
@@ -608,6 +626,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Paste a list on People: an admin pastes rows from a sheet, code reads them (no AI), and one
+  # Review card adds up to 50 people and companies, each with where the list is from (needs
+  # AUDIENCE_ADD_PERSON_ENABLED; pasting into Ask Vizzy also needs AUDIENCE_VIZZY_ADD_PERSON_ENABLED).
+  - variable: RAISE_PASTE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts
@@ -803,6 +828,15 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Image style versions (learning loops step 4; needs BRAND_STYLE_LOOP_ENABLED and
+  # BRAND_IMAGE_STYLE_ENABLED): each painted style's look learned from votes is kept as
+  # versions in the brand's region, with Undo, Pause and Forget, and learned once a day.
+  # Go back suggestions wait in Review with NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED; without it a
+  # worse check shows on What it learned. Off, images use the look on the brand record as before.
+  - variable: IMAGE_STYLE_VERSIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Brand map and What we've seen ==
   # The brand map, then its research, Wikidata lookups, pages, Vizzy's suggestions, any
@@ -942,6 +976,22 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # How it went: once a month, each approved strategy's focus situations and the rest of the map are
+  # added up (questions answered, live articles, their articles, the roadmap, what people did, and
+  # each kind of result from whatever connections are shared with the team and Vizzy), shown on the
+  # Strategy tab and read by Vizzy (needs BRAND_STRATEGY_ENABLED).
+  - variable: STRATEGY_RESULTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # One suggestion a month: when How it went keeps a month, rules with no model call pick at most one
+  # change worth a look (behind the plan, a stalled focus situation, a claim still without proof, or a
+  # kind of result to connect), shown as one Review row and above Propose, and read by Vizzy. Not now
+  # keeps it away 60 days, or 90 for connecting a tool (needs STRATEGY_RESULTS_ENABLED).
+  - variable: STRATEGY_SUGGEST_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
   # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
   # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its
@@ -963,6 +1013,18 @@ env:
       - RUNTIME
   # Vizzy's get_content_strategy: reads the approved plan, never changes it (needs CONTENT_STRATEGY_ENABLED).
   - variable: CONTENT_STRATEGY_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Raise kit: decks for investors and packs for lenders on Content, drafted from what YouGrow
+  # knows, with a talk track, Present and Save as PDF (the store, the admin API, brand search's
+  # decks and the help page).
+  - variable: RAISE_KIT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy drafting, revising and reading decks from chat, and the deck in view (needs RAISE_KIT_ENABLED).
+  - variable: VIZZY_RAISE_ENABLED
     value: "false"
     availability:
       - RUNTIME
@@ -1174,6 +1236,20 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Journey emails in each language with enough readers: translated after publish, checked
+  # by a person, sent in each reader's language (needs LANGUAGE_READERS_ENABLED; brands need
+  # the translations feature).
+  - variable: ASSET_TRANSLATIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Articles and launch pages in each language at their own addresses, with Google's language
+  # tags, a site folder per language, and a launch's own words translated (needs
+  # ASSET_TRANSLATIONS_ENABLED).
+  - variable: PAGE_LANGUAGES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Researched blog hubs, cite sources, articles written from the brand map, the
   # editorial writer (each needs the first), and Suggest an angle.
   - variable: CREATE_BLOG_CITABLE_ENABLED
@@ -1246,6 +1322,15 @@ env:
   # Vizzy learns each person's editing preferences in Agent Platform Memory Bank (needs
   # NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED and VIZZY_MEMORY_BANK_ID).
   - variable: EDIT_MODE_VIZZY_LEARNING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Edit mode learning comes with Vizzy in Edit mode (edit_vizzy) for brands that keep their data
+  # in the agent's region (ROOT_AGENT_LOCATION), without the edit_vizzy_learning plan key. Post
+  # edits keep the key. On, a hold on edit_vizzy_learning in GRANTED_ONLY_FEATURES keeps back post
+  # edit learning only: to keep Edit mode learning to some brands, hold edit_vizzy as well or leave
+  # this off. Needs EDIT_MODE_VIZZY_LEARNING_ENABLED (ADR-0021).
+  - variable: EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED
     value: "false"
     availability:
       - RUNTIME

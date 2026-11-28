@@ -23,6 +23,7 @@ import type { Workspace } from "@/lib/types/workspace";
 import type { AdvanceDeps, StepFn } from "./advance";
 import { draftsThisMonth, heldQuestionIds, notePlan, type StepPatch } from "./runs";
 import { recordPlanDraft } from "@/lib/agentRecord/drafts";
+import { isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 
 /**
  * The run's own steps, past find and sort: picking the question (a scheduled run), then in Draft
@@ -83,12 +84,13 @@ async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps
   if (!plan || autopilotHolds(plan)) return null;
   const started = await startReview(ctx, { plan, by: "autopilot" }, { db: deps.db, now: deps.now }).catch(() => null);
   if (!started?.ok || !started.started) return null;
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return {
     step: "done",
     refreshOf: plan.id,
     workspaceId: plan.workspaceId,
     question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+    ...fromPick(pick),
   };
 }
 
@@ -105,14 +107,18 @@ async function takeClose(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps):
   if (!plan || autopilotHolds(plan)) return null;
   const started = await startReview(ctx, { plan, by: "autopilot", question: { id: pick.questionId, text: pick.question } }, { db: deps.db, now: deps.now }).catch(() => null);
   if (!started?.ok || !started.started) return null;
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return {
     step: "done",
     refreshOf: plan.id,
     workspaceId: plan.workspaceId,
     question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+    ...fromPick(pick),
   };
 }
+
+/** What a run keeps of the pick it took: the strategy and plan it came from (STRATEGY_RESULTS_ENABLED). */
+const fromPick = (pick: NextUpPick): { basedOn?: AutopilotRun["basedOn"] } => (isStrategyResultsEnabled() && pick.basedOn ? { basedOn: pick.basedOn } : {});
 
 /** A scheduled run takes Next up's best pick no other run has (choosing again when Next up is old). */
 export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
@@ -152,8 +158,8 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     if (taken) return taken;
   }
   if (!pick) return { step: "stopped", error: "nothing_to_pick" };
-  await dropPick(ctx, pick.questionId, deps);
-  return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName } };
+  await dropPick(ctx, pick.questionId, "kept", deps);
+  return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName }, ...fromPick(pick) };
 };
 
 /** Draft mode: make the workflow in the brand's programme, then plan it and research it together. */
@@ -199,6 +205,8 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     });
     const fields = planFromIntake(intake);
     if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog);
+    // The brief says which strategy and plan the article came from, as the run does.
+    if (fields.blog && run.basedOn && isStrategyResultsEnabled()) fields.blog = { ...fields.blog, basedOn: run.basedOn };
     plan = await createContentPlan(
       ctx,
       workspace.id,
@@ -242,7 +250,7 @@ export const writeStep: StepFn = async (ctx, run, opts, deps) => {
   if (stopped(g)) return g;
   const hub = g.plan.graph.nodes.find((n) => n.type === "hub");
   if (!hub) return { step: "failed", error: "no_hub" };
-  const got = await fillPlanNode(ctx, { workspace: g.workspace, plan: g.plan, nodeId: hub.id }, { db: deps.db, deadlineMs: opts.deadlineMs - SAVE_MS });
+  const got = await fillPlanNode(ctx, { workspace: g.workspace, plan: g.plan, nodeId: hub.id }, { db: deps.db, deadlineMs: opts.deadlineMs - SAVE_MS, by: "autopilot" });
   if (!got.ok || !got.node.body.trim()) return { error: "write_failed" };
   return { step: "check", hubHash: hashOf(got.node.body) };
 };
@@ -269,7 +277,7 @@ export const nodesStep: StepFn = async (ctx, run, opts, deps) => {
     const plan = (await getContentPlan(ctx, g.workspace.id, g.plan.id, deps.db)) ?? g.plan;
     const node = plan.graph.nodes.find((n) => n.id === id);
     if (node && !node.body.trim()) {
-      await fillPlanNode(ctx, { workspace: g.workspace, plan, nodeId: id }, { db: deps.db, quick: true, deadlineMs: Date.now() + NODE_MS }).catch(() => null);
+      await fillPlanNode(ctx, { workspace: g.workspace, plan, nodeId: id }, { db: deps.db, quick: true, deadlineMs: Date.now() + NODE_MS, by: "autopilot" }).catch(() => null);
     }
     todo.shift();
   }

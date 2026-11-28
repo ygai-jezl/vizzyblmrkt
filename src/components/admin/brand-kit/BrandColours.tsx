@@ -5,6 +5,7 @@ import type { PaletteColor, PaletteGroup, PaletteSource } from "@/lib/types/tena
 import { isBrandColorsUiEnabled, isBrandKitLogosUiEnabled } from "@/lib/content/brandKit";
 import { HEX6, mergeColors } from "@/lib/content/create/colorPalette";
 import { place } from "@/lib/nav/places";
+import { handUpGroupToken, type TokenHolds } from "./kitTokens";
 
 /**
  * The Brand Kit "Colours" card (Account → Brand). Two persisted zones — the primary flat
@@ -12,7 +13,11 @@ import { place } from "@/lib/nav/places";
  * ephemeral REVIEW TRAY. Source actions (PDF / website / AI theme / logo) post to the colours
  * routes and drop candidates into the tray; the operator refines, then Keeps a group (persists
  * into kit.palettes) or adds colours into the primary palette. Controlled: all persisted edits
- * flow up through onChange; the parent's existing "Save brand kit" button persists them.
+ * flow up through onChange; the parent's existing "Save brand kit" button persists them. A
+ * group's stamp token (learning loops step 5, the colours routes' `stampToken`) goes up through
+ * onStampToken the first time any of its colours are kept, with what it stamps (the kept group, or
+ * the colours added to the palette), and the group then drops it, so the save checks it, sends it
+ * only while those colours are still in the kit, and no later save is sent it again.
  */
 
 const PALETTE_MAX = 24; // BrandKitSchema.palette
@@ -30,6 +35,8 @@ interface PendingGroup {
   source: PaletteSource;
   label: string;
   colors: PaletteColor[];
+  /** The signed stamp of what made these colours, for the save that keeps them. */
+  stampToken?: string;
 }
 
 const SOURCE_LABEL: Record<PaletteSource, string> = {
@@ -45,9 +52,11 @@ interface BrandColoursProps {
   palettes: PaletteGroup[];
   pdfPath: string | null;
   onChange: (next: { palette: PaletteColor[]; palettes: PaletteGroup[] }) => void;
+  /** A kept group's stamp token and what it stamps, for the brand kit's save to send (learning loops step 5). */
+  onStampToken?: (token: string, holds: TokenHolds) => void;
 }
 
-export function BrandColours({ palette, palettes, pdfPath, onChange }: BrandColoursProps) {
+export function BrandColours({ palette, palettes, pdfPath, onChange, onStampToken }: BrandColoursProps) {
   const colorsUi = isBrandColorsUiEnabled();
   const logosUi = isBrandKitLogosUiEnabled();
   const [tray, setTray] = useState<Partial<Record<PaletteSource, PendingGroup>>>({});
@@ -80,11 +89,17 @@ export function BrandColours({ palette, palettes, pdfPath, onChange }: BrandColo
         candidates?: PaletteColor[];
         label?: string;
         error?: string;
+        stampToken?: string;
       };
       if (res.ok && Array.isArray(data.candidates) && data.candidates.length) {
         setTray((t) => ({
           ...t,
-          [source]: { source, label: data.label ?? SOURCE_LABEL[source], colors: data.candidates! },
+          [source]: {
+            source,
+            label: data.label ?? SOURCE_LABEL[source],
+            colors: data.candidates!,
+            ...(typeof data.stampToken === "string" ? { stampToken: data.stampToken } : {}),
+          },
         }));
       } else if (data.error === "no_primary_domain") {
         setMsg(`Set your Primary Domain in ${place("sending").label}, then try again.`);
@@ -120,8 +135,24 @@ export function BrandColours({ palette, palettes, pdfPath, onChange }: BrandColo
       colors: p.colors.slice(0, 48),
     };
     setPalettes([...palettes, group]);
+    if (p.stampToken) onStampToken?.(p.stampToken, { groupId: group.id });
     clearTray(p.source);
     setMsg(`Kept “${group.name}” as a palette.`);
+  }
+
+  /**
+   * Colours from a tray group into the palette, with the group's stamp token for the save. The
+   * token goes up once: the group drops it, so another click from it after a save sends none.
+   */
+  function addFromTray(p: PendingGroup, colors: PaletteColor[]) {
+    addToPalette(colors);
+    const token = p.stampToken;
+    if (!token) return;
+    onStampToken?.(token, { hexes: colors.map((c) => c.hex) });
+    setTray((t) => {
+      const g = t[p.source];
+      return g ? { ...t, [p.source]: handUpGroupToken(g, token) } : t;
+    });
   }
 
   function updateTrayColors(source: PaletteSource, colors: PaletteColor[]) {
@@ -244,7 +275,7 @@ export function BrandColours({ palette, palettes, pdfPath, onChange }: BrandColo
                   >
                     Keep as palette
                   </button>
-                  <button type="button" className={BTN} onClick={() => addToPalette(p.colors)}>
+                  <button type="button" className={BTN} onClick={() => addFromTray(p, p.colors)}>
                     Add to Colour palette
                   </button>
                   <button type="button" className={BTN} onClick={() => clearTray(p.source)}>
@@ -278,7 +309,7 @@ export function BrandColours({ palette, palettes, pdfPath, onChange }: BrandColo
                     extraAction={{
                       label: "→ palette",
                       title: "Add just this colour to your Colour palette",
-                      onClick: () => addToPalette([c]),
+                      onClick: () => addFromTray(p, [c]),
                     }}
                   />
                 ))}

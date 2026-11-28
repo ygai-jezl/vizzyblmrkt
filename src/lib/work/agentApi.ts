@@ -4,6 +4,9 @@ import { findWorkLogRow, findWorkTask, isRateLimited, listTaskDecisions, listTas
 import { listOpenAgentActions, listRecentAgentActions } from "@/lib/ontology/agentActions";
 import { teamMemberNames } from "@/lib/team/names";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
+import type { Made } from "@/lib/types/loopStamp";
 import { SignalRefSchema, type AgentAction, type SignalRef } from "@/lib/types/agentAction";
 import { dismissalWords, logWords, taskDetail, taskLine, waitingWords } from "./agentView";
 import { decisionDraftHref, DRAFT_COPY, logDraftHref, pickLine } from "./draft";
@@ -36,7 +39,10 @@ import { dayOf, WORK_MESSAGES, WORK_STATUS_LABEL } from "./words";
  *   (src/lib/work/drafts.ts). Approve the plan is never drafted.
  *
  * Everything Vizzy writes is a suggestion or a draft: a person adds, saves or decides in the app.
- * All four run in chat, under vizzy_chat. The brand and the person come from the signed canvas
+ * All four run in chat, under vizzy_chat. With LOOPS_ENABLED on, each suggestion and draft keeps a
+ * stamp under vizzy_chat (scope work_task, work_log or work_decision, by Vizzy) and is counted made
+ * once where it is saved; a person's Add to Work, Edit then add, Dismiss or save counts once where
+ * it closes (learning loops step 5). The brand and the person come from the signed canvas
  * token, never from the query or the body. Answers hold words, never bare numbers, so the agent
  * number contract needs no meanings of its own. Text from the team, imports and Vizzy is data.
  */
@@ -73,6 +79,20 @@ async function scopeOf(ctx: TenantContext, deps: WorkDeps): Promise<{ ok: true; 
   if (r.why === "signed_out") return { ok: false, result: { status: 401, body: { error: "unauthorized" } } };
   if (r.why === "no_brand") return { ok: false, result: { status: 403, body: { error: "forbidden" } } };
   return { ok: false, result: { status: 409, body: { error: "no_organisation", message: WORK_MESSAGES.no_organisation } } };
+}
+
+/**
+ * What made a suggestion or a draft Vizzy saves for Work: vizzy_chat, in the scope of what it
+ * becomes, by Vizzy. With LOOPS_ENABLED off, `{ unstamped: "loops_off" }`, which no record keeps.
+ */
+async function workStamp(ctx: TenantContext, scope: "work_task" | "work_log" | "work_decision"): Promise<Made> {
+  return (await learnedFor(ctx, "vizzy_chat", { scope, by: "vizzy" })).stamp;
+}
+
+/** Count one new suggestion or draft made, in the session brand's region, as its type in the ontology. Never throws. */
+async function countWorkMade(ctx: TenantContext, made: Made, type: "work_task" | "work_log", deps: WorkDeps): Promise<void> {
+  const db = deps.regionDb?.(ctx.region);
+  await countMade(ctx, "vizzy_chat", made, { type, ...(db ? { db } : {}) });
 }
 
 function refused<T>(r: Extract<WorkResult<T>, { ok: false }>): ApiResult {
@@ -431,10 +451,12 @@ export async function agentSuggestWorkTask(ctx: TenantContext, body: unknown, de
     from: fromLine({ refs: evidence.refs, logRows: evidence.logRows, stage, today: dayIn(nowOf(deps), tz), timeZone: tz }),
     why: b.why ?? "",
   };
-  const r = await proposeWorkSuggestion(scope, { task, evidence: evidence.refs }, deps);
+  const made = await workStamp(ctx, "work_task");
+  const r = await proposeWorkSuggestion(scope, { task, evidence: evidence.refs, made }, deps);
   if (!r.ok) return refused(r);
   const done = r.value;
   if (done.outcome === "created") {
+    await countWorkMade(ctx, made, "work_task", deps);
     const kept = suggestionOf(done.action)!;
     return {
       status: 200,
@@ -485,6 +507,7 @@ export async function agentDraftWorkLog(ctx: TenantContext, body: unknown, deps:
   if (!brand.ok) return { status: 400, body: { error: "brand_unknown", message: WORK_MESSAGES.brand_unknown, brands: scope.brands.map((x) => x.name) } };
   const ref = b.task === undefined || b.task === "" ? undefined : refOf(b.task);
   if (ref === null) return { status: 400, body: { error: "invalid_input", message: "A task is named by its number, such as 73." } };
+  const made = await workStamp(ctx, "work_log");
   const r = await draftWorkLog(
     scope,
     {
@@ -496,9 +519,11 @@ export async function agentDraftWorkLog(ctx: TenantContext, body: unknown, deps:
       ...(brand.brandId !== undefined ? { brandId: brand.brandId } : {}),
     },
     deps,
+    made,
   );
   if (!r.ok) return refused(r);
   const { action, draft } = r.value;
+  if (r.value.outcome === "created") await countWorkMade(ctx, made, "work_log", deps);
   return {
     status: 200,
     body: {
@@ -542,13 +567,17 @@ export async function agentDraftWorkDecision(ctx: TenantContext, body: unknown, 
   if (ref === null) return { status: 400, body: { error: "invalid_input", message: "A task is named by its number, such as 73." } };
   const s = await scopeOf(ctx, deps);
   if (!s.ok) return s.result;
+  const made = await workStamp(ctx, "work_decision");
   const r = await draftWorkDecision(
     s.scope,
     { ref, question: b.question, options: b.options, ...(b.recommended ? { recommended: b.recommended } : {}), ...(b.reason ? { reason: b.reason } : {}) },
     deps,
+    made,
   );
   if (!r.ok) return refused(r);
   const { action, draft } = r.value;
+  // A decision becomes a row in the Log, as a note does.
+  if (r.value.outcome === "created") await countWorkMade(ctx, made, "work_log", deps);
   const pick = draft.recommended ? (draft.options.find((o) => o.id === draft.recommended!.option)?.label ?? null) : null;
   return {
     status: 200,

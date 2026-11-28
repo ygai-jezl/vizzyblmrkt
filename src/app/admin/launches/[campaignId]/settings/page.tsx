@@ -6,6 +6,7 @@ import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
 import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
 import { brandLanguages } from "@/lib/i18n/languageReaders";
+import { isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { ArchiveLaunchSection } from "@/components/admin/ArchiveLaunchSection";
 import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
 import { EngineSection } from "@/components/admin/EngineSection";
@@ -61,6 +62,7 @@ export default async function LaunchSettingsPage({
         initial={toCampaignSettings(campaign)}
         senderConfig={senderConfig}
         brandLanguages={isLanguageReadersEnabled() ? brandLanguages(await getTenantById(ctx.tenantId)) : undefined}
+        pageLanguages={isPageLanguagesEnabled() ? { canAct: ctx.role === "admin" } : undefined}
       />
       {ctx.role === "admin" ? (
         <>

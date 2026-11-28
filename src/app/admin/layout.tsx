@@ -47,11 +47,15 @@ import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
-import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { isAssetTranslationsEnabled, isLanguageReadersEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isRaiseKitEnabled, isVizzyRaiseEnabled } from "@/lib/raise/docs/flags";
+import { isPasteEnabled, isVizzyPasteEnabled } from "@/lib/crm/paste/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
-import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
+import { isWorkEnabled, isWorkQuickEditEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -220,6 +224,7 @@ export default async function AdminLayout({
             names={crumbNames}
             journeyInContext={isEmailStyleEnabled() && isEmailJourneyStyleEnabled() && ctx.role === "admin"}
             personInContext={isPersonInContextEnabled()}
+            raiseInContext={isVizzyRaiseEnabled()}
             personBrief={isPersonBriefEnabled()}
             people={people}
             fields={isFieldsEnabled()}
@@ -245,13 +250,21 @@ export default async function AdminLayout({
             join={isOrganisationJoinEnabled()}
             work={work}
             workVizzy={isWorkVizzyEnabled()}
+            workQuickEdit={isWorkQuickEditEnabled()}
             onboarding={isOnboardingEnabled()}
             onboardingVoice={isOnboardingVoiceEnabled()}
             settingsHistory={isSettingsHistoryEnabled()}
             nextActionCard={isNextActionCardEnabled()}
+            loops={isLoopsEnabled()}
+            imageVersions={isImageStyleVersionsOn()}
             agentRecord={isAgentRecordEnabled()}
             languageReaders={isLanguageReadersEnabled()}
             raiseFollowUps={isRaiseFollowupsEnabled()}
+            raiseKit={isRaiseKitEnabled()}
+            paste={isPasteEnabled()}
+            vizzyPaste={isVizzyPasteEnabled()}
+            assetTranslations={isAssetTranslationsEnabled()}
+            pageLanguages={isPageLanguagesEnabled()}
           >
             {shell}
           </ShellProvider>

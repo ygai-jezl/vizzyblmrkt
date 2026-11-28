@@ -11,6 +11,9 @@ import {
 import { recordImageAsset } from "@/lib/admin/brandKit";
 import { refreshExemplarStyle } from "@/lib/content/create/styleProfile";
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { countImageVote } from "@/lib/loops/imageRows";
+import { profileImage } from "@/lib/loops/learners/votes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,11 +94,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const now = new Date().toISOString();
   let asset;
   try {
     asset = await recordImageAsset(
       { tenantId: ctx.tenantId, region: ctx.region },
       {
+        // A person's own image: YouGrow made nothing, so it has no stamp (learning loops step 4).
+        made: { unstamped: "own_image" },
         workspaceId,
         filename: stored.filename,
         mimeType: file.type,
@@ -107,7 +113,10 @@ export async function POST(req: Request) {
         byteSize: bytes.length,
         brandVote: "up",
         brandRating: rating,
-        brandVoteSetAt: new Date().toISOString(),
+        brandVoteSetAt: now,
+        // Kept only with image style versions on (learning loops step 4): an upload counts as a like.
+        brandVoteVia: "upload",
+        firstVotedAt: now,
       },
     );
   } catch (err) {
@@ -116,6 +125,17 @@ export async function POST(req: Request) {
       { error: "record_failed", message: "Couldn't save the image to your library — try again." },
       { status: 502 },
     );
+  }
+
+  if (isImageStyleVersionsOn()) {
+    // Learning loops step 4 (3.4): an upload counts as a like and is profiled now (one call under
+    // loop_learn, nothing while image learning is paused). It teaches the brand look, which the
+    // votes learner writes in the loops lane: no look is rewritten here.
+    await countImageVote(ctx, { brandVote: null }, asset);
+    await profileImage(ctx, asset.id).catch((err) => {
+      console.warn("[loops] profiling an uploaded image failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+    });
+    return NextResponse.json({ image: asset });
   }
 
   // Learn from it INLINE (extract style + re-synthesize). Awaited, not fire-and-forget:

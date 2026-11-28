@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { KIND_GROUPS } from "@/lib/search/labels";
+import { shownGroups } from "@/lib/search/labels";
 import type { SearchKind } from "@/lib/search/types";
 
 interface Summary {
@@ -28,9 +28,10 @@ function ago(iso: string | null): string {
 
 /**
  * Settings › Search (NEXT_PUBLIC_SEARCH_ENABLED): what the brand's search index holds, where it
- * lives, and a rebuild for admins. The help page /help/search explains each line.
+ * lives, and a rebuild for admins. The help page /help/search explains each line. `decks` is the
+ * Raise kit's switch (RAISE_KIT_ENABLED), read on the server: its Decks row shows only while it is on.
  */
-export function SearchSettingsCard({ isAdmin }: { isAdmin: boolean }) {
+export function SearchSettingsCard({ isAdmin, decks = false }: { isAdmin: boolean; decks?: boolean }) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -89,7 +90,7 @@ export function SearchSettingsCard({ isAdmin }: { isAdmin: boolean }) {
               ))}
             </dl>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 border-t border-neutral-100 px-4 py-3 sm:grid-cols-3 dark:border-neutral-900">
-              {KIND_GROUPS.map((g) => (
+              {shownGroups({ decks }).map((g) => (
                 <div key={g.key} className="flex justify-between gap-2">
                   <span className="text-neutral-500 dark:text-neutral-400">{g.label}</span>
                   <span className="tabular-nums">{g.kinds.reduce((n, k) => n + (summary.byKind[k] ?? 0), 0)}</span>

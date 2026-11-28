@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { learnedFor } from "@/lib/loops/read";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandColorsEnabled } from "@/lib/content/brandKit";
@@ -28,5 +30,7 @@ export async function POST(req: Request) {
   const candidates = await extractPaletteFromDomain(domain, { usage: aiUsage(ctx, "brand_kit", { tenant }) });
   if (!candidates) return NextResponse.json({ error: "extraction_failed" }, { status: 502 });
 
-  return NextResponse.json({ candidates, label: domain, source: "website" });
+  // Handed to the browser to save later: counted made once and its stamp signed for the save (learning loops step 5, decision 20).
+  const stampToken = await handBack(ctx, "brand_kit", (await learnedFor(ctx, "brand_kit")).stamp);
+  return NextResponse.json(withStampToken({ candidates, label: domain, source: "website" }, stampToken));
 }

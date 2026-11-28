@@ -24,6 +24,9 @@ import { closePlanDraft, planRef, recordJourneyDraft, recordPlanDraft } from "./
 import { closeStyle, openRecordsFor } from "./record";
 import { imageStylePrint } from "./fingerprints";
 
+/** What the canvas route hands a kind with LOOPS_ENABLED off: no stamp (src/lib/agentRecord/loopsCount.test.ts counts with one). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const generate = async () => JSON.stringify({ subject: "Hi {{user.first_name|there}}", previewText: "Quick note", body: "<p>Hello {{user.first_name|there}}</p>" });
 
 async function records(db: FakeFirestore, ctx: TenantContext): Promise<AgentAction[]> {
@@ -39,7 +42,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("a lifecycle journey Vizzy drafts", () => {
   const agent: TenantContext = { ...lifecycleAdmin, source: "agent", userId: "usr_1" };
   const draftIt = (db: FakeFirestore, input: Record<string, unknown> = {}) =>
-    authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", options: { reminders: 2 }, ...input }, brief: "Warm" }, { db, generate });
+    authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", options: { reminders: 2 }, ...input }, made: LOOPS_OFF, brief: "Warm" }, { db, generate });
 
   beforeEach(() => {
     vi.stubEnv("LIFECYCLE_ENABLED", "true");
@@ -97,7 +100,7 @@ describe("a lifecycle journey Vizzy drafts", () => {
     const journey = await forTenant(lifecycleAdmin, db).lifecycleJourneys.getById(r.id);
     const styled = structuredClone(journey!);
     (styled.draft.settings as Record<string, unknown>).emailStyle = { headerColor: "#225533", accentColor: "#aa3300" };
-    expect(await recordJourneyDraft(agent, "journey_style.suggest", styled, { db })).toBe("recorded");
+    expect((await recordJourneyDraft(agent, "journey_style.suggest", styled, { db })).outcome).toBe("recorded");
     const open = await openRecordsFor(agent, { kind: "lifecycle_journey", ref: r.id }, db);
     expect(open).toHaveLength(1);
     expect(open[0]!.action).toBe("lifecycle_journey.draft");
@@ -131,7 +134,7 @@ describe("an invite wave Vizzy drafts", () => {
 
   it("is recorded about its launch, and kept by the admin who sends it", async () => {
     const db = world();
-    const r = await authorInviteWaveDraft({ ctx: invitesAdmin, input: { scope: { campaignId: "beta" }, size: 2 }, brief: "Short" }, { db, write });
+    const r = await authorInviteWaveDraft({ ctx: invitesAdmin, input: { scope: { campaignId: "beta" }, size: 2 }, made: LOOPS_OFF, brief: "Short" }, { db, write });
     if (!r.ok) throw new Error(r.error);
     const [open] = await records(db, invitesAdmin);
     expect(open).toMatchObject({ action: "invite_wave.draft", target: { type: "idea", id: "beta" }, draft: { kind: "invite_wave", ref: r.id } });
@@ -142,7 +145,7 @@ describe("an invite wave Vizzy drafts", () => {
 
   it("is dismissed when deleted unsent", async () => {
     const db = world();
-    const r = await authorInviteWaveDraft({ ctx: invitesAdmin, input: { scope: { campaignId: "beta" }, size: 2 }, brief: "Short" }, { db, write });
+    const r = await authorInviteWaveDraft({ ctx: invitesAdmin, input: { scope: { campaignId: "beta" }, size: 2 }, made: LOOPS_OFF, brief: "Short" }, { db, write });
     if (!r.ok) throw new Error(r.error);
     expect((await removeWave(invitesAdmin, "beta", r.id, db)).status).toBe(200);
     expect((await records(db, invitesAdmin))[0]).toMatchObject({ state: "declined", declined: { reason: "dismissed" } });
@@ -206,7 +209,7 @@ describe("an image style Vizzy suggests", () => {
 
   it("is superseded by a newer suggestion, and the newer one is applied unedited from its suggestedAt", async () => {
     const db = world();
-    const suggest = (id: string) => authorImageStyleSuggestion({ ctx: admin, input: { defaultStyleId: id, reason: "Fits the shop" }, brief: "" }, { db });
+    const suggest = (id: string) => authorImageStyleSuggestion({ ctx: admin, input: { defaultStyleId: id, reason: "Fits the shop" }, made: LOOPS_OFF, brief: "" }, { db });
     expect((await suggest("headline_card")).ok).toBe(true);
     await new Promise((r) => setTimeout(r, 5));
     expect((await suggest("natural_photo")).ok).toBe(true);
@@ -236,7 +239,7 @@ describe("brand map suggestions from chat", () => {
   it("are one record per call, holding hashes of the keys it filed, never the words", async () => {
     const db = new FakeFirestore();
     const r = await authorBrandMapSuggestions(
-      { ctx: admin, input: { mode: "add", changes: [{ type: "add_name", name: "Rivalco", kind: "alternative" }, { type: "add_avoid", term: "cheap" }] }, brief: "Add those" },
+      { ctx: admin, input: { mode: "add", changes: [{ type: "add_name", name: "Rivalco", kind: "alternative" }, { type: "add_avoid", term: "cheap" }] }, made: LOOPS_OFF, brief: "Add those" },
       { db, nowMs: Date.parse("2026-12-01T10:00:00Z") },
     );
     expect(r.ok).toBe(true);

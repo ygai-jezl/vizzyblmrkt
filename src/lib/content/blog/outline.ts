@@ -143,12 +143,13 @@ function faqOf(blocks: ArticleBlock[], questionsOnly = false): ArticleFaq[] {
     if (b.kind === "heading") {
       flush();
       const text = plainInline(b.text);
-      question = b.level >= 3 && (!questionsOnly || /\?\s*$/.test(text)) ? text : null;
+      // A question ends in "?", or in Arabic "؟" or full-width "？".
+      question = b.level >= 3 && (!questionsOnly || /[?؟？]\s*$/u.test(text)) ? text : null;
       continue;
     }
     if (b.kind === "rule" || b.kind === "code") continue;
     if (b.kind === "paragraph") {
-      const bold = /^\*\*([^*]+\?)\*\*:?\s*(.*)$/.exec(b.text.trim());
+      const bold = /^\*\*([^*]+[?؟？])\*\*:?\s*(.*)$/u.exec(b.text.trim());
       if (bold?.[1]) {
         flush();
         question = plainInline(bold[1]);

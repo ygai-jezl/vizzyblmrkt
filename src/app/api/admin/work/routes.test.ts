@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { makeWorld, PEOPLE, type World } from "@/lib/work/testing/world";
 import { LUMEN_EU, LUMEN_US, ORG } from "@/lib/work/testing/fixtures";
 
@@ -9,6 +9,15 @@ import { LUMEN_EU, LUMEN_US, ORG } from "@/lib/work/testing/fixtures";
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 vi.mock("@/lib/auth/adminAuth", () => ({ adminAuth: () => ({ getUsers: async () => ({ users: [] }) }) }));
+// Firebase Auth knows nobody here. A task's read looks up each brand's team names side by side, and
+// Vitest can hand one of two imports of a mocked module made at the same moment the real module,
+// which then spends seconds looking for a Google Cloud project (past the time a test gets on CI).
+// So the names lookup gets its own lookup that finds nobody, and never imports Firebase Auth.
+vi.mock("@/lib/team/names", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/team/names")>();
+  const nobody = async () => [];
+  return { ...real, teamMemberNames: (...[ctx, ids, opts]: Parameters<typeof real.teamMemberNames>) => real.teamMemberNames(ctx, ids, { ...opts, lookup: opts?.lookup ?? nobody }) };
+});
 const dbs = vi.hoisted(() => ({ map: {} as Record<string, unknown> }));
 vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant/firestore")>()),
@@ -18,6 +27,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 const tasks = await import("./tasks/route");
 const task = await import("./tasks/[ref]/route");
 const logRoute = await import("./log/route");
+const carryRoute = await import("./log/carry/route");
 const checks = await import("./checks/route");
 const decisions = await import("./decisions/route");
 const importRoute = await import("./import/route");
@@ -62,6 +72,7 @@ describe("with WORK_ENABLED off", () => {
       await task.DELETE(req("/tasks/1", "DELETE"), params("1")),
       await logRoute.GET(req("/log")),
       await logRoute.POST(req("/log", "POST", { workstream: "A", state: "doing" })),
+      await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-20" })),
       await checks.POST(req("/checks", "POST", { ref: 1, action: "checked" })),
       await decisions.POST(req("/decisions", "POST", { ref: 1, question: "Q", options: ["A", "B"] })),
       await importRoute.POST(req("/import", "POST", { mode: "preview", text: "Task\nA" })),
@@ -161,6 +172,38 @@ describe("checks, decisions and the Log", () => {
     expect(day.inFlight).toHaveLength(1);
     expect((await logRoute.GET(req("/log?day=2099-01-01"))).status).toBe(400);
     expect((await logRoute.POST(req("/log", "POST", { workstream: "", state: "doing" }))).status).toBe(400);
+  });
+
+  it("carries yesterday's open workstreams over once, only into today, as the signed in person", async () => {
+    // The routes read the clock itself: 10:00 in New York on Friday, then on Saturday.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => void vi.useRealTimers());
+    vi.setSystemTime(new Date("2026-11-20T15:00:00.000Z"));
+    await logRoute.POST(req("/log", "POST", { workstream: "Pricing page", state: "doing", note: "Plans and credits", brandId: null }));
+    vi.setSystemTime(new Date("2026-11-21T15:00:00.000Z"));
+    expect(await json(await logRoute.GET(req("/log")))).toMatchObject({ day: "2026-11-21", today: true, entries: [], carry: 1 });
+    as(PEOPLE.sam);
+    const r = await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-21" }));
+    // Sam is a member of Lumen Notes: a whole business workstream isn't his to carry.
+    expect(r.status).toBe(200);
+    expect((await json(r)).carried).toEqual([]);
+    as(PEOPLE.nina);
+    const carried = await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-21" }));
+    expect(carried.status).toBe(201);
+    expect((await json(carried)).carried).toEqual([
+      expect.objectContaining({ workstream: "Pricing page", state: "doing", note: "Carried over from yesterday.", day: "2026-11-21", source: { who: { kind: "person", id: PEOPLE.nina.userId }, tool: "work_carry", session: null } }),
+    ]);
+    const again = await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-21" }));
+    expect(again.status).toBe(200);
+    expect((await json(again)).carried).toEqual([]);
+    expect(await json(await logRoute.GET(req("/log")))).toMatchObject({ entries: [expect.objectContaining({ note: "Carried over from yesterday." })], carry: 0 });
+    const past = await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-20" }));
+    expect(past.status).toBe(409);
+    expect(await json(past)).toMatchObject({ error: "carry_day_over", message: "That day is over, so nothing was carried over. Open Today to carry over what is still open." });
+    // The day is all it takes: never a brand, a region or a person.
+    expect((await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-21", brandId: LUMEN_EU }))).status).toBe(400);
+    expect((await carryRoute.POST(req("/log/carry", "POST", {}))).status).toBe(400);
+    expect((await carryRoute.POST(req("/log/carry", "POST", { day: "2026-11-21" }, { origin: "https://evil.test" }))).status).toBe(403);
   });
 });
 

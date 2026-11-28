@@ -132,6 +132,11 @@ describe("buildEmbedSnippet", () => {
       buildEmbedSnippet({ origin: "https://x", campaignId: "c", mode: "CHECK" }),
     ).toContain('data-vizzybl-mode="CHECK"');
   });
+  it("says the page's language only when one is chosen (PAGE_LANGUAGES_ENABLED)", () => {
+    expect(buildEmbedSnippet({ origin: "https://x", campaignId: "c" })).not.toContain("data-vizzybl-lang");
+    expect(buildEmbedSnippet({ origin: "https://x", campaignId: "c", lang: "fr" })).toContain('data-vizzybl-lang="fr"');
+    expect(buildEmbedUrl({ origin: "https://x", campaignId: "c", lang: "fr" })).toContain("lng=fr");
+  });
   it("HTML-escapes attribute values to prevent snippet injection", () => {
     const snippet = buildEmbedSnippet({
       origin: "https://x",
@@ -217,5 +222,14 @@ describe("header text-size classes", () => {
     expect(waitlistNameSizeClass("hosted", "lg")).toBe("text-4xl");
     expect(signupCountSizeClass("widget", "sm")).toBe("text-[0.6875rem]");
     expect(signupCountSizeClass("hosted", "sm")).toBe("text-xs");
+  });
+});
+
+describe("the loader script", () => {
+  it("reads every attribute a snippet can carry", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { EMBED_ATTR } = await import("./snippet");
+    const loader = readFileSync("src/app/embed.js/route.ts", "utf8");
+    for (const attr of Object.values(EMBED_ATTR)) expect(loader, attr).toContain(attr);
   });
 });

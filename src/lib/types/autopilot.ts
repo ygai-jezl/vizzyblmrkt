@@ -1,4 +1,6 @@
+import type { Made } from "./loopStamp";
 import { z } from "zod";
+import type { BasedOn } from "./contentPlan";
 import type { PickSlot } from "./contentStrategy";
 
 /**
@@ -85,6 +87,12 @@ export interface NextUpPick {
   slot?: PickSlot;
   /** A combine pick: the live articles that answer the same question. */
   combine?: { pages: RepeatPair["pages"] };
+  /** On a buying situation the brand focuses on (STRATEGY_RESULTS_ENABLED; absent while it is off). */
+  focus?: boolean;
+  /** The approved strategy and plan it came from (STRATEGY_RESULTS_ENABLED): absent while off or nothing is approved. */
+  basedOn?: BasedOn;
+  /** What made the pick (LOOPS_ENABLED, learning loops step 5): the `next_up` stamp, written only by pickNextUp, and taken off once a person uses the pick (usedPick), so it counts once. */
+  made?: Made;
 }
 
 /** A live article a question is close to in meaning: better added to it than written again. */
@@ -187,6 +195,8 @@ export interface AutopilotRun {
   planId: string | null;
   /** A refresh run (BLOG_REFRESH_ENABLED): the live article whose review it started. Not a draft, so not counted against article_autopilot. */
   refreshOf?: string | null;
+  /** The strategy and plan of the Next up pick it was started from (STRATEGY_RESULTS_ENABLED). */
+  basedOn?: BasedOn;
   /** Nodes still to write after the hub (teaser, promo, posts). */
   nodesLeft: string[];
   /** The hub body as written, to tell whether a person has changed it since. */

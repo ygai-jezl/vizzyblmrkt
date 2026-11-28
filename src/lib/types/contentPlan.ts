@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EmailLayoutSchema, MAX_EMAIL_BLOCKS } from "@/lib/types/emailLayout";
 import { ChartSchema, FormatInputsSchema, ImageFormatIdSchema } from "@/lib/types/imageStyle";
+import { MadeSchema } from "@/lib/types/loopStamp";
 
 /**
  * A ContentPlan — the "Create" pillar's saved, recallable workflow. An operator
@@ -375,6 +376,20 @@ const MAX_BLOG_LINKS = 12;
 const MAX_BLOG_SOURCES = 12;
 const MAX_BLOG_ENTITIES = 16;
 
+/**
+ * Which approved strategy and content plan a piece of work came from (STRATEGY_RESULTS_ENABLED), on a
+ * Next up pick, an autopilot run and an article's brief: when each was approved, the focus buying
+ * situation it serves and the plan's slot it fills, each null when it has none. Absent while the
+ * switch is off or nothing is approved, and on everything made before.
+ */
+export const BasedOnSchema = z.object({
+  strategyAt: z.string().max(40).nullable().catch(null).default(null),
+  planAt: z.string().max(40).nullable().catch(null).default(null),
+  situationId: z.string().max(64).nullable().catch(null).default(null),
+  slotId: z.string().max(64).nullable().catch(null).default(null),
+});
+export type BasedOn = z.infer<typeof BasedOnSchema>;
+
 /** The blog hub's brief. Lives on the plan; research fills it and the operator edits it. */
 export const BlogBriefSchema = z.object({
   /** The question the article answers — its H1. "" = research (or the writer) picks one. */
@@ -408,6 +423,8 @@ export const BlogBriefSchema = z.object({
   /** The buying situation the article is written for (BRAND_MAP_SITUATIONS_ENABLED): absent =
    *  not looked at yet (research may pick one), null = a person said none, an id = chosen. */
   situationId: z.string().max(64).nullable().optional(),
+  /** The strategy and plan the article came from (STRATEGY_RESULTS_ENABLED): set when Next up's pick made it. */
+  basedOn: BasedOnSchema.optional().catch(undefined),
   /** The author's role, for the byline and the author box (CREATE_BLOG_EDITORIAL_ENABLED).
    *  Optional with no default, so briefs saved before parse exactly as they did. */
   authorRole: z.string().max(120).optional(),
@@ -456,6 +473,11 @@ export const BlogArticleLiveSchema = z.object({
   auto: z.boolean().optional(),
   /** Being found live approved the article (a canvas left open keeps that approval on its next save). */
   approvedOnLive: z.boolean().optional(),
+  /**
+   * A hash of the article's words when this mark was written (foundLive.ts articleBodyHash). Once the
+   * words change (a refresh, an edit), the mark no longer approves them: a person does.
+   */
+  bodyHash: z.string().max(40).optional(),
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 
@@ -623,6 +645,13 @@ export const ContentNodeSchema = z.object({
     .object({ body: z.string().max(MAX_BODY_CHARS), at: z.string().max(40) })
     .nullable()
     .optional(),
+  /** What made the node's words (LOOPS_ENABLED, learning loops step 5): its stamp, or why it has
+   *  none. Server-owned: written only by updateContentPlanNode; a canvas Save keeps the stored
+   *  value, so it can't forge or clear one. A stamp that no longer parses is dropped, never fatal. */
+  made: MadeSchema.optional().catch(undefined),
+  /** What made the node's image (an image kind's stamp), kept apart so a new image never takes the
+   *  words' stamp away. Server-owned like `made`. */
+  imageMade: MadeSchema.optional().catch(undefined),
   warnings: z.array(z.string()).default([]),
   // ── Email-sequence fields (only on `email`/`wait`/`condition` nodes; null/[]
   //    elsewhere so hub-and-spoke plans are unaffected). ──
@@ -729,6 +758,11 @@ export const ContentTopologySchema = z.object({
   hubChannel: z.enum(["newsletter", "blog", "ebook"]).default("newsletter"),
   /** Social/channel ids to generate spokes for. */
   spokeChannels: z.array(z.string().max(40)).max(8).default([]),
+  /**
+   * The article's other languages, as chosen in Create (PAGE_LANGUAGES_ENABLED). Absent: decided by
+   * readers and site folders when it is approved. `[]`: none.
+   */
+  languages: z.array(z.string().max(10)).max(24).optional(),
 });
 export type ContentTopology = z.infer<typeof ContentTopologySchema>;
 

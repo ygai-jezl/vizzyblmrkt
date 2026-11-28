@@ -33,10 +33,17 @@ const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
 const regional = (collection: string, note?: string): StoreRef => ({ collection, db: "regional", definedIn: REPO, ...(note ? { note } : {}) });
 /** A collection in the brand's regional database, reached from its own file in src/lib/tenant. */
 const side = (collection: string, definedIn: string, extra: Partial<StoreRef> = {}): StoreRef => ({ collection, db: "regional", definedIn, ...extra });
-const control = (collection: string, definedIn: string, note?: string): StoreRef => ({ collection, db: "control", definedIn, ...(note ? { note } : {}) });
+const control = (collection: string, definedIn: string, note?: string, residencyGap?: string): StoreRef => ({
+  collection,
+  db: "control",
+  definedIn,
+  ...(note ? { note } : {}),
+  ...(residencyGap ? { residencyGap } : {}),
+});
 
 const BUCKET_GAP = "one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region";
 const AGENT_GAP = "one agent location (ROOT_AGENT_LOCATION) serves every region";
+const BRAND_RECORD_GAP = "the brand record is in the control plane, in the United States, whatever the brand's region";
 const gcs = (collection: string, definedIn: string, note: string): StoreRef => ({ collection, db: "gcs", definedIn, note, residencyGap: BUCKET_GAP });
 
 /** The firestore-bigquery-export mirrors, one per region (extensions/*.env). */
@@ -108,6 +115,7 @@ const HISTORY_ERASE: PathDecision = {
   gaps: [
     "team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does",
     "rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen",
+    "an open pasted list holds the rows still to add with no person id, so a person's erase can't find it; its rows clear when an admin adds or dismisses it, or when it expires after 7 days",
   ],
 };
 const HISTORY_EXPORT: PathDecision = {
@@ -118,6 +126,7 @@ const HISTORY_EXPORT: PathDecision = {
   gaps: [
     "an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days",
     "team member ids stay as ids, with no export by team member",
+    "an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days",
   ],
 };
 const HISTORY_SEARCH = "personal data, kept out of brand search until the data processing agreement covers it";
@@ -176,10 +185,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app; the data stays in `campaigns`. With LAUNCH_IDEAS_ENABLED it carries `idea`: a hypothesis, a status with who set it and when, an outcome, the product it was handed off to, and Just a list for a newsletter or sign-up list that isn't an idea. The states are its status, set by an admin; closing the waitlist (`archivedAt`) is separate, and a parked or killed idea only offers it. Status and hand-off changes are record.field_changed events (`sys.idea.status`, `sys.idea.product`) on `idea:<campaignId>`.",
     place: "idea",
     status: "built",
-    madeBy: [],
+    madeBy: ["translation"],
     home: "brand",
     personal: "none",
-    stores: [regional("campaigns")],
+    stores: [regional("campaigns"), regional("translations", "its launch page's words in other languages")],
     links: [
       { to: "signup", via: "signups.campaignId", many: true },
       { to: "site_key", via: "launch_site_keys, by launch id", many: false },
@@ -658,17 +667,20 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "company",
     name: "Company",
     description:
-      "A business people work at, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there.",
+      "A business people work at, or a firm an admin added from a pasted list, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there. One added from a pasted list keeps who added it and where the list is from (`addedBy`).",
     place: "customers",
     status: "built",
-    madeBy: ["enrichment"],
+    madeBy: ["enrichment", "paste_columns"],
     home: "brand",
     personal: "people",
     stores: [regional("companies")],
     links: [{ to: "person", via: "contacts.companyId", many: true }],
-    events: ["record.field_changed"],
+    events: ["record.created", "record.field_changed"],
     erase: {
-      paths: [{ ...CONTACT_ERASE, when: "the company, its field values and its history go when its last person is erased" }],
+      paths: [
+        { ...CONTACT_ERASE, when: "the company, its field values and its history go when its last person is erased" },
+        brandPath("removeCompany", "src/lib/crm/companyRemove.ts", "an admin removes a company with no people from its page, with its field values and its history (RAISE_PASTE_ENABLED)"),
+      ],
       gaps: ["erasing one person keeps their company's field values while others still work there"],
     },
     export: { gap: "a person's export leaves out their company's own field values" },
@@ -715,10 +727,15 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description: "An email journey on the lifecycle engine, for a product's users or a launch's waitlist: the draft, its published versions and its daily send counters.",
     place: "customers",
     status: "built",
-    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner"],
+    madeBy: ["journeys", "canvas.lifecycle", "canvas.journey_style", "edit_mode", "journey_shape", "ab_winner", "translation"],
     home: "brand",
     personal: "none",
-    stores: [regional("lifecycle_journeys"), regional("lifecycle_versions", "published versions never change"), regional("lifecycle_counters")],
+    stores: [
+      regional("lifecycle_journeys"),
+      regional("lifecycle_versions", "published versions never change"),
+      regional("lifecycle_counters"),
+      regional("translations", "its emails in other languages, each with a draft and the approved words"),
+    ],
     links: [
       { to: "enrolment", via: "journeyId", many: true },
       { to: "product", via: "connectionId", many: false },
@@ -920,10 +937,13 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description: "An article, newsletter, ebook, post or journey email: its plan, drafts and the final text.",
     place: "content",
     status: "built",
-    madeBy: ["blog_research", "autopilot_research", "blog_write", "fact_check", "seen_notes", "architect", "content_write", "content_email", "content_hub", "content_brief", "content_angle", "ebook", "email_layout", "edit_mode", "canvas.content_plan", "blog_refresh", "autopilot", "pattern_holdout", "freshness_clock", "refresh_due", "found_live"],
+    madeBy: ["blog_research", "autopilot_research", "blog_write", "fact_check", "seen_notes", "architect", "content_write", "content_email", "content_hub", "content_brief", "content_angle", "ebook", "email_layout", "edit_mode", "canvas.content_plan", "blog_refresh", "autopilot", "pattern_holdout", "freshness_clock", "refresh_due", "found_live", "translation"],
     home: "brand",
     personal: "none",
-    stores: [side("content_plans", WORKSPACE_CONTENT, { path: "workspaces/{workspaceId}/content_plans" })],
+    stores: [
+      side("content_plans", WORKSPACE_CONTENT, { path: "workspaces/{workspaceId}/content_plans" }),
+      regional("translations", "an article in other languages, with its draft, approved words, address and live check"),
+    ],
     links: [{ to: "workspace", via: "workspaceId", many: false }],
     events: [],
     erase: { paths: [brandPath("deleteContentPlan", WORKSPACE_CONTENT), brandPath("removePlanPage", "src/lib/content/blog/pageActions.ts")] },
@@ -1025,21 +1045,27 @@ export const ONTOLOGY: readonly OntologyType[] = [
   },
   {
     id: "post_learning",
-    name: "What posts taught",
-    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers.",
+    name: "What posts and image votes taught",
+    description:
+      "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. Where turned on, the same store keeps the workflow emails and hub pieces a person approved, as examples for the email and hub writers. With image style versions on, every version of each image style's look learned from votes too, with the member who changed a look by hand.",
     place: "content",
     status: "built",
-    madeBy: ["post_feedback", "content_email", "content_hub"],
+    madeBy: ["post_feedback", "content_email", "content_hub", "loop_learn"],
     home: "brand",
-    personal: "none",
+    personal: "team",
     stores: [
       side("performance_exemplars", "src/lib/tenant/exemplars.ts", { note: "the best posts, and the approved emails and hub pieces kept as examples" }),
       side("post_perf_vectors", "src/lib/tenant/postVectors.ts"),
-      side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", { note: "append only, the source of a revert" }),
+      side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", {
+        note: "append only, the source of a revert; image style looks use one channel per style (`image_style.<id>`), and `by` holds the user id of the member who wrote a row by hand",
+      }),
+      control("tenants", CONTROL, "`learnedPostPatterns`, the post patterns in use for each channel", BRAND_RECORD_GAP),
     ],
     links: [
       { to: "post_result", via: "the posts it learned from", many: true },
       { to: "content_plan", via: "the approved pieces it keeps as examples", many: true },
+      { to: "image_asset", via: "evidenceIds, the images a look was learned from", many: true },
+      { to: "member", via: "by, on version rows a member wrote", many: false },
     ],
     events: [],
     erase: {
@@ -1048,9 +1074,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
         brandPath("forgetRemovedExamples", "src/lib/content/create/approvedExamples.ts", "a piece taken off the canvas takes its approved example with it"),
         brandPath("forgetWorkspaceExamples", "src/lib/content/create/approvedExamples.ts", "a deleted programme takes the approved examples of its plans with it"),
       ],
+      gaps: ["no path removes a team member's user id in `by` on a version row when they leave the team; it stays an id"],
     },
-    export: { none: NOT_PERSONAL },
-    search: { none: "vectors and versions for the writer, not text to find" },
+    export: { gap: "team member ids in `by` stay as ids, with no export by team member" },
+    // Each image look in use is found as `learned`, ref image_style.<style>@<version> (step 4, 3.10).
+    search: { kinds: ["learned"] },
     numbers: { none: "its numbers are post results" },
   },
   {
@@ -1062,18 +1090,27 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["blog_hero", "post_image", "email_block_image", "email_hero", "ebook_image", "customize_image", "image_style_pick"],
     home: "brand",
     personal: "none",
-    stores: [regional("image_assets"), gcs("{tenantId}/{campaignId}/{file}", "src/lib/agents/imageStore.ts", "the image files, served through the email asset proxy")],
+    stores: [
+      regional(
+        "image_assets",
+        "a vote may keep its reason and an optional note of up to 200 characters the team wrote, with no writer kept; both go when the image is deleted",
+      ),
+      gcs("{tenantId}/{campaignId}/{file}", "src/lib/agents/imageStore.ts", "the image files, served through the email asset proxy"),
+    ],
     links: [{ to: "content_plan", via: "where it is used", many: true }],
     events: [],
     erase: { paths: [brandPath("deleteImageAsset", "src/lib/admin/brandKit.ts")] },
     export: { none: NOT_PERSONAL },
     search: { kinds: ["image"] },
-    numbers: { none: NO_NUMBERS },
+    // With image style versions on, get_image_style says how each look's images did: liked of those
+    // voted on, and remade (learning loops step 4, 3.10).
+    numbers: { meanings: ["likedShare", "remadeShare"], tool: "get_image_style" },
   },
   {
     id: "brand_kit",
     name: "Brand kit",
-    description: "How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, and Vizzy's suggested style waits beside it.",
+    description:
+      "How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, used only while image style versions are off, and Vizzy's suggested style waits beside it.",
     place: "content",
     status: "built",
     madeBy: ["brand_voice", "brand_kit", "images", "canvas.email_style", "canvas.image_style"],
@@ -1087,6 +1124,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
       gcs("brand/{tenantId}/fonts/{file}", "src/lib/tenant/brandFontStore.ts", "font files"),
       gcs("brand/{tenantId}/{category}/{file}", "src/lib/tenant/brandAssetStore.ts", "icons and graphics"),
       gcs("brand/{tenantId}/{file}", "src/lib/tenant/brandAsset.ts", "brand guideline files, read only on the server"),
+      control(
+        "tenants",
+        CONTROL,
+        "the looks learned from image votes, `brandKit.learnedImageStyle` and `imageStyle.learned`, used only while IMAGE_STYLE_VERSIONS_ENABLED is off",
+        BRAND_RECORD_GAP,
+      ),
     ],
     links: [{ to: "brand", via: "brandKit, brandVoice, imageStyle (with its learned looks) and imageStyleSuggestion on the brand record", many: false }],
     events: [],
@@ -1203,10 +1246,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "brand_strategy",
     name: "Brand strategy",
     description:
-      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, and the weekly check that sets the approved strategy against what the watched competitors publish.",
+      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, the weekly check that sets the approved strategy against what the watched competitors publish, How it went: the last 12 months added up for each focus situation and the rest of the map, each with where its numbers came from, and the month's one suggestion with the ones put off with Not now and why.",
     place: "content",
     status: "built",
-    madeBy: ["brand_strategy", "competitor_find", "competitor_claim_match", "strategy_check"],
+    madeBy: ["brand_strategy", "competitor_find", "competitor_claim_match", "strategy_check", "strategy_month", "strategy_suggest"],
     home: "brand",
     personal: "none",
     stores: [regional("brand_strategy", "one document per brand; `by` and decisions hold the admin's email or user id")],
@@ -1218,7 +1261,45 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { paths: [brandPath("deleteBrandStrategy", "src/lib/brandStrategy/store.ts", "an admin presses Start over on the Strategy tab")] },
     export: { none: NOT_PERSONAL },
     search: { none: "one short record per brand, read whole by the writer, research, Next up and Vizzy" },
-    numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes", "theirArticles", "theirNewArticles", "competitorArticles", "namingArticles"], tool: "get_brand_strategy" },
+    numbers: {
+      meanings: [
+        "focusQuestions",
+        "focusLiveArticles",
+        "foundTimes",
+        "theirArticles",
+        "theirNewArticles",
+        "competitorArticles",
+        "namingArticles",
+        "focusArticlesLive",
+        "focusArticlesNew",
+        "focusTheirArticles",
+        "focusSearchClicks",
+        "focusSearchImpressions",
+        "focusVisits",
+        "focusKeyActions",
+        "focusAiCitations",
+        "siteVisits",
+        "roadmapDue",
+        "roadmapDone",
+        "starsKept",
+        "starsRemoved",
+        "claimsEdited",
+        "picksSkipped",
+        "checksActed",
+        "checksDismissed",
+        "roadmapBehind",
+        "monthsStalled",
+        "swapTheirArticles",
+        "swapResult",
+        "swapOpenQuestions",
+        "monthsWithoutProof",
+        "focusResultNow",
+        "focusResultBefore",
+        "restResultNow",
+        "restResultBefore",
+      ],
+      tool: "get_brand_strategy",
+    },
   },
   {
     id: "content_strategy",
@@ -1367,6 +1448,85 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { none: NOT_PERSONAL },
     search: { none: "counts, read on Plan and usage" },
     numbers: { meanings: ["usedThisMonth", "monthlyLimit", "leftThisMonth"], tool: "get_usage" },
+  },
+  {
+    id: "loop_day",
+    name: "Learning counts",
+    description:
+      "What the learning loops keep for a brand, as counts and pointers with no words and no person: each week's counts of what YouGrow made and what people did with it, folded weeks, totals for each learned version, which version each style uses, whether image learning is paused or the brand opted out of counts across brands, the lane's own state, and the key that signs the brand's stamps.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "brand",
+    personal: "none",
+    stores: [
+      regional("loop_days", "one document per kind and key under the one map `d`, read and counted through forTenant"),
+      side("loop_days", "src/lib/tenant/loops.ts", {
+        note: "each week's counter shards go 70 days after the week ends and folded weeks 2 years after, by a time to live on ttlAt; pointers, the lane's state and the stamp key never expire; the stamp key is never shown or logged",
+      }),
+    ],
+    links: [{ to: "post_learning", via: "the version each scope uses, by number", many: true }],
+    events: [],
+    erase: { none: "counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "counts and pointers, read by the learning loops" },
+    // get_learning reads the brand's own lb:, lt:, lw: and lv: (learning loops step 5); each look's
+    // liked and remade shares are image_asset's, through get_image_style.
+    numbers: { meanings: ["keptShare", "editShare", "declineShare", "unusedShare"], tool: "get_learning" },
+  },
+  {
+    id: "loop_lane",
+    name: "Learning lane bookkeeping",
+    description:
+      "The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, how many learner calls it made today, and one mark per organisation, so an organisation with several brands counts once in the counts across brands. A mark holds its newest week only: the cells it is already counted in and the outputs counted so far against the cap.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "control",
+    personal: "none",
+    stores: [
+      control(
+        "loop_lane",
+        "src/lib/tenant/loopLane.ts",
+        "the `lane` document, whose cursor is the last brand id the lane visited, and one mark per organisation (`o:<organisationId>`, or `o:t:<tenantId>` for a brand with no organisation), each under the one map `d`; a mark is replaced by its organisation's next week, and nothing on screen reads it",
+        "the control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: {
+      gap: "a mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next",
+    },
+    export: { none: NOT_PERSONAL },
+    search: { none: "the lane's own bookkeeping" },
+    numbers: { none: "the lane's own bookkeeping: a cursor and one mark per organisation, with no meaning to count" },
+  },
+  {
+    id: "fleet_cell",
+    name: "Counts across brands",
+    description:
+      "What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing of theirs (only that the lane visited them), and numbers of things show only from 10 organisations.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "control",
+    personal: "none",
+    stores: [
+      control(
+        "fleet_cells",
+        "src/lib/tenant/fleetCells.ts",
+        "one row per kind of choice and closed week (`fh:<kind>:<week>`), and the copy's own rows `fh:_orgs`, `fh:_types` and `fh:_calls`, every count under the one map `n`; read by id only",
+        "the control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "counts across organisations with no brand, organisation or person in them, so nothing in them is anyone's to erase" },
+    export: { none: "counts across organisations, with no brand's or person's own data" },
+    search: { none: "counts, read by the people who run the copy" },
+    numbers: {
+      gap: "counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path",
+    },
   },
   {
     id: "live_watch",
@@ -1564,6 +1724,31 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "a short profile Vizzy reads whole, not searched" },
     numbers: { none: NO_NUMBERS },
     madeBy: ["onboarding", "vizzy_chat"],
+  },
+  {
+    id: "raise_doc",
+    name: "Raise document",
+    description:
+      "A deck for investors or a pack for lenders, one record per deck: its slides, speaker notes (the talk track), number blocks each with its source and date, what it still needs, every kept version with its change note, and Vizzy's own draft of each slide. Numbers are frozen in each version. A draft only: nothing is sent or shared.",
+    place: "company",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [regional("raise_docs", "one document per deck, at most 20 per brand, version 1 and the newest 11 kept whole; `createdBy`, `updatedBy` and each version's `by` hold user ids; under 700 KB")],
+    links: [
+      { to: "brand_map", via: "the identity, audiences and situations a draft read", many: false },
+      { to: "brand_strategy", via: "the claims and competitor groups a draft read", many: false },
+      { to: "idea", via: "launchId on a People on a launch block (a launch is an idea's waitlist)", many: true },
+    ],
+    events: [],
+    erase: {
+      paths: [brandPath("deleteRaiseDoc", "src/lib/raise/docs/store.ts", "an admin deletes the deck on Content › Raise kit")],
+      gaps: ["no path deletes a whole brand and everything it holds", "a team member's erase does not find a team slide that names them: it is free text"],
+    },
+    export: { paths: [{ fn: "exportRaiseDoc", file: "src/lib/raise/docs/store.ts", trigger: "member", when: "an admin downloads the deck's data on its page" }] },
+    search: { kinds: ["raise_doc"] },
+    numbers: { meanings: ["waitlistSignups", "launchSignups", "signupGrowth", "talkSeconds"], tool: "get_raise_doc" },
+    madeBy: ["raise_write", "deck_outline", "canvas.raise_deck"],
   },
   {
     id: "next_action_card",
@@ -1768,7 +1953,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "work_log",
     name: "Work log",
     description:
-      "The organisation's daily log on Work (ADR-0020): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.",
+      "The organisation's daily log on Work (ADR-0020): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, an entry Carry over logged on Today for a workstream still open from yesterday says work_carry, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.",
     place: "company",
     status: "built",
     madeBy: ["vizzy_chat"],
@@ -2693,7 +2878,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, the learning lane's offers to go back to an earlier learned image look, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
     madeBy: [
@@ -2715,6 +2900,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "product_map",
       "autopilot",
       "investor_quiet",
+      "paste_columns",
+      "loop_learn",
     ],
     home: "brand",
     personal: "people",
@@ -2727,9 +2914,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "idea", via: "the target, when it is an idea", many: false },
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
-      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action", many: false },
+      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action, or a pasted list", many: false },
       { to: "work_task", via: "the target, when it is a Work task suggestion: the id the task takes once a person adds it", many: false },
       { to: "work_log", via: "the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it", many: false },
+      { to: "post_learning", via: "the target, when it offers to go back from a learned image look", many: false },
       { to: "next_action_card", via: "the card's step records name it", many: false },
       { to: "launch_journey", via: "draft, a launch's welcome emails on the original engine (agent record)", many: false },
       { to: "lifecycle_journey", via: "draft, a journey Vizzy drafted or styled (agent record)", many: false },

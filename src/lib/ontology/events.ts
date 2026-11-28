@@ -261,9 +261,10 @@ function workChangeSource(row: Pick<WorkLogRow, "source">): FieldChangeSource {
  * names no person (Work is the team's, never a brand's people); the task, brand and organisation
  * are in refs. A change row is shaped like record.field_changed ({field, before, after, source});
  * the task's first change row ("added") is work.task_added with its origin's kind. A check row
- * carries the measure's kind, which measure and the read; a decision says whether it approves a
- * plan and whether the choice took the recommended pick. Words people wrote (an entry's note, a
- * decision's question) stay on the row.
+ * carries the measure's kind, which measure, the read and the brand's own count (never one across
+ * brands, which is for operators); a decision says whether it approves a plan and whether the
+ * choice took the recommended pick. Words people wrote (an entry's note, a decision's question)
+ * stay on the row.
  */
 export function fromWorkLog(row: WorkLogRow): OntologyEvent {
   const base = {
@@ -290,7 +291,15 @@ export function fromWorkLog(row: WorkLogRow): OntologyEvent {
       return {
         ...base,
         kind: "work.checked",
-        properties: { action: row.check.action, checkKind: row.check.kind, measureKind: row.check.measureKind, which: row.check.which, read: row.check.read, counted: row.check.counted?.n ?? null },
+        properties: {
+          action: row.check.action,
+          checkKind: row.check.kind,
+          measureKind: row.check.measureKind,
+          which: row.check.which,
+          read: row.check.read,
+          // The brand's own count only: one from the learning loops' counts across brands (`weeks`) is for operators.
+          counted: row.check.counted && row.check.counted.weeks === undefined ? (row.check.counted.n ?? null) : null,
+        },
       };
     case "decision":
       return {
@@ -419,7 +428,7 @@ export const SUBJECT_TYPE_REGISTRY_ID: Record<SubjectType, string> = {
  * What an agent action can be about. A consumer that needs another target adds the value and its
  * registry type id in its own change.
  */
-export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question", "brand", "work_task", "work_log"] as const;
+export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question", "brand", "work_task", "work_log", "learned_item"] as const;
 export type AgentTargetType = (typeof AGENT_TARGET_TYPES)[number];
 
 export interface AgentTarget {
@@ -445,6 +454,9 @@ export const AGENT_TARGET_REGISTRY_ID: Record<AgentTargetType, string> = {
   // A note or decision Vizzy drafts for Work: the id is the one the log row takes when a person
   // saves it, so the draft and the row join both ways.
   work_log: "work_log",
+  // A learned look a check read worse (learning loops step 4, IMAGE_STYLE_VERSIONS_ENABLED): the
+  // version row, `<scope>.v<version>`, in learned_pattern_versions.
+  learned_item: "post_learning",
 };
 
 /**
@@ -485,10 +497,14 @@ export interface FieldChangedProperties {
   source: FieldChangeSource;
 }
 
-/** record.created: what was created, and how (for example "form", "palette" or "vizzy"). */
+/**
+ * record.created: what was created, and how (for example "form", "palette", "vizzy" or "paste").
+ * `source`: where a pasted list came from, in the admin's words, only on a row it made.
+ */
 export interface RecordCreatedProperties {
   object: FieldObject;
   via: string;
+  source?: string;
 }
 
 /**

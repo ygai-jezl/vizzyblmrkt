@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { LanguagesBox, defaultArticleLanguages, useBrandLanguages } from "./LanguagesBox";
 import { programmeWord } from "@/lib/nav/terms";
 import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
@@ -74,6 +75,7 @@ export function CreateWizard({
   prefillAsks = null,
   prefillNumbers = null,
   suggestAngle = false,
+  pageLanguages = false,
   onCreated,
   onCancel,
 }: {
@@ -96,10 +98,16 @@ export function CreateWizard({
   prefillSituation?: { id: string; text: string } | null;
   /** "Suggest an angle" is on: the Spark can be suggested from the brand map and knowledge. */
   suggestAngle?: boolean;
+  /** An article's other languages are chosen here (PAGE_LANGUAGES_ENABLED). */
+  pageLanguages?: boolean;
   onCreated: (plan: ContentPlan) => void;
   onCancel: () => void;
 }) {
   const [step, setStep] = useState(0);
+  // A blog article's other languages (PAGE_LANGUAGES_ENABLED): ticked from readers and folders once loaded.
+  const brandLanguages = useBrandLanguages(pageLanguages);
+  const [articleLanguages, setArticleLanguages] = useState<string[] | null>(null);
+  const shownLanguages = brandLanguages ? (articleLanguages ?? defaultArticleLanguages(brandLanguages)) : null;
   const [name, setName] = useState(prefill ? prefill.question.slice(0, 200) : (prefillNumbers?.text.slice(0, 200) ?? ""));
   const [objective, setObjective] = useState<ContentObjective>(prefill || prefillNumbers ? "brand_visibility" : "newsletter_signups");
   const [sequenceType, setSequenceType] = useState<SequenceType>("welcome");
@@ -272,7 +280,7 @@ export function CreateWizard({
               ? { hubChannel: "newsletter", spokeChannels: [] }
               : useEbook
                 ? { hubChannel: "ebook", spokeChannels }
-                : { hubChannel, spokeChannels },
+                : { hubChannel, spokeChannels, ...(hubChannel === "blog" && shownLanguages ? { languages: shownLanguages } : {}) },
             // Blog hub only — what the operator already knows; research fills in the rest.
             ...(citableBlog
               ? {
@@ -726,6 +734,9 @@ export function CreateWizard({
                   ))}
                 </div>
               </Field>
+              {hubChannel === "blog" && brandLanguages && shownLanguages ? (
+                <LanguagesBox view={brandLanguages} chosen={shownLanguages} onChange={setArticleLanguages} />
+              ) : null}
               <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-500 dark:bg-neutral-900/40">
                 The Architect will build a canvas: a pre-hub teaser, the {hubChannel} hub,
                 a post-hub promo, and one spoke per channel above — then fill each node from your

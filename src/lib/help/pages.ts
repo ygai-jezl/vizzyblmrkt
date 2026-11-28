@@ -6,10 +6,14 @@ import { isOrganisationJoinEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -32,7 +36,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work" | "raise_pipeline";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work" | "raise_pipeline" | "raise_kit" | "paste" | "learning";
 }
 
 /**
@@ -93,6 +97,8 @@ export interface HelpBodyProps {
   work?: boolean;
   /** Vizzy's Work tools: suggestions in Review and drafts in chat (isWorkVizzyEnabled(), a server switch, from the shell too). */
   workVizzy?: boolean;
+  /** A task opens in place on Work's list (isWorkQuickEditEnabled(), a server switch, from the shell too). */
+  workQuickEdit?: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), a server switch: the drawer gets it from the admin shell). */
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */
@@ -101,12 +107,26 @@ export interface HelpBodyProps {
   settingsHistory?: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), a server switch: the drawer gets it from the admin shell). */
   nextActionCard?: boolean;
+  /** The learning loops count what YouGrow makes, across brands too (isLoopsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  loops?: boolean;
+  /** Image style versions, the image looks YouGrow learns (isImageStyleVersionsOn(), a server switch: the drawer gets it from the admin shell). */
+  imageVersions?: boolean;
   /** Review lists the email and image style and the notes Vizzy suggested (isAgentRecordEnabled(), a server switch: the drawer gets it from the admin shell). */
   agentRecord?: boolean;
   /** Readers per language and one language list (isLanguageReadersEnabled(), a server switch: the drawer gets it from the admin shell). */
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
   raiseFollowUps?: boolean;
+  /** The Raise kit's decks are in brand search (isRaiseKitEnabled(), a server switch: the drawer gets it from the admin shell). */
+  raiseKit?: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
+  paste?: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
+  vizzyPaste?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  assetTranslations?: boolean;
+  /** Articles and launch pages at their own address per language (isPageLanguagesEnabled(), a server switch: the drawer gets it from the admin shell). */
+  pageLanguages?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -183,6 +203,20 @@ export const HELP_PAGES: HelpPage[] = [
   page("programmes-and-knowledge", "Programmes and knowledge", "grow", "Start a content programme and give it your website and documents to write from."),
   page("brand-map", "Brand map", "grow", "Set the names and subjects every blog article is written from."),
   page("write-and-schedule", "Write and schedule", "grow", "Write posts, articles and newsletters with Vizzy, then schedule and send them."),
+  page(
+    "what-yougrow-learned",
+    "What YouGrow learned",
+    "grow",
+    "See the look each image style learned from your votes, how each new look is checked, and how to undo, pause or forget it.",
+    "learning",
+  ),
+  page(
+    "raise-kit",
+    "Raise kit",
+    "grow",
+    "Draft a deck for investors or a pack for lenders from what YouGrow knows, rehearse its talk track, present it and save it as a PDF.",
+    "raise_kit",
+  ),
   page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
   page(
@@ -213,6 +247,13 @@ export const HELP_PAGES: HelpPage[] = [
     "Set up investor or lender fields in one press, work a board by stage, log why each one passed and get follow-ups in Review.",
     "raise_pipeline",
   ),
+  page(
+    "paste-a-list",
+    "Paste a list",
+    "grow",
+    "Paste rows from a sheet to add people and companies with one approval, and where to find a list to start from.",
+    "paste",
+  ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
   page("invite-your-waitlist", "Invite your waitlist", "product", "Bring the people on your waitlist into your product, in waves."),
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
@@ -240,10 +281,14 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // As /login decides: the switch on and a way to deliver the code, so the page never describes
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
+  // Image style versions, or the learning loops, whose counts across brands a brand can leave here.
+  if (p.onlyWhen === "learning") return isImageStyleVersionsOn() || isLoopsEnabled();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
   if (p.onlyWhen === "work") return isWorkEnabled();
   if (p.onlyWhen === "raise_pipeline") return isRaisePipelineEnabled();
+  if (p.onlyWhen === "raise_kit") return isRaiseKitEnabled();
+  if (p.onlyWhen === "paste") return isPasteEnabled();
   return true;
 }
 
@@ -264,25 +309,39 @@ function audienceSummary(now: { fields: boolean; ideaWords: boolean }): string {
   return `Everyone from your ${now.ideaWords ? "ideas' waitlists" : "launches"}, your own site and your products in one list, one page per person, ${now.fields ? "your own fields on people and companies, " : ""}and erasing or exporting them everywhere.`;
 }
 
+/**
+ * What YouGrow learned's summary while only the learning loops are on: the page then speaks of the
+ * counts across brands alone, with no image looks to see, undo, pause or forget.
+ */
+export const COUNTS_ONLY_SUMMARY = "What YouGrow counts across brands, who sees the counts, and how your brand leaves them.";
+
 /** The words used now, as the server sees them unless the caller says otherwise. */
 interface Words {
   people: boolean;
   fields: boolean;
   ideaWords: boolean;
+  /** The learned image looks (image style versions), and the learning loops' counts across brands. */
+  imageVersions: boolean;
+  loops: boolean;
 }
 
 const wordsNow = (opts: HelpBodyProps = {}): Words => ({
   people: opts.people ?? isPeopleNameEnabled(),
   fields: opts.fields ?? isFieldsEnabled(),
   ideaWords: opts.ideaWords ?? isIdeaWordsEnabled(),
+  imageVersions: opts.imageVersions ?? isImageStyleVersionsOn(),
+  loops: opts.loops ?? isLoopsEnabled(),
 });
 
 /**
  * A page's entry in the words used now: with People on, the page about the People list is listed
  * as People, and with fields on its summary names them. With ideas in the words, Launch and
- * waitlist is Idea and waitlist. Slugs stay, so links and llms.txt keep working.
+ * waitlist is Idea and waitlist. With only the learning loops on, What YouGrow learned is
+ * summed up as the counts across brands it then holds. Slugs stay, so links and llms.txt keep
+ * working.
  */
 function inWords(p: HelpPage, now: Words): HelpPage {
+  if (p.slug === "what-yougrow-learned" && now.loops && !now.imageVersions) return { ...p, summary: COUNTS_ONLY_SUMMARY };
   if (p.slug === "your-audience") {
     return {
       ...p,

@@ -284,7 +284,7 @@ export function AccountSettings() {
                   setStatus("idle");
                 }}
               />
-              Add a line to translated articles: &ldquo;Translated from {languageName(defaultLocale)} and checked by our team.&rdquo;
+              Add a line to translated articles, in their language: &ldquo;Translated from the original and checked by our team.&rdquo;
             </label>
             {!canSetMinReaders ? <p className="text-xs text-neutral-500">Only an admin can change where each language goes.</p> : null}
           </div>

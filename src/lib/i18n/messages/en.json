@@ -128,5 +128,6 @@
   "email.footer.unsubscribe": "Unsubscribe",
   "email.footer.privacy": "Privacy Policy",
   "email.steps.done": "{done} of {total} steps done",
-  "email.steps.more": "and {n} more"
+  "email.steps.more": "and {n} more",
+  "article.translatedNote": "Translated from the original and checked by our team."
 }

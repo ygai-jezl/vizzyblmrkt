@@ -258,7 +258,7 @@ export async function translationReviewItems(ctx: TenantContext, db?: FirestoreL
         detail: `${names.join(", ")} to check, ${count === 1 ? "1 email" : `${count} emails`}`,
         href: `/admin/lifecycle/${r.journeyId}`,
         action: "Open",
-        ...(ctx.role === "admin" ? { approveLanguages: { journeyId: r.journeyId, revs: r.revs } } : {}),
+        ...(ctx.role === "admin" ? { approveLanguages: { endpoint: `/api/admin/lifecycle/journeys/${r.journeyId}/translations`, revs: r.revs } } : {}),
       },
     ];
   });

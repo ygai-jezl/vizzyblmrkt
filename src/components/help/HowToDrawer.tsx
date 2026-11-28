@@ -64,6 +64,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     paste: shell?.paste ?? false,
     vizzyPaste: shell?.vizzyPaste ?? false,
     assetTranslations: shell?.assetTranslations ?? false,
+    pageLanguages: shell?.pageLanguages ?? false,
   };
 }
 

@@ -118,6 +118,7 @@ export function WidgetBuilder({
   campaigns,
   initialCampaignId,
   siteForm,
+  languages,
 }: {
   /** The admin's own request origin — used for the (authenticated) preview iframe. */
   origin: string;
@@ -132,6 +133,8 @@ export function WidgetBuilder({
    * launch's site key and the call its server makes. Absent = no such choice.
    */
   siteForm?: { canEdit: boolean };
+  /** The launch's languages (PAGE_LANGUAGES_ENABLED): the snippet can say which its page is in. */
+  languages?: Array<{ code: string; name: string }>;
 }) {
   const router = useRouter();
   const [ownForm, setOwnForm] = useState(false);
@@ -139,6 +142,7 @@ export function WidgetBuilder({
   const [campaignId, setCampaignId] = useState(initialCampaignId);
   const [surface, setSurface] = useState<PreviewSurface>("WIDGET_1");
   const [mode, setMode] = useState<PreviewMode>("SIGNUP");
+  const [pageLang, setPageLang] = useState("");
 
   // Per-campaign settings, kept in state so a save can re-seed from the server.
   const [settingsById, setSettingsById] = useState<Record<string, CampaignSettings>>(
@@ -218,8 +222,9 @@ export function WidgetBuilder({
         tenantId,
         widgetType,
         mode: snippetMode,
+        ...(pageLang ? { lang: pageLang } : {}),
       }),
-    [embedOrigin, campaignId, tenantId, widgetType, snippetMode],
+    [embedOrigin, campaignId, tenantId, widgetType, snippetMode, pageLang],
   );
   const hostedUrl = appendTenantParam(
     `${embedOrigin.replace(/\/+$/, "")}/waitlist/${campaignId}`,
@@ -391,6 +396,9 @@ export function WidgetBuilder({
           previewUrl={previewUrl}
           snippet={snippet}
           hostedUrl={hostedUrl}
+          languages={languages}
+          pageLang={pageLang}
+          setPageLang={setPageLang}
         />
       ) : (
         <SocialTab
@@ -440,6 +448,9 @@ function DesignTab({
   previewUrl,
   snippet,
   hostedUrl,
+  languages,
+  pageLang,
+  setPageLang,
 }: {
   surface: PreviewSurface;
   setSurface: (s: PreviewSurface) => void;
@@ -457,6 +468,10 @@ function DesignTab({
   previewUrl: string;
   snippet: string;
   hostedUrl: string;
+  /** The launch's languages for the snippet's picker (PAGE_LANGUAGES_ENABLED); absent = no picker. */
+  languages?: Array<{ code: string; name: string }>;
+  pageLang: string;
+  setPageLang: (code: string) => void;
 }) {
   const w = ideaWord(useWords().ideas);
   const [copied, setCopied] = useState<"snippet" | "link" | null>(null);
@@ -756,6 +771,19 @@ function DesignTab({
               {copied === "snippet" ? "Copied" : "Copy"}
             </button>
           </div>
+          {languages && languages.length > 1 ? (
+            <label className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+              The page it goes on is in
+              <select value={pageLang} onChange={(e) => setPageLang(e.target.value)} className="rounded-md border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-900">
+                <option value="">the visitor&apos;s language</option>
+                {languages.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <pre className="overflow-x-auto rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/40">
             <code>{snippet}</code>
           </pre>

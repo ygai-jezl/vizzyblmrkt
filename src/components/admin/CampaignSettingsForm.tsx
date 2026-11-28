@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LaunchLanguages } from "./LaunchLanguages";
 import { useRouter } from "next/navigation";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
 import { buildSettingsPayload, type UiQuestion } from "@/lib/admin/campaignSettingsPayload";
@@ -73,6 +74,7 @@ export function CampaignSettingsForm({
   initial,
   senderConfig,
   brandLanguages,
+  pageLanguages,
 }: {
   campaignId: string;
   initial: CampaignSettings;
@@ -82,6 +84,8 @@ export function CampaignSettingsForm({
    * offers it instead of a list of its own; languages it had of its own are shown so they can move.
    */
   brandLanguages?: string[];
+  /** The launch page's own words in other languages (PAGE_LANGUAGES_ENABLED); absent: off. */
+  pageLanguages?: { canAct: boolean };
 }) {
   const router = useRouter();
   // A launch is called an idea while the words are on.
@@ -383,6 +387,7 @@ export function CampaignSettingsForm({
               <p className="text-xs text-green-600">Added to your brand list. Save to take them off this {w.one}&apos;s own list.</p>
             ) : null}
             {moveStatus === "error" ? <p className="text-xs text-red-600">Couldn&apos;t add them to your brand list. Try again.</p> : null}
+            {pageLanguages ? <LaunchLanguages campaignId={campaignId} canAct={pageLanguages.canAct} /> : null}
           </div>
         ) : (
         <div className="space-y-1">

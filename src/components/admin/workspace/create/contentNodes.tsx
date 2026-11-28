@@ -94,6 +94,14 @@ function NodeShell({
       <div className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-500">
         <span>{channelLabel(cn.channel)}</span>
         {cn.templateId ? <span className="text-violet-500" title="Uses a saved template">· 📄</span> : null}
+        {/* Its languages (PAGE_LANGUAGES_ENABLED): EN ✓ FR draft. */}
+        {Array.isArray(data.languages)
+          ? (data.languages as Array<{ code: string; label: string; done: boolean }>).map((l) => (
+              <span key={l.code} className={`rounded px-1 ${l.done ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"}`}>
+                {l.label}
+              </span>
+            ))
+          : null}
       </div>
       {cn.body ? (
         <p className="mt-1.5 text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">

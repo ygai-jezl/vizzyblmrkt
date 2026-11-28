@@ -11,6 +11,8 @@ import { AiDraftCard } from "../AiDraftCard";
 import { RefreshReviewCard } from "./RefreshReviewCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
+import { ArticleLanguagesCard } from "./ArticleLanguages";
+import { hreflangOf } from "@/lib/content/blog/languageTags";
 
 /**
  * What the inspector adds for a blog hub written to the CITABLE structure, in the two
@@ -115,6 +117,14 @@ export function BlogHubReview({
         <VersionsCard nodeId={node.id} controls={controls.versions} stamp={`${node.body.length}:${node.status}`} disabled={disabled || controls.busy !== null} />
       ) : null}
 
+      {controls.languages ? (
+        <ArticleLanguagesCard
+          handle={controls.languages.handle}
+          canAct={controls.languages.canAct}
+          bits={{ node, brief: controls.brief, brandName: controls.brandName, logoUrl: controls.logoUrl, map: controls.map ?? null }}
+        />
+      ) : null}
+
       <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
 
       {controls.hero ? <BlogHeroCard node={node} controls={controls.hero} disabled={disabled} /> : null}
@@ -133,6 +143,7 @@ export function BlogHubReview({
           map={controls.map ?? null}
           hero={controls.hero ? { assetUrl: controls.hero.assetUrl } : null}
           approved={node.status === "approved"}
+          {...(controls.languages ? { inLanguage: hreflangOf(controls.languages.handle.view.base.code) } : {})}
           {...(controls.datesTimeZone ? { datesTimeZone: controls.datesTimeZone } : {})}
         />
       </fieldset>

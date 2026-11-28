@@ -20,6 +20,8 @@ export const EMBED_ATTR = {
   bgColor: "data-vizzybl-bg-color",
   fontColor: "data-vizzybl-font-color",
   height: "data-vizzybl-height",
+  /** The host page's language (PAGE_LANGUAGES_ENABLED): the widget shows it, before the visitor's browser. */
+  lang: "data-vizzybl-lang",
 } as const;
 
 /** The path of the loader script, relative to the app origin. */
@@ -34,6 +36,8 @@ export interface EmbedUrlParams {
   mode?: WidgetMode;
   ref?: string;
   theme?: ThemeOverrides;
+  /** The page's language, carried as `?lng=`. */
+  lang?: string;
 }
 
 /**
@@ -49,6 +53,7 @@ export function buildEmbedUrl({
   mode,
   ref,
   theme,
+  lang,
 }: EmbedUrlParams): string {
   const base = origin.replace(/\/+$/, "");
   const qs = new URLSearchParams({ type: widgetType });
@@ -58,6 +63,7 @@ export function buildEmbedUrl({
   if (theme?.buttonColor) qs.set("buttonColor", theme.buttonColor);
   if (theme?.backgroundColor) qs.set("bgColor", theme.backgroundColor);
   if (theme?.fontColor) qs.set("fontColor", theme.fontColor);
+  if (lang) qs.set("lng", lang);
   return `${base}/embed/${encodeURIComponent(campaignId)}?${qs.toString()}`;
 }
 
@@ -77,6 +83,8 @@ export interface EmbedSnippetParams {
   tenantId?: string;
   widgetType?: WidgetType;
   mode?: WidgetMode;
+  /** The language of the page it goes on; absent = the visitor's own. */
+  lang?: string;
 }
 
 /**
@@ -90,6 +98,7 @@ export function buildEmbedSnippet({
   tenantId,
   widgetType = DEFAULT_WIDGET_TYPE,
   mode,
+  lang,
 }: EmbedSnippetParams): string {
   const base = origin.replace(/\/+$/, "");
   const attrs = [
@@ -98,6 +107,7 @@ export function buildEmbedSnippet({
   if (tenantId) attrs.push(`${EMBED_ATTR.tenant}="${escapeAttr(tenantId)}"`);
   attrs.push(`${EMBED_ATTR.type}="${escapeAttr(widgetType)}"`);
   if (mode === "CHECK") attrs.push(`${EMBED_ATTR.mode}="CHECK"`);
+  if (lang) attrs.push(`${EMBED_ATTR.lang}="${escapeAttr(lang)}"`);
   return [
     "<!-- Vizzybl waitlist widget -->",
     `<div ${attrs.join(" ")}></div>`,

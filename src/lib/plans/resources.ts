@@ -166,7 +166,7 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   email_copy: "Email copy",
   journeys: "Journeys",
   lifecycle_lines: "AI lines in emails",
-  translation: "Email translations",
+  translation: "Translations",
   competitor_analysis: "Competitor analysis",
   competitor_articles: "Competitor articles",
   next_up: "Next up",

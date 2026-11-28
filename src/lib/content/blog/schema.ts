@@ -34,6 +34,8 @@ export interface BlogSchemaInput {
   /** True dates (BLOG_DATES_ENABLED): Published and Updated with their time and offset. Without
    *  one, both dates are the article's "Last updated" day, as before. */
   dateline?: Dateline | null;
+  /** The article's language (PAGE_LANGUAGES_ENABLED), as Google's hreflang code. Without one, as before. */
+  inLanguage?: string | null;
 }
 
 export interface BlogSchemaSuggestion {
@@ -149,6 +151,7 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     "@type": "BlogPosting",
     ...(webPage ? { "@id": `${pageUrl}#article`, isPartOf: webPage, mainEntityOfPage: webPage } : {}),
     headline: clip(o.title, HEADLINE_MAX),
+    ...(input.inLanguage ? { inLanguage: input.inLanguage } : {}),
     ...(description ? { description } : {}),
     ...(input.dateline
       ? { datePublished: input.dateline.published.iso, dateModified: (input.dateline.updated ?? input.dateline.published).iso }

@@ -103,6 +103,10 @@ const ROBOTS_BYTES = 200_000;
 export interface FetchedPage {
   /** The page's address after any redirects of its own. */
   url: string;
+  /** Its <html lang>, canonical and alternate language links (PAGE_LANGUAGES_ENABLED's live check), absolute. */
+  lang?: string;
+  canonical?: string;
+  alternates?: Array<{ hreflang: string; href: string }>;
   title: string;
   siteName: string;
   /** The year the page says it was published; null when it does not say. */
@@ -392,6 +396,33 @@ export function readPostMeta(html: string, now = new Date()): { title: string; d
   return { title, description, publishedAt: ok ? day : null };
 }
 
+/** The page's language, canonical and alternate links, with each address made absolute against the page's own. */
+export function readLanguageTags(html: string, pageUrl: string): Pick<FetchedPage, "lang" | "canonical" | "alternates"> {
+  const abs = (href: string) => {
+    try {
+      return new URL(href.trim(), pageUrl).toString();
+    } catch {
+      return "";
+    }
+  };
+  const attr = (tag: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(tag)?.[1] ?? null;
+  const lang = /<html\b[^>]*\blang\s*=\s*["']([^"']+)["']/i.exec(html)?.[1]?.trim();
+  let canonical: string | undefined;
+  const alternates: Array<{ hreflang: string; href: string }> = [];
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = (attr(tag, "rel") ?? "").toLowerCase().split(/\s+/);
+    const href = attr(tag, "href");
+    if (!href) continue;
+    if (rel.includes("canonical") && !canonical) canonical = abs(href) || undefined;
+    const hreflang = attr(tag, "hreflang");
+    if (rel.includes("alternate") && hreflang && alternates.length < 60) {
+      const url = abs(href);
+      if (url) alternates.push({ hreflang: hreflang.trim().toLowerCase(), href: url });
+    }
+  }
+  return { ...(lang ? { lang } : {}), ...(canonical ? { canonical } : {}), ...(alternates.length ? { alternates } : {}) };
+}
+
 export async function fetchSourcePage(url: string): Promise<FetchedPage | null> {
   try {
     const res = await safeFetch(
@@ -418,6 +449,7 @@ export async function fetchSourcePage(url: string): Promise<FetchedPage | null> 
       ...(ogImage ? { ogImage } : {}),
       ...(h1 ? { h1 } : {}),
       ...(dates.published || dates.modified ? { dates } : {}),
+      ...readLanguageTags(html, res.url || url),
     };
   } catch {
     return null;

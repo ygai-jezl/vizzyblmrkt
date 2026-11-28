@@ -37,6 +37,11 @@ interface Props {
   embedded?: boolean;
   /** Post-signup AI voice conversation config (the CTA shown on success). */
   aiConversation?: { enabled: boolean; introLine?: string };
+  /**
+   * The questions as this page shows them, in its language (PAGE_LANGUAGES_ENABLED), by position. The
+   * answer sent is still the launch's own option, so answers stay comparable across languages.
+   */
+  questionLabels?: Array<{ question: string; answers: string[] | null }>;
   /** Resolved message catalog + locale for the visitor's language. */
   messages: MessageCatalog;
   locale: string;
@@ -84,6 +89,7 @@ export function SignupForm({
   aiConversation,
   messages,
   locale,
+  questionLabels,
 }: Props) {
   const t = (key: string, vars?: Record<string, string | number>) =>
     translate(messages, key, vars);
@@ -305,10 +311,10 @@ export function SignupForm({
         />
       ) : null}
 
-      {shownQuestions.map((q) => (
+      {shownQuestions.map((q, qi) => (
         <div key={q.question_value} className="space-y-1">
           <label className="block text-sm font-medium">
-            {q.question_value}
+            {questionLabels?.[qi]?.question || q.question_value}
             {q.optional ? (
               <span className="text-neutral-400"> {t("widget.signup.optional")}</span>
             ) : null}
@@ -321,8 +327,8 @@ export function SignupForm({
               className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
             >
               <option value="">{t("widget.signup.selectPlaceholder")}</option>
-              {q.answer_value.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
+              {q.answer_value.map((opt, oi) => (
+                <option key={opt} value={opt}>{questionLabels?.[qi]?.answers?.[oi] || opt}</option>
               ))}
             </select>
           ) : (

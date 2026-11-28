@@ -36,6 +36,17 @@ export function articleLabel(language: string | null | undefined, key: ArticleLa
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
 
+/** Which label a box or section's words are, in any catalog language; null for words of the writer's own. */
+export function labelKeyOf(text: string): ArticleLabel | null {
+  const fold = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[\s:：]+$/u, "").trim();
+  const want = fold(text);
+  if (!want) return null;
+  for (const key of ARTICLE_LABELS) {
+    if (fold(articleLabel(DEFAULT_LOCALE, key)) === want || otherLabels(key).some((w) => fold(w) === want)) return key;
+  }
+  return null;
+}
+
 /** Each catalog language's word for a label, other than English's (deduped). */
 export function otherLabels(key: ArticleLabel): string[] {
   const en = articleLabel(DEFAULT_LOCALE, key).toLowerCase();

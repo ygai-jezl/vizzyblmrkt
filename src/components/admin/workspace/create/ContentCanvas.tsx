@@ -39,6 +39,7 @@ import {
   type ContentNodeData,
 } from "./contentNodes";
 import { ContentNodeInspector } from "./ContentNodeInspector";
+import { languageChips, useArticleTranslations } from "./blog/ArticleLanguages";
 import { AddNodePalette } from "./AddNodePalette";
 import { EmailLayoutEditor } from "./email-layout/EmailLayoutEditor";
 import { EditModeView } from "@/components/admin/editor/EditModeView";
@@ -128,6 +129,7 @@ export function ContentCanvas({
   brandMap = null,
   pagesOn = false,
   liveWatchOn = false,
+  pageLanguages = null,
   datesTimeZone,
   freshnessOn = false,
   refreshOn = false,
@@ -156,6 +158,8 @@ export function ContentCanvas({
   pagesOn?: boolean;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): the check reads the page's text, and YouGrow checks on its own. */
   liveWatchOn?: boolean;
+  /** The article's versions in other languages (PAGE_LANGUAGES_ENABLED), and whether this person may act on them. Null: off. */
+  pageLanguages?: { canAct: boolean } | null;
   /** True dates (BLOG_DATES_ENABLED): the brand's time zone; absent = the "Last updated" line as before. */
   datesTimeZone?: string;
   /** Article freshness (BLOG_FRESHNESS_ENABLED): the Freshness card and its check. */
@@ -205,6 +209,8 @@ export function ContentCanvas({
     [initial, onGenerate, workspaceId],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(seeded.nodes);
+  // The article's versions in other languages (PAGE_LANGUAGES_ENABLED): loaded once for the card, the tabs and the chips.
+  const articleLanguages = useArticleTranslations(workspaceId, initial.id, Boolean(pageLanguages) && initial.topology.hubChannel === "blog");
   const [edges, setEdges, onEdgesChange] = useEdgesState(seeded.edges);
   const [name, setName] = useState(initial.name);
   const [selectedId, setSelectedId] = useState<string | null>(() => (openHub ? (initial.graph.nodes.find((n) => n.type === "hub")?.id ?? null) : null));
@@ -1138,6 +1144,9 @@ export function ContentCanvas({
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
+          ...(articleLanguages.view && pageLanguages
+            ? { languages: { handle: { ...articleLanguages, view: articleLanguages.view }, canAct: pageLanguages.canAct } }
+            : {}),
           ...(datesTimeZone ? { datesTimeZone } : {}),
           ...(freshnessOn && pagesOn ? { onChecked: markChecked, ...(openHub ? { focusFreshness: true } : {}) } : {}),
           ...(refreshOn ? { versions: { list: listVersionsOf, restore: restoreVersionOf } } : {}),
@@ -1174,6 +1183,14 @@ export function ContentCanvas({
     // makeHero is recreated each render; the guard set keeps this to one try per article.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCn?.id, askedHero?.status, askedHero?.startedAt, heroBusy]);
+  // The article's card shows its languages (EN ✓ FR draft) once its versions are loaded.
+  const chips = articleLanguages.view ? languageChips(articleLanguages.view) : null;
+  const chipped = chips
+    ? nodes.map((n) => {
+        const c = cnOf(n);
+        return c.type === "hub" && c.channel === "blog" ? { ...n, data: { ...n.data, languages: chips } } : n;
+      })
+    : nodes;
   const total = nodes.length;
   const generated = nodes.filter((n) => {
     const s = cnOf(n).status;
@@ -1241,7 +1258,7 @@ export function ContentCanvas({
 
       <div className="h-[640px] rounded-md border border-neutral-200 dark:border-neutral-800">
         <ReactFlow
-          nodes={nodes}
+          nodes={chipped}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}

@@ -34,6 +34,7 @@ export function CreatePanel({
   subjectSearch = false,
   prefill = null,
   situations = false,
+  pageLanguages = false,
   prefillSituation = null,
   prefillAsks = null,
   prefillNumbers = null,
@@ -49,6 +50,8 @@ export function CreatePanel({
   subjectSearch?: boolean;
   /** Buying situations are on: a new article can be for one. */
   situations?: boolean;
+  /** An article's other languages are chosen in Create (PAGE_LANGUAGES_ENABLED). */
+  pageLanguages?: boolean;
   /** "Write this next" from a buying situation: the article is for it. */
   prefillSituation?: { id: string; text: string } | null;
   /** "Write this next": start the wizard from a map question. */
@@ -112,6 +115,7 @@ export function CreatePanel({
           prefillAsks={prefillAsks}
           prefillNumbers={prefillNumbers}
           situations={situations}
+          pageLanguages={pageLanguages}
           prefillSituation={prefillSituation}
           suggestAngle={suggestAngle}
           onCreated={onCreated}

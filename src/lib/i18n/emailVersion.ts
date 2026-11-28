@@ -1,6 +1,6 @@
 import type { EmailLanguage } from "@/lib/email/emailRender";
 import type { PoolItem } from "@/lib/types/lifecycle";
-import type { Translation } from "@/lib/types/translation";
+import { isJourneyEmailTranslation, type Translation } from "@/lib/types/translation";
 import { isAssetTranslationsEnabled } from "./flags";
 import { localeInfo, normalizeLocale } from "./locale";
 import { getMessage } from "./messages";
@@ -54,7 +54,7 @@ export function emailLanguageFor(lang: string): EmailLanguage {
  * swapped.
  */
 export function withApprovedWords<T extends Words>(item: T, translation: Translation | null | undefined, base: string): T | null {
-  const approved = translation?.approved;
+  const approved = translation && isJourneyEmailTranslation(translation) ? translation.approved : null;
   if (!approved || approved.from !== base || item.layout) return null;
   return { ...item, subject: approved.fields.subject, previewText: approved.fields.previewText, body: approved.fields.body };
 }

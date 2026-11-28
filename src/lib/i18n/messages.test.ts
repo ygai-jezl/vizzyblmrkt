@@ -191,3 +191,11 @@ describe("translated catalogs", () => {
     }
   });
 });
+
+describe("the widget's languages", () => {
+  it("lists exactly the catalogs there are", async () => {
+    const { catalogLocales } = await import("./messages");
+    const { WIDGET_LOCALES } = await import("./widgetLocales");
+    expect([...catalogLocales()].sort()).toEqual([...WIDGET_LOCALES].sort());
+  });
+});

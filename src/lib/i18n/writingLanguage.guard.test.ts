@@ -102,6 +102,7 @@ const LEFT_AS_THEY_ARE: Record<string, string> = {
   "onboarding.voice": "the welcome's own voice call",
   "conversation.golden_data": "the waitlist voice chat, already in the visitor's launch language (languageDirective)",
   "i18n.translate_email": "translates into the language it is given, which is not the brand's default",
+  "i18n.translate_launch": "translates into the language it is given, which is not the brand's default",
   "i18n.translate_article": "translates into the language it is given, which is not the brand's default",
 };
 

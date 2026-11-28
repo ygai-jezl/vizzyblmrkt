@@ -15,6 +15,8 @@ import { DEFAULT_LOCALE, normalizeLocale, resolveCampaignLocale } from "./locale
 import { TRANSLATE_TIMEOUT_MS, translateEmail, translationUsage, type TranslateInput, type TranslateResult } from "./translate";
 import { ARTICLE_TRANSLATE_TIMEOUT_MS, type ArticleTranslateInput, type ArticleTranslateResult } from "./translateArticle";
 import { translateArticleOne } from "./articleTranslations";
+import { translateLaunchOne } from "./launchTranslations";
+import type { LaunchTranslateInput, LaunchTranslateResult } from "./translateLaunch";
 
 /**
  * The translations lane of the lifecycle tick (ASSET_TRANSLATIONS_ENABLED). It runs on every tick,
@@ -55,6 +57,7 @@ export interface TranslationsDeps {
   listTenants?: () => Promise<Tenant[]>;
   translate?: (input: TranslateInput) => Promise<TranslateResult>;
   translateArticle?: (input: ArticleTranslateInput) => Promise<ArticleTranslateResult>;
+  translateLaunch?: (input: LaunchTranslateInput) => Promise<LaunchTranslateResult>;
   log?: (line: string) => void;
 }
 
@@ -271,7 +274,7 @@ export async function runTranslations(opts: { deadlineMs: number }, deps: Transl
             ? await translateArticleOne(ctx, t, q.id, { db: deps.db, nowMs: clock(), deadlineMs: opts.deadlineMs, dailyCap: LANE.DAILY_CAP, translate: deps.translateArticle })
             : q.kind === "journey_email"
               ? await translateOne(ctx, t, q.id, { db: deps.db, nowMs: clock(), translate: deps.translate })
-              : "busy";
+              : await translateLaunchOne(ctx, t, q.id, { db: deps.db, nowMs: clock(), dailyCap: LANE.DAILY_CAP, translate: deps.translateLaunch });
         if (outcome === "made" || outcome === "failed") calls += 1;
         if (outcome === "made") result.made += 1;
         if (outcome === "failed") result.failed += 1;

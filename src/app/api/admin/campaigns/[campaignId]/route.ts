@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { queueLaunchSoftly } from "@/lib/i18n/launchTranslations";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, deleteLaunch, TenantIsolationError } from "@/lib/tenant";
@@ -52,6 +53,9 @@ export async function PUT(
     }
     throw err;
   }
+
+  // Its page's own words in other languages are made again when they changed (PAGE_LANGUAGES_ENABLED).
+  await queueLaunchSoftly(ctx, campaignId);
 
   // Echo the SERVER-NORMALISED settings (questions collapsed, fields trimmed) so
   // the editor can re-seed its state to exactly what was persisted.

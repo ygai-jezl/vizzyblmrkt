@@ -3,6 +3,8 @@ import { z } from "zod";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { markTranslationsQueued, takeTranslationCall } from "@/lib/tenant/translations";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { authorOf } from "@/lib/content/blog/draft";
 import { articleAddressProblem } from "@/lib/content/blog/address";
 import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
@@ -199,6 +201,9 @@ export async function translateArticleOne(
       : { ...common, state: "failed" as const, failReason: res.reason.slice(0, 300) };
   });
   if (!written) return "busy";
+  // What made it (LOOPS_ENABLED, learning loops step 5): counted made once its draft is kept, as a
+  // journey email's is, with no stamp on the record yet and no type, as it is part of its article.
+  if (res.ok) await countMade(ctx, "translation", (await learnedFor(ctx, "translation", { promptId: "i18n.translate_article" })).stamp, { db: opts.db });
   return res.ok ? "made" : "failed";
 }
 

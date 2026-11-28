@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import type { LoopStamp } from "@/lib/types/loopStamp";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import { eraseFieldValuesPage, forTenant, moveRecordFieldValues, proposeAgentAction, setRecordFieldValues } from "./index";
 import { RECORD_BYTE_BUDGET } from "./recordFieldWrites";
@@ -47,6 +50,8 @@ async function world(db: FakeFirestore) {
 }
 
 let n = 0;
+afterEach(() => vi.unstubAllEnvs());
+
 const nonce = () => `n${(n += 1)}`;
 const set = (db: FakeFirestore, changes: Record<string, unknown>, over: Partial<Parameters<typeof setRecordFieldValues>[1]> = {}) =>
   setRecordFieldValues(ctx, { object: "person", recordId: PERSON, changes, by, source: "editor", nowIso: T1, nonce, ...over }, { db });
@@ -226,6 +231,39 @@ describe("setRecordFieldValues", () => {
     // Deciding it again can't happen: nothing is written.
     expect(await set(db, { [SEATS]: 16 }, { agentAction: { id: action.id, transition } })).toEqual({ ok: false, error: "agent_action_wrong_state" });
     expect((await forTenant(ctx, db).contacts.getById(PERSON))?.fields).toEqual({ [SEATS]: 15 });
+  });
+
+  it("counts a confirmed Vizzy suggestion against its stamp once the write is saved (learning loops step 5)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await world(db);
+    const made: LoopStamp = { made: "m1.canvas.person_fields.0.n", kind: "canvas.person_fields", scope: "canvas.person_fields", v: 0, arm: "none", items: [], prompt: null, tokens: { rules: 0, examples: 0 }, by: "vizzy", at: T0 };
+    const { action } = await proposeAgentAction(
+      ctx,
+      {
+        dedupeKey: agentDedupeKey("person_fields.suggest", "t2"),
+        agent: "vizzy",
+        action: "person_fields.suggest",
+        target: { type: "person", id: PERSON },
+        personId: PERSON as `ct_${string}`,
+        proposal: { fields: { [SEATS]: 15 } },
+        basis: null,
+        fieldIds: [SEATS],
+        signals: [],
+        review: null,
+        requestedBy: { type: "agent", id: "vizzy" },
+        expiresAt: "2026-11-28T10:00:00.000Z",
+        at: T0,
+        made,
+      },
+      { db },
+    );
+    const transition = { to: "acted" as const, by, at: T1, result: { fields: { [SEATS]: 15 } } };
+    expect(await set(db, { [SEATS]: 15 }, { source: "agent", agentAction: { id: action.id, transition } })).toMatchObject({ ok: true });
+    // A refused move counts nothing.
+    expect(await set(db, { [SEATS]: 16 }, { agentAction: { id: action.id, transition } })).toMatchObject({ ok: false });
+    const week = sumWeek(db, ctx.tenantId, loopWeekOf(new Date())) as { c: Record<string, unknown> };
+    expect(week.c).toEqual({ "canvas.person_fields": { "canvas.person_fields": { v0: { none: { kept: 1 } } } } });
   });
 
   it("never reads or writes another brand's record or list", async () => {

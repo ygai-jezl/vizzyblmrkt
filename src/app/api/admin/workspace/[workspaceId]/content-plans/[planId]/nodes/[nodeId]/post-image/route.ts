@@ -21,7 +21,6 @@ import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
-import { aiUsage } from "@/lib/plans/meter";
 import { htmlToText } from "@/lib/email/emailRender";
 import { formatTemplate, renderStyleImage, templateFor, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
 import { paintFormatScene } from "@/lib/content/imageStyle/formatScene";
@@ -31,8 +30,11 @@ import { seedFor } from "@/lib/content/imageStyle/render/templates/lineArt";
 import { ChartSchema, FigureSchema, FormatInputsSchema, ImageFormatIdSchema, type Chart, type Figure } from "@/lib/types/imageStyle";
 import { headlineFrom, SOCIAL_RENDER_SIZE } from "@/lib/content/imageStyle/render/socialText";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
-import { recordImageAsset } from "@/lib/admin/brandKit";
+import { newImageAssetId, recordImageAsset } from "@/lib/admin/brandKit";
 import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { imageScopeOf, learnedFor, notLearningStamp } from "@/lib/loops/read";
+import { countLostStamp, countMade } from "@/lib/loops/count";
+import { readRemake, recordRemake, remakeUsage } from "@/lib/loops/remake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,7 +109,13 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
   const tenant = await getTenantById(ctx.tenantId);
-  const usage = aiUsage(ctx, "post_image", { tenant });
+  // Learning loops step 4: the image this one replaces is read before the new one is made (a
+  // remake, decision 12), which picks the meter: the first remake of a held back image is
+  // loop_learn's, off the image allowance. With image style versions off: post_image, as before.
+  const remake = await readRemake(ctx, "post_image", node.imageAssetRef);
+  const usage = remakeUsage(ctx, remake, { tenant });
+  // The new image's id, minted before learnedFor runs so the holdback's hash and its row agree.
+  const assetId = newImageAssetId();
   const useBrandStyle = parsed.data.useBrandStyle !== false;
   // The image's own pick, else the brand's style for this channel, else its default. With the
   // image style off, only the old preset counts: exactly as before.
@@ -169,9 +177,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
     if (!stored.ok) return null;
     const label = resolved.engine === "legacy" ? "" : resolved.label;
+    // Drawn styles and formats never learn: arm none, in the style it was drawn in (decision 10).
+    const made = notLearningStamp("post_image", { scope: imageScopeOf(asFormat ? skinId : drawnId) });
     await recordImageAsset(
       { tenantId: ctx.tenantId, region: ctx.region },
       {
+        id: assetId,
+        made,
         workspaceId,
         filename: stored.filename,
         mimeType: "image/png",
@@ -185,8 +197,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         parentAssetId: null,
         byteSize: drawn.png.length,
       },
-    ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+    ).catch(async (e) => {
+      console.warn("[brandKit] record social image failed:", e);
+      // The image goes on the post anyway, so its stamp is lost with the row (4.1).
+      await countLostStamp(ctx, made);
+    });
     const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+      made,
       imageAssetRef: stored.filename,
       imageAspect: parsed.data.aspect,
       imagePrompt: null,
@@ -197,6 +214,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       ...(asFormat ? { imageFormat: asFormat.format as never, imageFormatInputs: asFormat.inputs } : {}),
     });
     if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
+    await countMade(ctx, "post_image", made, { type: "image_asset" });
+    await recordRemake(ctx, remake, assetId);
     return NextResponse.json({
       imageAssetRef: updated.imageAssetRef,
       imagePrompt: null,
@@ -290,6 +309,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       : null;
 
   const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
+  // What was learned for this image's style (learning loops step 4, learnedFor): with image style
+  // versions off, today's look from the brand record, exactly as before. A drawn style's painted
+  // half (Split card's photo, or the painted twin when drawing failed) never learns, so it is never
+  // held back.
+  const paintsForDrawn = drawnId !== null;
+  const learned = await learnedFor(ctx, "post_image", {
+    scope: imageScopeOf(learnBucket),
+    ...(paintsForDrawn ? {} : { outputId: assetId }),
+    useBrandStyle,
+    legacy: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
+    promptId: "content.social_image_brief",
+  });
   const result = await generateSocialPostImage({
     tenantId: ctx.tenantId,
     workspaceId,
@@ -305,6 +336,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     planId,
     nodeId,
     useBrandStyle,
+    assetId,
+    learning: {
+      made: learned.stamp,
+      lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0,
+      holdback: learned.block.holdback,
+      fallbackDrawn: paintsForDrawn && !split,
+      notLearning: split,
+    },
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     ...(split
       ? {
@@ -342,7 +381,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Suppress the learned text directive too when the override is off (explicit null);
       // otherwise fall back to the kit's learned style (automatic apply).
       // Learning per style (image style on): what was learned for this image's style.
-      learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
+      learnedImageStyle: learned.block.look,
     }),
     usage,
   });
@@ -364,6 +403,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   // it's generated — no dependence on the operator clicking Save. A later whole-graph Save
   // re-writes the same values from local state.
   const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+    made: result.made ?? learned.stamp,
     imageAssetRef: result.imageAssetRef,
     imageAspect: parsed.data.aspect,
     imagePrompt: result.imagePrompt ?? null,
@@ -371,6 +411,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(choice.enabled ? { imageStyleId: choice.ownPick, imageHeadline: ownWords } : {}),
   });
   if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
+  await countMade(ctx, "post_image", result.made ?? learned.stamp, { type: "image_asset" });
+  await recordRemake(ctx, remake, assetId);
   return NextResponse.json({
     imageAssetRef: updated.imageAssetRef,
     imagePrompt: updated.imagePrompt ?? null,
@@ -404,6 +446,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   if (!node) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
 
   const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+    made: { unstamped: "removes_image" },
     imageAssetRef: null,
     imageAspect: null,
     imagePrompt: null,

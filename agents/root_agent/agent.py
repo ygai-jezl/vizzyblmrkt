@@ -48,6 +48,7 @@ from .tools.next_up import get_next_up
 from .tools.brand_strategy import get_brand_strategy
 from .tools.content_strategy import get_content_strategy
 from .tools.usage import get_usage
+from .tools.learning import get_learning
 from .tools.settings_history import get_settings_history
 from .tools.drafts import get_drafts
 from .tools.articles_due import list_articles_due
@@ -93,6 +94,7 @@ root_agent = LlmAgent(
     # get_brand_strategy reads the brand's approved strategy, each claim with its proof (read only);
     # get_content_strategy reads the brand's approved content plan: pillars, the next weeks and the counts (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
+    # get_learning reads what YouGrow learned for the brand by kind, how its team answered what was made, and where learning is stuck (counts only, read only);
     # get_settings_history reads who changed the brand's fields, journeys, catalogs and team views, and any older version (read only);
     # get_drafts reads what became of the drafts Vizzy, research and the autopilot made, from the agent record (read only);
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
@@ -137,6 +139,7 @@ root_agent = LlmAgent(
         get_brand_strategy,
         get_content_strategy,
         get_usage,
+        get_learning,
         get_settings_history,
         get_drafts,
         list_articles_due,

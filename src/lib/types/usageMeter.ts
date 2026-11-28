@@ -13,6 +13,11 @@ export interface ResourceCount {
   lostCalls: number;
   /** Units by the feature that used them (RESOURCES[...].purposes). */
   byPurpose: Record<string, number>;
+  /**
+   * Calls by the feature that made them (learning loops step 5), beside its units, so uses of a
+   * purpose can be counted however many units each call spent. Absent on months counted before it.
+   */
+  callsByPurpose?: Record<string, number>;
   /** AI model use only: tokens by model ("gemini-3.8-flash"). */
   byModel?: Record<string, number>;
 }

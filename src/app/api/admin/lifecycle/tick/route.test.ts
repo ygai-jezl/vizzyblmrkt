@@ -32,6 +32,8 @@ const refresh = vi.hoisted(() => ({ runRefreshReviews: vi.fn(async () => ({ bran
 vi.mock("@/lib/content/blog/refreshReview", () => (loaded.add("refresh"), refresh));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
+const loopsLane = vi.hoisted(() => ({ runLoopsLane: vi.fn(async () => ({ brands: 3, idle: 1, rows: 120, learned: 1, verdicts: 1, visited: [], reported: 0, late: 0, cells: 0, heapDeltaMiB: 2.5 })) }));
+vi.mock("@/lib/loops/tick", () => (loaded.add("loops"), loopsLane));
 const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
 vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
 const agentRecord = vi.hoisted(() => ({ runAgentRecordCatchUp: vi.fn(async () => ({ brands: 1, read: 4, closed: 2 })) }));
@@ -304,6 +306,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
+    ["loops", "@/lib/loops/tick", loopsLane],
     ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
     ["agent-record", "@/lib/agentRecord/catchUp", agentRecord],
     ["raise-followups", "@/lib/raise/pipeline/followupsTick", raiseFollowups],
@@ -373,6 +376,57 @@ describe("each job's code loads only when its switch is on", () => {
     expect([...loaded]).toEqual(["agent-record"]);
     const [{ deadlineMs }] = agentRecord.runAgentRecordCatchUp.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(15_000 + 1000);
+  });
+
+  it("runs the loops lane, the field erase, the strategy check and the agent record's catch-up side by side, each within its own budget", async () => {
+    for (const n of [
+      "LOOPS_ENABLED",
+      "SETTINGS_HISTORY_ENABLED",
+      "AUDIENCE_PERSON_LINKS_ENABLED",
+      "AUDIENCE_ONE_VIEW_ENABLED",
+      "ONTOLOGY_PERSON_IDS_ENABLED",
+      "AUDIENCE_FIELDS_ENABLED",
+      "PLANS_ENABLED",
+      "SETTINGS_ERASE_ENABLED",
+      "COMPETITORS_ENABLED",
+      "COMPETITOR_ARTICLES_ENABLED",
+      "BRAND_MAP_ENABLED",
+      "BRAND_STRATEGY_ENABLED",
+      "STRATEGY_COMPETITORS_ENABLED",
+      "STRATEGY_CHECK_ENABLED",
+      "AGENT_RECORD_ENABLED",
+    ]) {
+      vi.stubEnv(n, "true");
+    }
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      loops: { brands: 3, idle: 1, learned: 1, verdicts: 1 },
+      fieldErase: { jobs: 1, pages: 3 },
+      strategyCheck: { brands: 2, open: 1 },
+      agentRecord: { brands: 1, read: 4, closed: 2 },
+    });
+    expect([...loaded]).toEqual(expect.arrayContaining(["loops", "field-erase", "strategy-check", "agent-record"]));
+    const deadline = (fn: { mock: { calls: unknown[][] } }) => (fn.mock.calls.at(-1) as [{ deadlineMs: number }])[0].deadlineMs - before;
+    expect(deadline(loopsLane.runLoopsLane)).toBeLessThanOrEqual(20_000 + 1000);
+    expect(deadline(fieldErase.runFieldErase)).toBeLessThanOrEqual(20_000 + 1000);
+    expect(deadline(strategyCheck.runStrategyChecks)).toBeLessThanOrEqual(10_000 + 1000);
+    expect(deadline(agentRecord.runAgentRecordCatchUp)).toBeLessThanOrEqual(15_000 + 1000);
+  });
+
+  it("with LOOPS_ENABLED and image style versions off, never loads the loops lane while the others run", async () => {
+    for (const n of ["SETTINGS_HISTORY_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "PLANS_ENABLED", "SETTINGS_ERASE_ENABLED", "AGENT_RECORD_ENABLED"]) {
+      vi.stubEnv(n, "true");
+    }
+    const post = await freshRoute();
+    const body = await (await post(machine())).json();
+    expect(body).toMatchObject({ ok: true, fieldErase: { jobs: 1 }, agentRecord: { brands: 1 } });
+    expect(body).not.toHaveProperty("loops");
+    expect([...loaded]).toEqual(expect.arrayContaining(["agent-record", "field-erase"]));
+    expect([...loaded]).not.toContain("loops");
+    expect(loopsLane.runLoopsLane).not.toHaveBeenCalled();
   });
 
   it("loads the board's follow-ups lane only with RAISE_FOLLOWUPS_ENABLED and what it needs on, within its budget, never on an admin's own call", async () => {
@@ -679,5 +733,58 @@ describe("the lifecycle tick with the password account clean-up", () => {
     expect(await res.json()).toMatchObject({ ok: true, mode: "tenant" });
     expect(runAuthCleanup).not.toHaveBeenCalled();
     expect(accounts.listUsers).not.toHaveBeenCalled();
+  });
+});
+
+describe("the lifecycle tick with the learning loops lane", () => {
+  /** Image style versions and the switches they need (isImageStyleVersionsOn). */
+  const versionsOn = () => {
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+  };
+
+  it("runs the lane for the scheduler with only image style versions and their switches on, within its own time", async () => {
+    versionsOn();
+    const before = Date.now();
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", loops: { brands: 3, idle: 1, learned: 1, verdicts: 1 } });
+    expect(runner.runLifecycleTick).not.toHaveBeenCalled();
+    const [{ deadlineMs }] = loopsLane.runLoopsLane.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 50);
+    expect(tickLines().some((line) => /^\[tick\] loops \d+ms brands=3 rows=120 heapDeltaMiB=2\.5$/.test(line))).toBe(true);
+  });
+
+  it("runs the lane for the scheduler with only LOOPS_ENABLED on, and says how many brand weeks it reported", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    loopsLane.runLoopsLane.mockResolvedValueOnce({ brands: 5, idle: 0, rows: 0, learned: 0, verdicts: 0, visited: [], reported: 5, late: 0, cells: 12, heapDeltaMiB: 1 });
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", loops: { brands: 5, idle: 0, learned: 0, verdicts: 0, reported: 5 } });
+    expect(runner.runLifecycleTick).not.toHaveBeenCalled();
+    expect(loopsLane.runLoopsLane).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays dark, never loading the lane, with IMAGE_STYLE_VERSIONS_ENABLED on but a switch it needs off", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    const res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+    expect(loopsLane.runLoopsLane).not.toHaveBeenCalled();
+  });
+
+  it("never fails the scheduler's call when the lane fails, and never runs for a signed-in admin", async () => {
+    versionsOn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    loopsLane.runLoopsLane.mockRejectedValueOnce(new Error("boom"));
+    const res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants" });
+    expect(warn.mock.calls.some(([line]) => String(line).startsWith("[loops] tick failed: "))).toBe(true);
+
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_A", region: "us", role: "admin" });
+    const admin = await POST(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
+    expect(admin.status).toBe(404);
+    expect(loopsLane.runLoopsLane).toHaveBeenCalledTimes(1);
   });
 });

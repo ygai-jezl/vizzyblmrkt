@@ -32,6 +32,9 @@ import { CAMPAIGN_ID, ctx as admin, publishWaitlist, seedLaunch } from "@/lib/li
 
 const { POST: activate } = await import("@/app/api/admin/campaigns/[campaignId]/journey/activate/route");
 
+/** What the canvas route hands a kind with LOOPS_ENABLED off: no stamp. */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 /** Vizzy, in a chat with the admin. */
 const agent: TenantContext = { ...admin, source: "agent" };
 /** Another admin who turns it on. */
@@ -59,7 +62,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("a launch's welcome emails Vizzy drafts, in the store the launch uses", () => {
   it("on the original engine: recorded about the launch, and kept by the admin who turns them on", async () => {
     seedLaunch(fake);
-    const r = await journeyCanvasKind.authorDraft({ ctx: agent, input: { scope: { campaignId: CAMPAIGN_ID }, graph: graph() }, brief: "Warm welcome" });
+    const r = await journeyCanvasKind.authorDraft({ ctx: agent, input: { scope: { campaignId: CAMPAIGN_ID }, graph: graph() }, made: LOOPS_OFF, brief: "Warm welcome" });
     expect(r).toMatchObject({ ok: true, id: `journey_${CAMPAIGN_ID}` });
     const [open] = await records();
     expect(open).toMatchObject({
@@ -86,7 +89,7 @@ describe("a launch's welcome emails Vizzy drafts, in the store the launch uses",
     vi.stubEnv("WAITLIST_ENGINE_ENABLED", "true");
     seedLaunch(fake, { waitlistEngine: "lifecycle" });
     const { journey } = await publishWaitlist(fake);
-    const r = await journeyCanvasKind.authorDraft({ ctx: agent, input: { scope: { campaignId: CAMPAIGN_ID }, graph: graph() }, brief: "Warm welcome" });
+    const r = await journeyCanvasKind.authorDraft({ ctx: agent, input: { scope: { campaignId: CAMPAIGN_ID }, graph: graph() }, made: LOOPS_OFF, brief: "Warm welcome" });
     expect(r).toMatchObject({ ok: true, id: waitlistJourneyId(CAMPAIGN_ID) });
     const [open] = await records();
     expect(open).toMatchObject({

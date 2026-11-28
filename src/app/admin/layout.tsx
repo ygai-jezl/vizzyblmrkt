@@ -47,6 +47,8 @@ import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isAssetTranslationsEnabled, isLanguageReadersEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
@@ -253,6 +255,8 @@ export default async function AdminLayout({
             onboardingVoice={isOnboardingVoiceEnabled()}
             settingsHistory={isSettingsHistoryEnabled()}
             nextActionCard={isNextActionCardEnabled()}
+            loops={isLoopsEnabled()}
+            imageVersions={isImageStyleVersionsOn()}
             agentRecord={isAgentRecordEnabled()}
             languageReaders={isLanguageReadersEnabled()}
             raiseFollowUps={isRaiseFollowupsEnabled()}

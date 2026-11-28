@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { learnFromConversation } from "@/lib/onboarding/learn";
 import { badId, fail, invalidInput, limitPerUser, ok, onboardingAdmin, readJsonBody, refused } from "@/lib/onboarding/api";
 import { endConversation, mayLearn, saveLearned } from "@/lib/onboarding/store";
@@ -71,6 +73,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const saved = await saveLearned(ctx, id, learned);
     if (saved.ok) conversation = saved.value;
     if (!learned) return fail(502, "learn_failed");
+    // What the call taught, counted made where it is kept (LOOPS_ENABLED, learning loops step 5).
+    if (saved.ok) await countMade(ctx, "onboarding", (await learnedFor(ctx, "onboarding")).stamp, { type: "onboarding_conversation" });
   }
 
   const learned = readLearned(conversation.learned);

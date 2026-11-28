@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { LOOP_DAYS } from "@/lib/tenant/loops";
 import { forTenant } from "@/lib/tenant";
 import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { suppressEmailCategory } from "@/lib/email/suppression";
@@ -115,6 +116,38 @@ describe("AI lines: booking, preparing, approving, sending", () => {
     expect(w.prompts[0]).not.toMatch(/\bAlex\b/);
     expect(await countWaitingApprovals(system, w.db, sendAt - 12 * HOUR)).toBe(1);
     expect(await countWaitingApprovals(system, w.db, sendAt)).toBe(0); // the window has closed
+  });
+
+  it("counts the line made once it is saved, and nothing for a draft that moved on during the call (LOOPS_ENABLED)", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    try {
+      // The AI line's counts, every week and shard added up.
+      const lines = (db: FakeFirestore) => {
+        const all = db.dump(LOOP_DAYS).map((d) => d.d as { c?: Record<string, unknown>; t?: Record<string, unknown> });
+        return { made: all.map((d) => d.c?.lifecycle_lines).filter(Boolean), type: all.map((d) => d.t?.ai_line).filter(Boolean) };
+      };
+      const w = await world();
+      const sendAt = await booked(w);
+      expect(await w.prepare(sendAt - 12 * HOUR)).toEqual({ prepared: 1, fallback: 0, superseded: 0 });
+      expect((await w.draft()).made).toMatchObject({ kind: "lifecycle_lines" });
+      expect(lines(w.db)).toEqual({ made: [{ lifecycle_lines: { v0: { none: { made: 1 } } } }], type: [{ made: 1 }] });
+
+      const other = await world();
+      const due = await booked(other);
+      const id = (await other.draft()).id;
+      // Meanwhile the person takes another path, and the open draft is retired.
+      const generate = async () => {
+        await forTenant(system, other.db).lifecycleDrafts.claim(id, (cur) => ({ status: "superseded", fallbackReason: "superseded", draftVersion: cur.draftVersion + 1 }));
+        return JSON.stringify({ line: LINE, subject: "" });
+      };
+      await prepareDueDrafts(system, { ...other.deps, now: () => due - 12 * HOUR, generate });
+      const d = await other.draft();
+      expect(d.status).toBe("superseded");
+      expect(d).not.toHaveProperty("made");
+      expect(lines(other.db)).toEqual({ made: [], type: [] });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("an approved line goes out in the email, and the draft is consumed", async () => {

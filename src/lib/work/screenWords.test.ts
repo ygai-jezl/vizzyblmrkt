@@ -2,7 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { IMAGES_OFF_LINE } from "./words";
 import {
+  loopsCountHint,
   addedLine,
   afterTaskDueLine,
   carriedLine,
@@ -140,6 +142,23 @@ describe("Work's screen words", () => {
     expect(page).toContain("shows the last 20 changes, newest first");
   });
 
+  it("say on the help page where an operator's counts come from only while the learning loops are on", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: WorkHelp } = await import("@/components/help/pages/work");
+    const { IMAGES_OFF_LINE, LOOPS_COUNT_NOTE } = await import("./words");
+    const page = (loops: boolean) => renderToStaticMarkup(WorkHelp({ workVizzy: false, ideaWords: false, loops }) as never).replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
+    const on = page(true);
+    expect(on).toContain("Work counts those from the learning loops' weekly counts across brands, never brand by brand.");
+    expect(on).toContain(`Each of these counts ends "${LOOPS_COUNT_NOTE}"`);
+    expect(on).toContain(`until then a count of an image kind reads "${IMAGES_OFF_LINE}"`);
+    const off = page(false);
+    expect(off).not.toContain("weekly counts across brands");
+    expect(off).not.toContain(LOOPS_COUNT_NOTE);
+    const text = on.replace(/<[^>]+>/g, " ");
+    expect(dashesIn(text)).toEqual([]);
+    expect(aiTellsIn(text)).toEqual([]);
+  });
+
   it("keep the house style in Work's screens themselves", () => {
     const dir = join(process.cwd(), "src", "components", "admin", "work");
     for (const f of readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
@@ -216,5 +235,30 @@ describe("Work's screen words", () => {
     expect(dayNWords(3, false)).toBe("Day 3");
     expect(tasksTabLabel(12)).toBe("Tasks · 12 open");
     expect(tasksTabLabel(null)).toBe("Tasks");
+  });
+});
+
+describe("the measure picker's hint for an operator's own counts", () => {
+  const on = { loops: true, images: true, meter: true };
+
+  it("says Work counts a purpose, a type or a loop kind from the learning loops' weekly counts while they are on", () => {
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "next_up" }, on)).toBe(WORK_COPY.loopsCountHint);
+    expect(loopsCountHint({ counts: "type" }, on)).toBe(WORK_COPY.loopsCountHint);
+    expect(loopsCountHint({ counts: "purpose" }, on)).toBe(WORK_COPY.loopsCountHint);
+  });
+
+  it("says what isn't counted on this copy: AI calls with the meter off, an image kind with image learning off", () => {
+    expect(loopsCountHint({ counts: "purpose" }, { ...on, meter: false })).toBe(WORK_COPY.meterOffHint);
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "blog_hero" }, { ...on, images: false })).toBe(IMAGES_OFF_LINE);
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "loop_learn" }, { ...on, images: false })).toBe(IMAGES_OFF_LINE);
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "next_up" }, { ...on, images: false })).toBe(WORK_COPY.loopsCountHint);
+  });
+
+  it("leaves the hint as it was for anything else, with the loops off, or for someone who isn't an operator", () => {
+    expect(loopsCountHint({ counts: "none" }, on)).toBeNull();
+    expect(loopsCountHint({ counts: "event" }, on)).toBeNull();
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "next_up" }, { ...on, loops: false })).toBeNull();
+    expect(loopsCountHint({ counts: "type" }, null)).toBeNull();
+    for (const line of [WORK_COPY.loopsCountHint, WORK_COPY.meterOffHint]) expect([...dashesIn(line), ...aiTellsIn(line)]).toEqual([]);
   });
 });

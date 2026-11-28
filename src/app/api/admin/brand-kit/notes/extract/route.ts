@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { learnedFor } from "@/lib/loops/read";
 import { z } from "zod";
 import { getTenantById, isRateLimited } from "@/lib/tenant";
 import { notesAdmin } from "@/lib/brandNotes/api";
@@ -26,5 +28,7 @@ export async function POST(req: Request) {
   const tenant = await getTenantById(g.ctx.tenantId).catch(() => null);
   const found = await extractNotes(parsed.data.text, tenant?.tenantName?.trim() ?? "", aiUsage(g.ctx, "brand_notes", { tenant }));
   if (found === null) return NextResponse.json({ error: "extract_failed" }, { status: 502 });
-  return NextResponse.json({ found });
+  // Handed to the browser to save later: counted made once and its stamp signed for the save (learning loops step 5, decision 20).
+  const stampToken = await handBack(g.ctx, "brand_notes", (await learnedFor(g.ctx, "brand_notes")).stamp);
+  return NextResponse.json(withStampToken({ found }, stampToken));
 }

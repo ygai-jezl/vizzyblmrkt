@@ -12,6 +12,7 @@ import NewsletterFromYourSiteHelp from "./pages/newsletter-from-your-site";
 import ProgrammesAndKnowledgeHelp from "./pages/programmes-and-knowledge";
 import BrandMapHelp from "./pages/brand-map";
 import WriteAndScheduleHelp from "./pages/write-and-schedule";
+import WhatYouGrowLearnedHelp from "./pages/what-yougrow-learned";
 import RaiseKitHelp from "./pages/raise-kit";
 import ConnectedAccountsHelp from "./pages/connected-accounts";
 import ConnectedDataHelp from "./pages/connected-data";
@@ -46,6 +47,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "programmes-and-knowledge": ProgrammesAndKnowledgeHelp,
   "brand-map": BrandMapHelp,
   "write-and-schedule": WriteAndScheduleHelp,
+  "what-yougrow-learned": WhatYouGrowLearnedHelp,
   "raise-kit": RaiseKitHelp,
   "connected-accounts": ConnectedAccountsHelp,
   "connected-data": ConnectedDataHelp,

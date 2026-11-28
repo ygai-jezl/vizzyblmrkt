@@ -84,7 +84,7 @@ async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps
   if (!plan || autopilotHolds(plan)) return null;
   const started = await startReview(ctx, { plan, by: "autopilot" }, { db: deps.db, now: deps.now }).catch(() => null);
   if (!started?.ok || !started.started) return null;
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return {
     step: "done",
     refreshOf: plan.id,
@@ -107,7 +107,7 @@ async function takeClose(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps):
   if (!plan || autopilotHolds(plan)) return null;
   const started = await startReview(ctx, { plan, by: "autopilot", question: { id: pick.questionId, text: pick.question } }, { db: deps.db, now: deps.now }).catch(() => null);
   if (!started?.ok || !started.started) return null;
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return {
     step: "done",
     refreshOf: plan.id,
@@ -158,7 +158,7 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     if (taken) return taken;
   }
   if (!pick) return { step: "stopped", error: "nothing_to_pick" };
-  await dropPick(ctx, pick.questionId, deps);
+  await dropPick(ctx, pick.questionId, "kept", deps);
   return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName }, ...fromPick(pick) };
 };
 
@@ -250,7 +250,7 @@ export const writeStep: StepFn = async (ctx, run, opts, deps) => {
   if (stopped(g)) return g;
   const hub = g.plan.graph.nodes.find((n) => n.type === "hub");
   if (!hub) return { step: "failed", error: "no_hub" };
-  const got = await fillPlanNode(ctx, { workspace: g.workspace, plan: g.plan, nodeId: hub.id }, { db: deps.db, deadlineMs: opts.deadlineMs - SAVE_MS });
+  const got = await fillPlanNode(ctx, { workspace: g.workspace, plan: g.plan, nodeId: hub.id }, { db: deps.db, deadlineMs: opts.deadlineMs - SAVE_MS, by: "autopilot" });
   if (!got.ok || !got.node.body.trim()) return { error: "write_failed" };
   return { step: "check", hubHash: hashOf(got.node.body) };
 };
@@ -277,7 +277,7 @@ export const nodesStep: StepFn = async (ctx, run, opts, deps) => {
     const plan = (await getContentPlan(ctx, g.workspace.id, g.plan.id, deps.db)) ?? g.plan;
     const node = plan.graph.nodes.find((n) => n.id === id);
     if (node && !node.body.trim()) {
-      await fillPlanNode(ctx, { workspace: g.workspace, plan, nodeId: id }, { db: deps.db, quick: true, deadlineMs: Date.now() + NODE_MS }).catch(() => null);
+      await fillPlanNode(ctx, { workspace: g.workspace, plan, nodeId: id }, { db: deps.db, quick: true, deadlineMs: Date.now() + NODE_MS, by: "autopilot" }).catch(() => null);
     }
     todo.shift();
   }

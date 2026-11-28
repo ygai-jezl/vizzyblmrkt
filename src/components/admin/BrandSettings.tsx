@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { stampHeaders } from "@/lib/loops/stampHeader";
 import type { BrandKit } from "@/lib/types/tenant";
 import { BrandColours } from "./brand-kit/BrandColours";
+import { NO_KIT_TOKENS, kitReplaced, kitTokensToSend, withColourToken, type KitTokens, type TokenHolds } from "./brand-kit/kitTokens";
 
 /**
  * Account → Brand. Upload a brand-guidelines PDF → AI-extract a structured brand kit
@@ -21,6 +23,11 @@ function lines(s: string): string[] {
 
 export function BrandSettings() {
   const [kit, setKit] = useState<BrandKit>({});
+  // The stamp tokens of colours kept from a source since the kit was last saved or replaced, sent
+  // with the next save once while their colours are still in it (learning loops step 5). An
+  // extract's kit is counted where it is stored.
+  const [stampTokens, setStampTokens] = useState<KitTokens>(NO_KIT_TOKENS);
+  const addStampToken = useCallback((token: string, holds: TokenHolds) => setStampTokens((t) => withColourToken(t, token, holds)), []);
   const [fontsText, setFontsText] = useState("");
   const [dosText, setDosText] = useState("");
   const [dontsText, setDontsText] = useState("");
@@ -31,8 +38,10 @@ export function BrandSettings() {
   const [colorsDirty, setColorsDirty] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  /** Replaces the kit, palette included, so no colour kept from a source before is still sent. */
   function applyKit(k: BrandKit) {
     setKit(k);
+    setStampTokens(kitReplaced());
     setFontsText((k.fonts ?? []).join("\n"));
     setDosText((k.dos ?? []).join("\n"));
     setDontsText((k.donts ?? []).join("\n"));
@@ -107,11 +116,14 @@ export function BrandSettings() {
     try {
       const res = await fetch("/api/admin/account/brand", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...stampHeaders(kitTokensToSend(stampTokens, payload)) },
         body: JSON.stringify(payload),
       });
       setMsg(res.ok ? "Saved." : "Save failed.");
-      if (res.ok) setColorsDirty(false);
+      if (res.ok) {
+        setColorsDirty(false);
+        setStampTokens(NO_KIT_TOKENS);
+      }
     } finally {
       setBusy(null);
     }
@@ -183,6 +195,7 @@ export function BrandSettings() {
               setKit((k) => ({ ...k, palette, palettes }));
               setColorsDirty(true);
             }}
+            onStampToken={addStampToken}
           />
         </div>
       </div>

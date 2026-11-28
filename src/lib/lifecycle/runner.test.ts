@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { LOOP_DAYS } from "@/lib/tenant/loops";
 import { forTenant } from "@/lib/tenant";
 import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { suppressEmailCategory } from "@/lib/email/suppression";
@@ -755,5 +756,54 @@ describe("the person on a product journey's send (ONTOLOGY_PERSON_IDS_ENABLED)",
     await throughWelcome(w);
     expect(w.db.dump("email_sends")[0]).not.toHaveProperty("personId");
     expect(w.db.dump("email_events")[0]).not.toHaveProperty("personId");
+  });
+});
+
+describe("what made an email (LOOPS_ENABLED, learning loops step 5)", () => {
+  /** Every count the run wrote, its weeks and shards added up. */
+  const counted = (db: FakeFirestore) => db.dump(LOOP_DAYS).map((d) => d.d);
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("counts the welcome made once as send_time, in one write when the run ends, with its stamp on the send record", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    const w = await world();
+    await throughWelcome(w);
+    expect(counted(w.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } } }]);
+    expect(w.db.dump("email_sends")[0]?.made).toMatchObject({ kind: "send_time" });
+  });
+
+  it("counts records_off beside made when no record keeps the stamp: send records off, or an email named by its enrolment", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const off = await world();
+    await throughWelcome(off);
+    expect(counted(off.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
+
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("LIFECYCLE_SEND_TRACKING", "true");
+    const tracked = await world();
+    await throughWelcome(tracked);
+    // The enrolment form writes no send record, so the stamp is kept nowhere and coverage says so.
+    expect(tracked.db.dump("email_sends")).toHaveLength(0);
+    expect(counted(tracked.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
+  });
+
+  it("counts records_off once the email went, never for an attempt that failed and was tried again", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const w = await world();
+    w.setResult(() => ({ sent: false, provider: "mandrill", reason: "http_400" }));
+    await w.run(T0);
+    expect(await w.run(T0 + 15 * MIN)).toBe("failed");
+    expect(counted(w.db)).toEqual([]);
+    w.setResult(() => ({ sent: true, provider: "mandrill", id: "m_2" }));
+    expect(await w.run(T0 + 20 * MIN)).toBe("sent");
+    expect(counted(w.db)).toEqual([{ c: { send_time: { send_time: { v0: { none: { made: 1 } } } } }, t: { email_send: { made: 1 } }, u: { send_time: { records_off: 1 } } }]);
+  });
+
+  it("with LOOPS_ENABLED off sends the same email and never opens loop_days (decision 22)", async () => {
+    const w = await world();
+    await throughWelcome(w);
+    expect(w.sent).toHaveLength(1);
+    expect(w.db.collectionCalls(LOOP_DAYS)).toBe(0);
   });
 });

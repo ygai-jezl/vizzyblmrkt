@@ -1,4 +1,5 @@
 import type { TenantContext } from "@/lib/tenant";
+import type { Made } from "@/lib/types/loopStamp";
 import type { CanvasKindName } from "./names";
 
 /**
@@ -66,6 +67,9 @@ export interface CanvasCard {
   cta?: string;
 }
 
+/** What one canvas save wrote: a new draft, new words on one already counted, or nothing new. */
+export type CanvasSaved = "created" | "rewritten" | "none";
+
 export type CanvasAuthorOutcome =
   | {
       ok: true;
@@ -78,6 +82,15 @@ export type CanvasAuthorOutcome =
       /** Soft issues: the draft still saved, for the human to finish. */
       warnings: string[];
       card: CanvasCard;
+      /**
+       * What the call saved (learning loops step 5, decision 20: made counts once per saved
+       * record): `created`, a new draft or suggestion; `rewritten`, Vizzy's new words on a draft
+       * already counted (an invite wave, a plan's pieces, a journey's draft); `none`, nothing new
+       * (the person is already in People, or the same draft is already waiting), or nothing of
+       * the kind's own (a content plan, whose pieces count under their writers' kinds). The route
+       * counts made only for `created`.
+       */
+      saved: CanvasSaved;
     }
   | {
       ok: false;
@@ -95,6 +108,13 @@ export interface CanvasAuthorArgs {
   input: Record<string, unknown>;
   /** Natural-language ask from the operator. */
   brief: string;
+  /**
+   * What made the draft (learning loops step 5, 4.1): the route's `canvas.<kind>` stamp from
+   * learnedFor, `by: "vizzy"`, or `{ unstamped: "loops_off" }` with LOOPS_ENABLED off. Each kind
+   * keeps it on the draft it writes where that record has a `made` (keptMade), and the route
+   * counts it made once a new draft is saved (`saved: "created"`).
+   */
+  made: Made;
 }
 
 export interface CanvasKind<K extends CanvasKindName = CanvasKindName> {

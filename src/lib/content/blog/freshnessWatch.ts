@@ -314,7 +314,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       if (read) {
         const next = nextDates(dates, { page: read, now });
         if (next.updated?.source === "change") signals.push({ kind: "page_behind", detail: PAGE_BEHIND_SAID, hard: false });
-        await updateContentPlanNode(ctx, a.plan.workspaceId, a.plan.id, a.hub.id, {}, db, { setDates: (current) => (current ? nextDates(current, { page: read, now }) : current) }).catch(() => null);
+        await updateContentPlanNode(ctx, a.plan.workspaceId, a.plan.id, a.hub.id, { made: { unstamped: "dates_only" } }, db, { setDates: (current) => (current ? nextDates(current, { page: read, now }) : current) }).catch(() => null);
         dates = next;
       }
     }
@@ -339,7 +339,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       openAtStart,
       events: becameDue ? nextEvents(stored?.events ?? [], { at: now.toISOString(), kind: "due", clockDays: clock.clockDays }) : (stored?.events ?? []),
     };
-    await updateContentPlanNode(ctx, a.plan.workspaceId, a.plan.id, a.hub.id, {}, db, {
+    await updateContentPlanNode(ctx, a.plan.workspaceId, a.plan.id, a.hub.id, { made: { unstamped: "dates_only" } }, db, {
       // A check made meanwhile wins over this pass's copy of the article.
       setFreshness: (current) => {
         const checkedMeanwhile = Boolean(current && current.checkedAt !== (stored?.checkedAt ?? null));

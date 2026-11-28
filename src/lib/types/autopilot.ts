@@ -1,3 +1,4 @@
+import type { Made } from "./loopStamp";
 import { z } from "zod";
 import type { BasedOn } from "./contentPlan";
 import type { PickSlot } from "./contentStrategy";
@@ -90,6 +91,8 @@ export interface NextUpPick {
   focus?: boolean;
   /** The approved strategy and plan it came from (STRATEGY_RESULTS_ENABLED): absent while off or nothing is approved. */
   basedOn?: BasedOn;
+  /** What made the pick (LOOPS_ENABLED, learning loops step 5): the `next_up` stamp, written only by pickNextUp, and taken off once a person uses the pick (usedPick), so it counts once. */
+  made?: Made;
 }
 
 /** A live article a question is close to in meaning: better added to it than written again. */

@@ -18,6 +18,8 @@ import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +56,9 @@ export const dynamic = "force-dynamic";
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
  *
+ * The learning loops lane (src/lib/loops/tick.ts) rides it too while image style versions are on
+ * (IMAGE_STYLE_VERSIONS_ENABLED and the switches it needs) or the learning loops are
+ * (LOOPS_ENABLED), every 5th tick at offset 1, within its own 20 second budget.
  * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0023) moves on beside
  * them too, a page at a time from each running job's cursor; with the switch off a job waits.
  *
@@ -95,6 +100,8 @@ const STRATEGY_CHECK_BUDGET_MS = 10_000;
 const STRATEGY_MONTH_BUDGET_MS = 25_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
+/** The learning loops lane (IMAGE_STYLE_VERSIONS_ENABLED or LOOPS_ENABLED): a page of brands, about every 10 minutes. */
+const LOOPS_BUDGET_MS = 20_000;
 /** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */
 const FIELD_ERASE_BUDGET_MS = 20_000;
 /** The agent record's catch-up (AGENT_RECORD_ENABLED): the brands in this tick's slot, a few reads each. */
@@ -119,13 +126,14 @@ export async function POST(req: Request) {
   const freshness = isBlogFreshnessEnabled();
   const refresh = isBlogRefreshEnabled();
   const authCleanup = isPasswordSigninEnabled();
+  const loops = isImageStyleVersionsOn() || isLoopsEnabled();
   const fieldErase = isSettingsEraseEnabled();
   const agentRecord = isAgentRecordEnabled();
   const raiseFollowups = isRaiseFollowupsEnabled();
   const translations = isAssetTranslationsEnabled();
   const strategyMonth = isStrategyResultsEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || fieldErase || agentRecord || raiseFollowups || translations || strategyMonth))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase || agentRecord || raiseFollowups || translations || strategyMonth))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -243,6 +251,21 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const loopsRun = loops
+        ? timedTickJob(
+            "loops",
+            async () => {
+              const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + LOOPS_BUDGET_MS);
+              const { runLoopsLane } = await import("@/lib/loops/tick");
+              return runLoopsLane({ deadlineMs });
+            },
+            Date.now,
+            (r) => (r.skipped === "tick" ? "" : `brands=${r.brands} rows=${r.rows} heapDeltaMiB=${r.heapDeltaMiB}${r.skipped ? ` skipped=${r.skipped}` : ""}`),
+          ).catch((err: unknown) => {
+            console.warn(`[loops] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const translationsRun = translations
         ? timedTickJob("translations", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + TRANSLATIONS_BUDGET_MS);
@@ -317,6 +340,7 @@ export async function POST(req: Request) {
       const freshnessResult = await freshnessRun;
       const refreshResult = await refreshRun;
       const authCleanupResult = await authCleanupRun;
+      const loopsResult = await loopsRun;
       const fieldEraseResult = await fieldEraseRun;
       const agentRecordResult = await agentRecordRun;
       const raiseFollowupsResult = await raiseFollowupsRun;
@@ -337,6 +361,9 @@ export async function POST(req: Request) {
         ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
         ...(refreshResult?.brands ? { refresh: refreshResult } : {}),
         ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
+        ...(loopsResult?.brands
+          ? { loops: { brands: loopsResult.brands, idle: loopsResult.idle, learned: loopsResult.learned, verdicts: loopsResult.verdicts, ...(loopsResult.reported ? { reported: loopsResult.reported } : {}) } }
+          : {}),
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
         ...(agentRecordResult?.brands ? { agentRecord: agentRecordResult } : {}),
         ...(raiseFollowupsResult?.brands ? { raiseFollowups: raiseFollowupsResult } : {}),

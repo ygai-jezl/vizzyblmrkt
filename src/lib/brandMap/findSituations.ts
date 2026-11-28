@@ -1,5 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateGroundedText, isGeminiConfigured, isSearchLimited } from "@/lib/agents/gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import type { RetrievedChunk } from "@/lib/agents/knowledgeRetrieval";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
@@ -251,6 +253,8 @@ export async function findSituations(ctx: TenantContext, input: { customers?: st
     }
   }
   await embedSituations(ctx, found, { db: deps.db, ...deps.embed }).catch(() => 0);
+  // Each situation proposed is counted made, in one write (LOOPS_ENABLED, learning loops step 5).
+  if (found.length) await countMade(ctx, "situations", (await learnedFor(ctx, "situations", { promptId: "brand.map_situations" })).stamp, { type: "brand_map", n: found.length, db: deps.db });
   const unbacked = found.filter((s) => !s.backed).length;
   const notes = [
     ...(unbacked ? [`${unbacked} of them ${unbacked === 1 ? "isn't" : "aren't"} backed by your site or knowledge: they arrive unticked.`] : []),

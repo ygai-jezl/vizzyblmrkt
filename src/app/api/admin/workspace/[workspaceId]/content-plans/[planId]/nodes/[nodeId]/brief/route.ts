@@ -5,6 +5,8 @@ import { forTenant } from "@/lib/tenant";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { generateNodeBrief } from "@/lib/content/create/nodeBrief";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +42,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "not_briefable" }, { status: 400 });
   }
 
+  // What made the brief (LOOPS_ENABLED): a brief never takes the words' stamp (updateContentPlanNode).
+  const { stamp } = await learnedFor(ctx, "content_brief", { promptId: "content.node_brief" });
   const { brief } = await generateNodeBrief({
     ctx,
     workspaceId,
@@ -53,11 +57,12 @@ export async function POST(req: Request, { params }: RouteParams) {
   // Guard it so a schema-invalid patch returns 422, not an uncaught 500.
   let updated;
   try {
-    updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, { brief });
+    updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, { brief, made: stamp });
   } catch {
     return NextResponse.json({ error: "invalid_node" }, { status: 422 });
   }
   if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
+  await countMade(ctx, "content_brief", stamp, { type: "content_plan" });
 
   return NextResponse.json({ node: updated });
 }

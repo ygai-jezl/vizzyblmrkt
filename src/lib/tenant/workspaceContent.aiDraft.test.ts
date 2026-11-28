@@ -79,7 +79,7 @@ describe("aiDraft through saves", () => {
   it("the node writer stores it", async () => {
     const db = new FakeFirestore();
     seed(db, [node]);
-    const updated = await updateContentPlanNode(ctx, WS, PLAN, "n1", { body: "Fresh.", aiDraft: { body: "Fresh.", at: T } }, db);
+    const updated = await updateContentPlanNode(ctx, WS, PLAN, "n1", { body: "Fresh.", aiDraft: { body: "Fresh.", at: T }, made: { unstamped: "nothing_made" } }, db);
     expect(updated).toMatchObject({ aiDraft: { body: "Fresh.", at: T } });
   });
 });

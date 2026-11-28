@@ -173,7 +173,7 @@ export interface VizzySkipped {
 export type VizzyEvent =
   /** Vizzy's short reply, as it streams (the ops block is never shown). */
   | { type: "text"; text: string }
-  | { type: "selection"; replacement: string; warnings: string[] }
-  | { type: "whole"; ops: VizzySuggestedOp[]; skipped: VizzySkipped[] }
+  | { type: "selection"; replacement: string; warnings: string[]; stampToken?: string }
+  | { type: "whole"; ops: VizzySuggestedOp[]; skipped: VizzySkipped[]; stampToken?: string }
   | { type: "error"; message: string }
   | { type: "done" };

@@ -7,6 +7,8 @@ import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productCo
 import type { Tenant } from "@/lib/types/tenant";
 import { ConsentBasis } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { productUserDocId } from "@/lib/connect/profile";
 import { fireSandboxEvent } from "@/lib/connect/sandbox";
@@ -806,6 +808,8 @@ export async function generateJourneyDraft(
   // A rebuilt draft keeps the journey's style.
   const saved = await saveLifecycleDraft(ctx, journeyId, built.draft, { db: deps.db, authoredBy: "human", emailStyle: "keep" });
   if (!saved.ok) return fail(saved.status, saved.error, saved.detail);
+  // Counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+  await countMade(ctx, "journeys", (await learnedFor(ctx, "journeys")).stamp, { type: "lifecycle_journey", db: deps.db });
   return ok({ journey: saved.value.journey, issues: saved.value.issues, notes: built.notes });
 }
 

@@ -5,6 +5,8 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { verifyWorkspace, getContentPlan } from "@/lib/tenant/workspaceContent";
 import { buildCarousel, isCarouselEnabled } from "@/lib/distribute/carousel/build";
 import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { learnedFor } from "@/lib/loops/read";
+import { countMade } from "@/lib/loops/count";
 import {
   getEditablePost,
   setPostCarousel,
@@ -80,6 +82,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 
   try {
+    // A carousel never learns (its none line): its slides picture the post's words. Counted once
+    // per carousel when attached (learning loops step 4); learnedFor gives arm none with no read.
+    const { stamp } = await learnedFor(ctx, "carousel");
     const { post } = await setPostCarousel(
       ctx,
       workspaceId,
@@ -87,6 +92,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       nodeId,
       built.slides.map((s) => s.filename),
     );
+    await countMade(ctx, "carousel", stamp);
     return NextResponse.json({ ok: true, post, slides: built.slides, truncated: built.truncated });
   } catch (err) {
     if (err instanceof SchedulePostConflictError) {

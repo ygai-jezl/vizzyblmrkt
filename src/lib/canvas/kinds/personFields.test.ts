@@ -11,6 +11,9 @@ import type { AgentActionId } from "@/lib/types/agentAction";
 import { authorPersonFields } from "./personFields";
 import { getCanvasKind } from "../registry";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
 const by = { type: "member", id: "u_admin" } as const;
@@ -34,7 +37,7 @@ async function add(id: string, change: FieldListChange, options: string[] = []) 
   const r = await saveFieldListChange(admin, "person", { baseRev: rev, change, by, newFieldId: () => id, newOptionId: () => options[n++]! }, db);
   if (!r.ok) throw new Error(r.error);
 }
-const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, brief: "" }, { db, nowMs });
+const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, made: LOOPS_OFF, brief: "" }, { db, nowMs });
 const suggest = (changes: Record<string, unknown>, extra: Record<string, unknown> = {}) => author({ kind: "person_fields", action: "save_draft", scope: { personId: PRIYA }, changes, ...extra });
 
 beforeEach(async () => {
@@ -206,7 +209,9 @@ describe("the person_fields kind", () => {
   it("answers with the one waiting for the same suggestion, replaces one for the same field, and won't raise a decided one again", async () => {
     const first = await suggest({ [SEATS]: 15 });
     const again = await suggest({ [SEATS]: 15 });
-    expect(again).toMatchObject({ ok: true, id: first.ok ? first.id : "" });
+    // The one waiting is no new suggestion: made counts once, for the first (decision 20).
+    expect(first).toMatchObject({ ok: true, saved: "created" });
+    expect(again).toMatchObject({ ok: true, id: first.ok ? first.id : "", saved: "none" });
     if (again.ok) expect(again.summary).toMatch(/already waiting/);
 
     const newer = await suggest({ [SEATS]: 16 });

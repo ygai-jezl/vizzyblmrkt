@@ -4,6 +4,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import type { ResourceCount } from "@/lib/types/usageMeter";
 import type { AiUsage } from "@/lib/agents/gemini";
 import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { isUsageMeterEnabled } from "./flags";
 import { isLimitedResource, monthlyLimitOf } from "./limits";
 import type { ResourceId, ResourcePurpose } from "./resources";
@@ -15,7 +16,9 @@ import type { ResourceId, ResourcePurpose } from "./resources";
  * resource asks its meter first (`check`), then tells it what was spent (`record`).
  *
  * A record is one merged write of increments (never a read and a transaction), so many calls at
- * once never wait on each other. The check counts first and the call runs after, as the other
+ * once never wait on each other. It adds the units by purpose and, from learning loops step 5 and
+ * only while LOOPS_ENABLED is on, one call by purpose (`callsByPurpose`), which the loops'
+ * heartbeat reads for uses of each purpose. The check counts first and the call runs after, as the other
  * monthly caps do, so calls at once can go a little past a cap. A failed write never fails the
  * work it was counting.
  */
@@ -30,8 +33,12 @@ export interface UsageLimited {
 export interface UsageMeter {
   /** Before spending `units` (1 by default): null to go ahead, or the cap reached. */
   check(units?: number): Promise<UsageLimited | null>;
-  /** `lost`: the call failed after it may have spent units, so they couldn't be counted. `model`: AI model use only. */
-  record(units: number, opts?: { lost?: boolean; model?: string }): Promise<void>;
+  /**
+   * `lost`: the call failed after it may have spent units, so they couldn't be counted. `model`: AI
+   * model use only. `sameCall`: another record of a use already counted (a chat turn's second
+   * model), so its units count but no second call by purpose.
+   */
+  record(units: number, opts?: { lost?: boolean; model?: string; sameCall?: boolean }): Promise<void>;
 }
 
 export interface MeterDeps {
@@ -55,9 +62,24 @@ export async function usageThisMonth(
   return (doc?.meters ?? {}) as Partial<Record<ResourceId, ResourceCount>>;
 }
 
-/** How much of one resource a brand used this month. */
+/**
+ * Purposes counted on a capped resource that never count toward its cap. Learning is never capped
+ * (learning loops step 4, decision 3): the first remake of a held back image is metered under
+ * loop_learn, so the holdback never uses up a brand's images.
+ */
+export const UNCAPPED_PURPOSES: ReadonlySet<ResourcePurpose> = new Set<ResourcePurpose>(["loop_learn"]);
+
+/** The part of a month's count that counts toward its cap: all of it but what UNCAPPED_PURPOSES used. */
+export function countedTowardCap(count: ResourceCount | null | undefined): number {
+  if (!count) return 0;
+  let n = count.total ?? 0;
+  for (const p of UNCAPPED_PURPOSES) n -= count.byPurpose?.[p] ?? 0;
+  return Math.max(0, n);
+}
+
+/** How much of one resource a brand used this month, as its cap counts it. */
 export async function usedThisMonth(ctx: Pick<TenantContext, "tenantId" | "region">, resource: ResourceId, deps: MeterDeps = {}): Promise<number> {
-  return (await usageThisMonth(ctx, deps))[resource]?.total ?? 0;
+  return countedTowardCap((await usageThisMonth(ctx, deps))[resource]);
 }
 
 /**
@@ -87,11 +109,13 @@ function addMaps(a: Record<string, number> | undefined, b: Record<string, number
 
 export function addCounts(a: ResourceCount, b: ResourceCount): ResourceCount {
   const byModel = a.byModel || b.byModel ? { byModel: addMaps(a.byModel, b.byModel) } : {};
+  const callsByPurpose = a.callsByPurpose || b.callsByPurpose ? { callsByPurpose: addMaps(a.callsByPurpose, b.callsByPurpose) } : {};
   return {
     total: (a.total ?? 0) + (b.total ?? 0),
     calls: (a.calls ?? 0) + (b.calls ?? 0),
     lostCalls: (a.lostCalls ?? 0) + (b.lostCalls ?? 0),
     byPurpose: addMaps(a.byPurpose, b.byPurpose),
+    ...callsByPurpose,
     ...byModel,
   };
 }
@@ -108,7 +132,7 @@ export function usageMeter<R extends ResourceId>(
 ): UsageMeter {
   return {
     async check(units = 1) {
-      if (!isUsageMeterEnabled() || !isLimitedResource(resource)) return null;
+      if (!isUsageMeterEnabled() || !isLimitedResource(resource) || UNCAPPED_PURPOSES.has(purpose)) return null;
       try {
         const [used, tenant] = await Promise.all([
           usedThisMonth(ctx, resource, opts),
@@ -139,6 +163,9 @@ export function usageMeter<R extends ResourceId>(
                 calls: 1,
                 lostCalls: lost ? 1 : 0,
                 byPurpose: { [purpose]: n },
+                // In the same merged increment: a call of this purpose, whatever it spent. Only
+                // while LOOPS_ENABLED is on, as only the loops' heartbeat reads it: off is today exactly.
+                ...(recordOpts.sameCall || !isLoopsEnabled() ? {} : { callsByPurpose: { [purpose]: 1 } }),
                 ...(model ? { byModel: { [model]: n } } : {}),
               },
             },

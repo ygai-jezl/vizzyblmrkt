@@ -86,6 +86,10 @@ interface Shell {
   settingsHistory: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server), for the How to drawer. */
   nextActionCard: boolean;
+  /** The learning loops count what YouGrow makes, across brands too (isLoopsEnabled(), from the server), for the How to drawer. */
+  loops: boolean;
+  /** Image style versions, the image looks YouGrow learns (isImageStyleVersionsOn(), from the server), for the How to drawer. */
+  imageVersions: boolean;
   /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server), for the How to drawer. */
   agentRecord: boolean;
   /** Readers per language and one language list (isLanguageReadersEnabled(), from the server), for the How to drawer. */
@@ -169,6 +173,8 @@ export function ShellProvider({
   onboardingVoice = false,
   settingsHistory = false,
   nextActionCard = false,
+  loops = false,
+  imageVersions = false,
   agentRecord = false,
   languageReaders = false,
   raiseFollowUps = false,
@@ -248,6 +254,10 @@ export function ShellProvider({
   settingsHistory?: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server): the How to drawer says so. */
   nextActionCard?: boolean;
+  /** The learning loops count what YouGrow makes, across brands too (isLoopsEnabled(), from the server): the How to drawer says so. */
+  loops?: boolean;
+  /** Image style versions (isImageStyleVersionsOn(), from the server): the How to drawer explains the image looks only then. */
+  imageVersions?: boolean;
   /** Agent record: Review lists Vizzy's styles and notes (isAgentRecordEnabled(), from the server): the How to drawer says so. */
   agentRecord?: boolean;
   /** Readers per language and one language list (isLanguageReadersEnabled(), from the server): the How to drawer says so. */
@@ -364,6 +374,8 @@ export function ShellProvider({
       onboardingVoice,
       settingsHistory,
       nextActionCard,
+      loops,
+      imageVersions,
       agentRecord,
       languageReaders,
       raiseFollowUps,
@@ -374,7 +386,7 @@ export function ShellProvider({
       pageLanguages,
       onCanvasSaved: journeyInContext || personInContext || raiseInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, raiseKit, paste, vizzyPaste, assetTranslations, pageLanguages, saved, work, workVizzy, workQuickEdit],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, loops, imageVersions, agentRecord, languageReaders, raiseFollowUps, raiseKit, paste, vizzyPaste, assetTranslations, pageLanguages, saved, work, workVizzy, workQuickEdit],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

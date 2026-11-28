@@ -30,7 +30,9 @@ import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker
 import { isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
 import { FormatFields, FORMAT_OPTIONS, formatReady } from "@/components/admin/imageStyle/FormatFields";
 import { resolveImageStyle } from "@/lib/content/imageStyle/resolve";
-import { useBrandImageStyle } from "@/components/admin/imageStyle/useBrandImageStyle";
+import { useBrandImageStyle, useImageStyleVersions } from "@/components/admin/imageStyle/useBrandImageStyle";
+import { useImageVote } from "@/components/admin/brand-kit/learnedClient";
+import { LookNotice, PostImageVotes } from "./PostImageLearning";
 import { ChartEditor } from "@/components/admin/imageStyle/ChartEditor";
 import { EMPTY_DRAFT, chartFromDraft, draftFromChart, type ChartDraft } from "@/components/admin/imageStyle/chartDraft";
 import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
@@ -596,6 +598,10 @@ function SocialImageControls({
   const resolved = styleUi
     ? resolveImageStyle({ enabled: true, surface: "social", channel: node.channel, brand: brandStyle ?? undefined, override: styleId, more: isMoreStylesUiEnabled() })
     : null;
+  // Image style versions (learning loops step 4): the new look notice, thumbs with the why behind a
+  // vote, and the 1 in 20 line under Use learned brand style. Off, none of it shows.
+  const versions = useImageStyleVersions(styleUi);
+  const learning = useImageVote(versions, { file: node.imageAssetRef ?? null, style: resolved?.engine === "model" ? resolved.id : null });
   const drawn = resolved?.engine === "template";
   const drawnId = drawn && resolved && resolved.engine === "template" ? resolved.id : null;
   const showWords = drawn || (resolved?.engine === "model" && !!brandStyle && brandStyle.headlineOnSocial !== false);
@@ -801,6 +807,7 @@ function SocialImageControls({
   return (
     <div className="mb-4 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
       <div className="mb-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">✨ Post image</div>
+      {learning.view ? <LookNotice view={learning.view} onChange={learning.refresh} /> : null}
       {thumbUrl ? (
         <div className="mb-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -811,6 +818,7 @@ function SocialImageControls({
           />
         </div>
       ) : null}
+      {learning.view?.image && hasImage ? <PostImageVotes key={learning.view.image.id} view={learning.view} /> : null}
       {formatsUi ? (
         <div className="mb-2">
           <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
@@ -988,6 +996,7 @@ function SocialImageControls({
         />
         Use learned brand style
       </label>
+      {learning.view?.standing ? <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">{learning.view.standing}</p> : null}
       {needsShots ? (
         <div className="mt-2 space-y-2 rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs dark:border-neutral-800 dark:bg-neutral-900">
           <p className="font-medium text-neutral-800 dark:text-neutral-200">{needsShots}</p>

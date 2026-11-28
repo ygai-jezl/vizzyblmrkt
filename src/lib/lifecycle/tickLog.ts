@@ -39,12 +39,24 @@ export function logTickMemory(read: () => NodeJS.MemoryUsage = () => process.mem
  * Runs one of the tick's jobs and logs "[tick] <job> <ms>ms" when it ends, whether it worked or
  * failed. `run` starts straight away, so jobs start in the order they are asked for. Each line
  * is written as its job ends: if an instance dies mid tick, the jobs with no line were running.
+ * `detail` adds what a finished job reports to its line (the loops lane's brands, rows and heap
+ * growth), with no personal data or brand ids.
  */
-export async function timedTickJob<T>(job: string, run: () => Promise<T>, clock: () => number = Date.now): Promise<T> {
+export async function timedTickJob<T>(job: string, run: () => Promise<T>, clock: () => number = Date.now, detail?: (result: T) => string): Promise<T> {
   const t0 = clock();
+  let extra = "";
   try {
-    return await run();
+    const result = await run();
+    if (detail) {
+      try {
+        const d = detail(result);
+        if (d) extra = ` ${d}`;
+      } catch {
+        // The detail is best effort.
+      }
+    }
+    return result;
   } finally {
-    console.log(`[tick] ${job} ${clock() - t0}ms`);
+    console.log(`[tick] ${job} ${clock() - t0}ms${extra}`);
   }
 }

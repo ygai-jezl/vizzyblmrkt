@@ -1,4 +1,5 @@
 import type { ContactPersonId } from "@/lib/ontology/person";
+import type { Made } from "./loopStamp";
 
 /**
  * One email sent to one person (`email_sends`, the brand's regional database): who and what it
@@ -41,6 +42,9 @@ export interface EmailSend extends EmailEngagement {
   personId?: ContactPersonId;
   /** Mandrill's id for the message, from the first event that names it. */
   mandrillMessageId?: string | null;
+  /** What made the email (LOOPS_ENABLED, learning loops step 5): its stamp, or why it has none.
+   *  Kept on the record only: Mandrill's metadata stays `{t, s}`. Written with a new record. */
+  made?: Made;
   createdAt: string;
   updatedAt: string;
 }

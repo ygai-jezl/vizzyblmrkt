@@ -1,8 +1,10 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
 import { allowanceLabels, PLANS, planSummary } from "@/lib/plans/catalog";
+import { isEditModeLearningFollowsVizzyEnabled } from "@/lib/content/editor/flags";
 import { isOrganisationJoinEnabled, isUsageMeterUiEnabled } from "@/lib/plans/flags";
-import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { IMAGE_LIMIT_MESSAGE, PURPOSE_LABELS, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { isConnectorsSharingEnabled } from "@/lib/connectors/flags";
@@ -24,6 +26,8 @@ export default function PlanAndUsageHelp({
   onboardingVoice = isOnboardingVoiceEnabled(),
 }: HelpBodyProps = {}) {
   const meter = isUsageMeterUiEnabled();
+  // Image style versions (learning loops step 4): learning's own line under Images made and AI model use.
+  const learning = isImageStyleVersionsOn();
   const w = ideaWord(ideaWords);
   return (
     <article>
@@ -144,6 +148,13 @@ export default function PlanAndUsageHelp({
               heroes, post images, email images, ebook images, customised images and carousels). Your copy of YouGrow sets how
               many a brand may make in a month.
             </li>
+            {learning ? (
+              <li>
+                <strong>{PURPOSE_LABELS.loop_learn}</strong>, under Images made and AI model use: what YouGrow spends learning
+                your image looks, and the first remake within 2 weeks of an image made without what it learned. It never counts
+                toward a limit. See <Open href="/help/what-yougrow-learned#holdback">What YouGrow learned</Open>.
+              </li>
+            ) : null}
             {onboardingVoice ? (
               <>
                 <li>
@@ -224,6 +235,13 @@ export default function PlanAndUsageHelp({
         Some features are turned on brand by brand as well, such as <Open href="/help/search">Search</Open>. One granted to
         your brand works even when your plan leaves it out.
       </P>
+      {isEditModeLearningFollowsVizzyEnabled() ? (
+        <P>
+          On this copy, Vizzy in Edit mode also learns from your edits there when your brand keeps its data in the region where
+          Vizzy runs, even when Plan and usage lists Vizzy learning from edits as not in your plan. Learning from LinkedIn and X
+          posts still needs Vizzy learning from edits.
+        </P>
+      ) : null}
 
       <H2 id="change">Changing your plan</H2>
       <P>

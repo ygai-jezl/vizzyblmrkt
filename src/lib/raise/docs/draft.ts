@@ -2,6 +2,8 @@ import { z } from "zod";
 import { generateJsonWithSchema, parseFirstJson } from "@/lib/agents/gemini";
 import { TEXT_MODEL } from "@/lib/agents/modelConfig";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -448,6 +450,10 @@ export async function draftDeck(ctx: TenantContext, input: DraftInput, deps: Dra
   const title = typedTitle || answer?.title || pack.brandName || kindLabel(input.audience, stage);
   const warnings = answer?.warnings ?? [];
   const slides = answer?.slides ?? (await outlineDeck(c, title, warnings));
+  // What made the words (LOOPS_ENABLED, learning loops step 5): raise_write, by Vizzy when the
+  // chat asked for the deck. Nothing learns for decks yet, so reading after the call changes no
+  // prompt. The deck keeps no stamp: its `made` names the prompt that wrote it.
+  const made = answer ? (await learnedFor(ctx, "raise_write", { promptId: DRAFT_PROMPT.id, ...(input.by === "vizzy" ? { by: "vizzy" as const } : {}) }, { now })).stamp : null;
   const saved = await createRaiseDoc(
     ctx,
     {
@@ -464,5 +470,7 @@ export async function draftDeck(ctx: TenantContext, input: DraftInput, deps: Dra
     deps,
   );
   if (!saved.ok) return saved;
+  // Counted made once, as the deck is saved with the model's words; an outline alone made none.
+  if (made) await countMade(ctx, "raise_write", made, { type: "raise_doc", db: deps.db, now });
   return { ok: true, value: { doc: saved.value, drafted: Boolean(answer), warnings: [...new Set(warnings)] } };
 }

@@ -8,6 +8,12 @@ import { advanceRun, type AdvanceDeps } from "./advance";
 import { moveItem, readRunApi, startFind, suggestOthers } from "./adminApi";
 import { listLearned } from "./learned";
 import { claimRun, createRun, finishStep, getRun, RUN_LEASE_MS } from "./runs";
+import { forTenant } from "@/lib/tenant";
+import { nextUpDocId } from "@/lib/types/autopilot";
+import { countMade, loopWeekOf } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import { readNextUp } from "@/lib/nextUp/pick";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const B: TenantContext = { ...A, tenantId: "ten_B" };
@@ -103,6 +109,42 @@ describe("finding and sorting", () => {
       await advanceRun(A, id, { deadlineMs: Date.now() + 60_000 }, deps);
     }
     expect(await getRun(A, id, deps)).toMatchObject({ step: "failed", error: "judge_failed", active: false });
+  });
+});
+
+describe("finding what buyers ask on one of Next up's picks (learning loops step 5)", () => {
+  /** Hearth Bakery's stored pick with its next_up stamp, counted made once as pickNextUp does. */
+  async function storedPick(deps: { db: FakeFirestore }) {
+    const { stamp } = await learnedFor(A, "next_up", { promptId: "next_up.pick" });
+    const pick = { questionId: Q.questionId, question: Q.question, subjectId: Q.subjectId, subjectName: Q.subjectName, because: "Asked often.", chips: [], from: "gemini" as const, made: stamp };
+    await forTenant(A, deps.db).nextUp.create(nextUpDocId(A.tenantId), { picks: [pick], notOnMap: [], missing: [], candidates: 1, at: "2026-11-18T09:00:00.000Z", by: "schedule" } as never);
+    await countMade(A, "next_up", stamp, { type: "next_up", db: deps.db });
+  }
+  const cell = (db: FakeFirestore) => (sumWeek(db, A.tenantId, loopWeekOf(new Date())) as { c?: Record<string, Record<string, unknown>> }).c?.next_up?.next_up;
+
+  it("counts the pick kept once, however often it is started, and keeps it on the list", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const { deps } = setup();
+    deps.env = {};
+    await storedPick(deps);
+    expect((await startFind(A, Q, deps)).status).toBe(200);
+    expect(await startFind(A, Q, deps)).toMatchObject({ status: 200 });
+    expect(cell(deps.db)).toEqual({ v0: { none: { made: 1, kept: 1 } } });
+    const picks = (await readNextUp(A, deps))!.picks;
+    expect(picks.map((p) => p.questionId)).toEqual([Q.questionId]);
+    expect(picks[0]).not.toHaveProperty("made");
+  });
+
+  it("with LOOPS_ENABLED off counts nothing and leaves the pick as it was", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const { deps } = setup();
+    deps.env = {};
+    await storedPick(deps);
+    const before = (await readNextUp(A, deps))!.picks;
+    vi.stubEnv("LOOPS_ENABLED", "");
+    expect((await startFind(A, Q, deps)).status).toBe(200);
+    expect(cell(deps.db)).toEqual({ v0: { none: { made: 1 } } });
+    expect((await readNextUp(A, deps))!.picks).toEqual(before);
   });
 });
 

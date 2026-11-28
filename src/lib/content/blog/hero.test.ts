@@ -179,7 +179,7 @@ describe("nothing else can wipe the hero", () => {
     await makeBlogHero(input(tenant()), deps);
     const made = hero();
     // The fact check saves the whole meta it read before the hero was made.
-    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "Checked" }) }, db);
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "Checked" }), made: { unstamped: "nothing_made" } }, db);
     expect(hero()).toEqual(made);
     // A canvas save sends its own stale copy of the graph.
     await updateContentPlan(ctx, "ws1", "plan_1", { graph: before.graph }, db);

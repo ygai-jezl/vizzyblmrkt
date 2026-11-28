@@ -3,7 +3,8 @@ import { ideaWord } from "@/lib/nav/terms";
 import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import { dayIn } from "./schedule";
 import { stageById, stageLabel, type CompanyStage } from "./stages";
-import { dayOf, movesWhat, WORK_STATUS_LABEL } from "./words";
+import { isImageKind } from "@/lib/loops/imageKinds";
+import { dayOf, IMAGES_OFF_LINE, movesWhat, WORK_STATUS_LABEL } from "./words";
 import type { EntryState, Look, Measure, MeasureKind, RunsBetterWhat, ThenMeasure, WorkChangeField, WorkOrigin, WorkStatus, WorkWho } from "./types";
 
 /**
@@ -126,6 +127,8 @@ export const WORK_COPY = {
   thenLookHint: "Counted from the same Done, so it looks after the first.",
   outputsHint: "Work can't count outputs yet, so this sets no check for now.",
   usedNoneHint: "Nothing counts it yet, so when the check falls due your read is the record.",
+  loopsCountHint: "Work counts it from the learning loops' weekly counts across brands when the check falls due.",
+  meterOffHint: "Work can't count AI calls while the usage meter is off, so your read is the record.",
   movesHint: "A number from YouGrow's meanings, in your words. Work can't count it on the check yet, so your read is the record.",
   usedNone: "Nothing to count yet: your read is the record",
   productNeedsBrand: "A product event is counted for one brand, so tag the task with its brand to count one.",
@@ -382,6 +385,30 @@ export function measureHint(task: { status: WorkStatus }, m: Measure): string | 
   if (task.status === "done") return null;
   const n = m.look.days;
   return `${n === 1 ? "The 1 day starts" : `The ${n} days start`} when it's done. Then it asks: did it work? Better, Same, Worse or Too soon to tell.${m.then ? " The then waits for that read." : ""}`;
+}
+
+/** What Work can count for an operator's purpose, type or loop kind on this copy (FormOptions.counting). */
+export interface OperatorCounting {
+  /** LOOPS_ENABLED: a purpose, a type or a loop kind is counted from the learning loops' weekly counts. */
+  loops: boolean;
+  /** IMAGE_STYLE_VERSIONS_ENABLED: an image kind, and the image learner, are counted too. */
+  images: boolean;
+  /** The usage meter is on: a purpose's AI calls are kept to count. */
+  meter: boolean;
+}
+
+/**
+ * The hint under What it counts for an operator's purpose, type or loop kind (Used), as the check's
+ * line will say it (countedLine in ./words.ts): with the learning loops on, Work counts it from
+ * their weekly counts once the check falls due, a purpose only while the usage meter is on, and an
+ * image kind only while image learning is on. Null for any other choice, or with the loops off,
+ * where the picker keeps WORK_COPY.usedNoneHint.
+ */
+export function loopsCountHint(p: { counts: string; loopKind?: string }, counting: OperatorCounting | null | undefined): string | null {
+  if (!counting?.loops || (p.counts !== "purpose" && p.counts !== "type" && p.counts !== "loopKind")) return null;
+  if (p.counts === "purpose" && !counting.meter) return WORK_COPY.meterOffHint;
+  if (p.counts === "loopKind" && p.loopKind && (isImageKind(p.loopKind) || p.loopKind === "loop_learn") && !counting.images) return IMAGES_OFF_LINE;
+  return WORK_COPY.loopsCountHint;
 }
 
 /** A product event's hint: where it is counted from, and the 90 days. */

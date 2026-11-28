@@ -49,8 +49,9 @@ function deps(): RaiseDeckDeps {
     revise: { generate: generate as never, loadTenant: async () => null, metrics, pack },
   };
 }
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
 const author = (input: Record<string, unknown>, ctx: TenantContext = ACME, brief = "") =>
-  authorRaiseDeck({ ctx, input: { kind: "raise_deck", action: "save_draft", ...input }, brief }, deps());
+  authorRaiseDeck({ ctx, input: { kind: "raise_deck", action: "save_draft", ...input }, brief, made: LOOPS_OFF }, deps());
 
 /** A saved deck whose traction slide shows 4,310 sign-ups, frozen. */
 async function deck(ctx: TenantContext = ACME): Promise<RaiseDoc> {
@@ -226,5 +227,18 @@ describe("revising a deck from chat", () => {
     const again = await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "refresh_numbers" }] });
     expect(again).toMatchObject({ ok: true, summary: "Every number is up to date, so no new version was saved." });
     expect((await readRaiseDoc(ACME, doc.id, { db }))?.version).toBe(3);
+  });
+});
+
+describe("what the deck canvas saved, for the canvas route's count (learning loops step 5)", () => {
+  it("counts no made of its own: a draft saved none, a revise that saved a version rewritten, and one that saved nothing none", async () => {
+    const drafted = await author({ mode: "draft", audience: "investor", stage: "pre_seed" });
+    expect(drafted).toMatchObject({ ok: true, saved: "none" });
+    if (!drafted.ok) throw new Error(drafted.error);
+    const moved = await author({ mode: "revise", scope: { docId: drafted.id }, baseVersion: 1, ops: [{ change: "move", slide: 5, to: 2 }] });
+    expect(moved).toMatchObject({ ok: true, saved: "rewritten" });
+    const doc = await deck();
+    await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "refresh_numbers" }] });
+    expect(await author({ mode: "revise", scope: { docId: doc.id }, ops: [{ change: "refresh_numbers" }] })).toMatchObject({ ok: true, saved: "none" });
   });
 });

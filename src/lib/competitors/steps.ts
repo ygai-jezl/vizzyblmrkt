@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { isGeminiConfigured, type AiUsage } from "@/lib/agents/gemini";
 import { forTenant } from "@/lib/tenant";
@@ -68,11 +70,32 @@ export interface StepDeps extends StoreDeps, FetchDeps, AnalyseDeps, GoogleDeps 
   clock?: () => number;
   /** The usage (tests); otherwise the brand's own. */
   usage?: AiUsage;
+  /** The purposes a model answered under in this step, for counting what it made. */
+  used?: Set<StepPurpose>;
 }
 
-/** What a step's model calls count against: the brand's own usage, or the one a test gave. */
-function usageFor(ctx: TenantContext, purpose: "competitor_site" | "competitor_analysis", deps: StepDeps): AiUsage {
-  return deps.usage ?? aiUsage(ctx, purpose, { db: deps.db });
+type StepPurpose = "competitor_site" | "competitor_analysis";
+
+/** What a step's model calls count against: the brand's own usage, or the one a test gave. A call that answered notes its purpose in `used`. */
+function usageFor(ctx: TenantContext, purpose: StepPurpose, deps: StepDeps): AiUsage {
+  const usage = deps.usage ?? aiUsage(ctx, purpose, { db: deps.db });
+  const used = deps.used;
+  if (!used) return usage;
+  return {
+    check: (kind, units) => usage.check(kind, units),
+    recordModel: async (tokens, model, o) => {
+      if (!o?.lost) used.add(purpose);
+      return usage.recordModel(tokens, model, o);
+    },
+    recordSearches: (n, o) => usage.recordSearches(n, o),
+    recordImages: (n) => usage.recordImages(n),
+  };
+}
+
+/** A saved step whose model answered is counted made, under each purpose it answered for (LOOPS_ENABLED, learning loops step 5). */
+async function countStep(ctx: TenantContext, used: ReadonlySet<StepPurpose>, deps: StepDeps): Promise<void> {
+  if (used.has("competitor_site")) await countMade(ctx, "competitor_site", (await learnedFor(ctx, "competitor_site")).stamp, { type: "competitor", db: deps.db });
+  if (used.has("competitor_analysis")) await countMade(ctx, "competitor_analysis", (await learnedFor(ctx, "competitor_analysis")).stamp, { type: "competitor", db: deps.db });
 }
 
 /** Time a step needs before it starts: fetching one file, or asking the model. */
@@ -160,11 +183,13 @@ export async function advanceCompetitor(ctx: TenantContext, id: string, deadline
     for (let guard = 0; guard < 40; guard += 1) {
       const step = nextStep(c, clock());
       if (!step || deadlineMs - clock() < needs(step)) break;
-      const patch = await runStep(step, c, ctx, deadlineMs, deps);
+      const used = new Set<StepPurpose>();
+      const patch = await runStep(step, c, ctx, deadlineMs, { ...deps, used });
       if (!patch) break;
       const stamped = { ...patch, updatedAt: isoOf(clock()) };
       await repo.update(id, stamped);
       c = { ...c, ...stamped };
+      if (used.size) await countStep(ctx, used, deps);
     }
   } catch (err) {
     console.warn(`[competitors] ${ctx.tenantId}/${id} step failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);

@@ -3,6 +3,9 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { MeaningKey } from "@/lib/metrics/meanings";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { loopsSourceRepo } from "@/lib/loops/operators";
+import { isLoopsEnabled } from "@/lib/loops/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { teamMemberNames } from "@/lib/team/names";
 import type { Region } from "@/lib/types/tenant";
 import { isWorkVizzyEnabled } from "./flags";
@@ -14,7 +17,7 @@ import { dayIn, partOf } from "./schedule";
 import { countsProductEvent, eventLabelOf, eventLabelsFor } from "./counted";
 import { brandChoices, checkLineOf, countShownChecks, listTasks, loadTasks, pickerReadOf, readTaskPage, shownOn, type WorkTaskPage } from "./service";
 import { brandForTask, brandIn, mapLimit, nowOf, workNameOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
-import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY } from "./screenWords";
+import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY, type OperatorCounting } from "./screenWords";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { stageLabel } from "./stages";
 import { suggestedMeasureText, suggestionOf } from "./suggestion";
@@ -201,6 +204,8 @@ export interface FormOptions {
   operator: boolean;
   /** This copy's own repo, for the loop line (operators only, else null). */
   loopsRepo: string | null;
+  /** What Work can count for an operator's purpose, type or loop kind, for the picker's hint (operators only, else null). */
+  counting: OperatorCounting | null;
 }
 
 async function productsOf(b: WorkBrand, deps: WorkDeps): Promise<ProductOption[]> {
@@ -271,6 +276,7 @@ async function formOptions(scope: WorkScope, deps: WorkDeps, o: { self?: WorkTas
     meanings: meaningChoices({ operator: scope.operator, current: o.current ?? null }),
     operator: scope.operator,
     loopsRepo: scope.operator ? own : null,
+    counting: scope.operator ? { loops: isLoopsEnabled(), images: isImageStyleVersionsOn(), meter: isUsageMeterEnabled() } : null,
   };
 }
 

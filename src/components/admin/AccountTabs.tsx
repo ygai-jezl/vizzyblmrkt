@@ -10,7 +10,7 @@ import { isPlansUiEnabled } from "@/lib/plans/flags";
  * "border pill" style. Domains lives at the base route (exact match); Billing
  * (Plan and usage with NEXT_PUBLIC_PLANS_ENABLED) is a child route matched by prefix.
  */
-export function AccountTabs({ dataModel = false, organisation = false, history = false }: {
+export function AccountTabs({ dataModel = false, organisation = false, history = false, loops = false }: {
   /** Settings › Data model (AUDIENCE_FIELDS_ENABLED, a server switch): worked out by the layout. */
   dataModel?: boolean;
   /** Settings › History (SETTINGS_HISTORY_ENABLED, a server switch): worked out by the layout. */
@@ -20,6 +20,11 @@ export function AccountTabs({ dataModel = false, organisation = false, history =
    * admin of the brand they are in, read live on the server while sharing or the join is on.
    */
   organisation?: boolean;
+  /**
+   * Settings › Loops (LOOPS_ENABLED, learning loops step 5): the last tab, for the people
+   * LOOPS_OPERATOR_EMAILS names only, worked out by the layout on the server.
+   */
+  loops?: boolean;
 } = {}) {
   const pathname = usePathname();
   // Nav v2 phase 3: General first; the guidelines moved to Brand; Billing stays
@@ -36,6 +41,7 @@ export function AccountTabs({ dataModel = false, organisation = false, history =
         ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
         ...(organisation ? [{ href: "/admin/account/organisation", label: "Organisation", exact: false }] : []),
         ...(history ? [{ href: "/admin/account/history", label: "History", exact: false }] : []),
+        ...(loops ? [{ href: "/admin/account/loops", label: "Loops", exact: false }] : []),
       ]
     : [
         { href: "/admin/account", label: "Domains", exact: true },
@@ -46,6 +52,7 @@ export function AccountTabs({ dataModel = false, organisation = false, history =
         ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
         ...(organisation ? [{ href: "/admin/account/organisation", label: "Organisation", exact: false }] : []),
         ...(history ? [{ href: "/admin/account/history", label: "History", exact: false }] : []),
+        ...(loops ? [{ href: "/admin/account/loops", label: "Loops", exact: false }] : []),
       ];
 
   return (

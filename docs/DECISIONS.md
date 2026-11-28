@@ -4,6 +4,938 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0029 · Everything YouGrow makes carries a stamp, the lane counts every kind, and only the people who run the copy see where learning stalls (learning loops step 5) (2026-11-27)
+
+Context: after step 4 only images recorded what made them. Posts, emails, AI lines, picks and
+Vizzy's drafts kept no record of the version that made them, nothing counted what people did with
+them, and no one could see where learning stalled: the Memory Bank stall of ADR-0021 was found by
+hand. The approved learning loops design makes step 5 the Stamp and Count steps for every kind,
+the loops lane widened to every brand's every kind, and a weekly heartbeat that counts organisations
+across brands for the people who run the copy. The owner approved the plan for steps 4 and 5 (v4) on
+26 Nov with every pick, and answered question 4 yes (counts of organisations below 10 show to the
+people who run the copy only and never set defaults), question 7 yes (the judge fix ships with no
+switch) and accepted question 10 (`fleet_cell` numbers are a gap). ADR-0027 is the verdict and
+ADR-0028 step 4.
+
+Decided:
+
+1. **One platform switch, off: `LOOPS_ENABLED`.** Server only, RUNTIME, `"false"` in
+   `apphosting.yaml`, empty in `.env.example`, read only by `isLoopsEnabled()`
+   (`src/lib/loops/flags.ts`) and kept out of `LOOP_SWITCHES`, since it is no one loop's switch.
+   Off is today exactly (decision 22): for any kind that isn't an image kind `learnedFor` reads
+   nothing and hands back an empty block with `{ unstamped: "loops_off" }`, `countSignal` does
+   nothing, and nothing is counted across brands. Image kinds follow `IMAGE_STYLE_VERSIONS_ENABLED`
+   alone. `LOOPS_OPERATOR_EMAILS` and `LOOPS_SOURCE_REPO` are empty in `.env.example` and named in
+   the `apphosting.yaml` comment; `src/lib/loops/operators.ts` and its test are Work's (#254)
+   byte for byte, so the branches never conflict on it, and steps 4 and 5 call only
+   `isLoopsOperator`. No address is written anywhere.
+2. **Every writer stamps.** The seven writers (content plan nodes, scheduled posts, image assets,
+   email sends, AI line drafts, Next up picks and the canvas save) take a required
+   `made: LoopStamp | { unstamped: UnstampedReason }`, and a create scan fails on any other create of
+   those collections. A node keeps two stamps, `made` and `imageMade`, each set only when its field
+   changes, so an image or a brief never replaces the words' stamp; the graph's replace overlay keeps
+   both, so a Save can't forge or clear them. `GeneratedNodePatch.made` became `madeBy`. Every journey
+   email is stamped `send_time`, with an AI line as its root; each invite reads its wave's stamp. A
+   stamp handed to the browser travels as a signed token in `x-stamp-tokens`, checked at the save
+   and counted kept there once per stamp (`keptFromTokens`), for the kinds whose save checks one
+   (`TOKEN_SAVES`: brand voice, the brand kit's colours kept from a source on either page, and
+   brand notes); the other hand backs count made and sign no token, so no token goes out that
+   nothing checks. A guidelines PDF's extract stores the kit itself, so its route counts it made
+   and kept at once (`countMadeKept`) and signs no token.
+   The other makers (26 files: the brand map, strategy, competitors, blog, notes, onboarding, trending,
+   the judge, enrichment, the architect, the content plan, journeys and Your next action) count made
+   at their own save with no stamp on their records yet. New unstamped reasons: `nothing_made`,
+   `chat_reply` and `learner`.
+3. **The stamp scan turns on.** `src/lib/agents/groundedMeter.test.ts` fails on any file that calls
+   `aiUsage`, and any POST, PUT or PATCH under `src/app/api/agent` and `src/app/api/v2`, that neither
+   calls `learnedFor` with a literal kind nor sits in `UNSTAMPED` with its reason; kinds worked out
+   in code sit in `UNRESOLVED`, built on `ROUTED_CALLS`.
+4. **Counting.** Made, kept, edited, declined (with Work's `declined.<why>`), undone and reversed
+   count once per saved record id, at the shared paths: publishing (`countDraftOutcome`, kept or
+   edited by words changed), Review's approvals and decisions (the first only), agent actions,
+   field confirms, Next up picks, brand map dismissals, invite waves and version restores. LinkedIn
+   and X posts count at publish and other pieces once, at the first approval of each AI original, so
+   a post never counts twice. Step 2's learn lines count `learned` or `refused.<reason>`, so the
+   Memory Bank shows in the stages. The meter keeps `callsByPurpose` in the same merged write, only
+   while `LOOPS_ENABLED` is on, as only the heartbeat reads it.
+   Batch senders count through a per run `CountBuffer`, written once per brand at the end of the run.
+   The canvas route counts made only when a kind saved a new draft (`saved: "created"`,
+   `countCanvasMade`): a form or suggestion already waiting, a person already in People, a brand
+   map call that filed nothing, and Vizzy's new words on an invite wave that already keeps Vizzy's
+   stamp, on a plan's pieces, or on a journey whose open record already keeps a stamp (a style on
+   it included) count nothing more, so made never outruns the answers. A content plan Vizzy
+   drafts counts no made of its own and keeps no stamp (`saved: "none"`), as the autopilot's
+   doesn't: it only gathers pieces, each stamped and counted under its own writer's kind. Vizzy's first words on a
+   person's wave or journey, on a launch's blank welcome journey, or on a journey whose draft was
+   already answered count made once (`recordDraftCounted`, `savedFrom`). A stamped post that goes out with no AI draft
+   kept counts `no_draft` beside its stamp, never kept or edited, and the stuck line names it. A
+   stamp no record keeps counts beside made: `records_off` for an email sent with send records off
+   or named by its enrolment (`LIFECYCLE_SEND_TRACKING`), and `stamp_lost` for an image whose
+   library row failed after it went on the post, the eBook or the cover.
+5. **The lane, widened.** With `LOOPS_ENABLED` the lane runs on its own (the tick route's guard),
+   folds every kind's closed weeks and, once a week is folded, sends each brand's heartbeat: its
+   stage on every kind over 4 closed weeks (Declared, Stamped, Signalled, Learning, Checked; Proven is
+   step 9), where it is stuck (at Stamped or at Signalled, for 28 days or while 10 more are made:
+   `LOOP_RULES.stallDays` and `stallOutputs`), its learners' refusals, its Go back cards, its wait
+   for a check, its unused things, coverage and calls by purpose, by plan and by industry (all
+   `unknown` until onboarding records one). `ls:` keeps the week before the organisation's mark moves,
+   so a rerun never reports it twice. Opted out brands send nothing of theirs: each week the lane
+   visits them counts once as `visited`, as brands listed count every brand, so Brands visited
+   compares like with like. Brands listed leave suspended brands out, as the lane never visits them.
+6. **Counts across brands count organisations.** `fleet_cells` (control plane, counts only under
+   `n`, no brand or organisation ids or hashes) holds `fh:<kind>:<week>`, `fh:_orgs:<week>`,
+   `fh:_types:<week>` and `fh:_calls:<week>`. An organisation counts once in a cell through its one
+   mark in `loop_lane` (`o:<organisationId>`, or `o:t:<tenantId>` for a brand alone), which holds its
+   newest week only; outputs count at most 20 per organisation a week for each kind and signal,
+   however they were made (learned, held back or neither), and for each image style, against
+   budgets kept on the mark only (`budgetOf`); a group's outputs scale by one factor, so liked
+   against voted, or kept against made, reads the same capped as not (`LOOP_RULES.orgOutputsCap`).
+   A step's total is its own cell (`st.<step>.all`), so an organisation two of whose brands are on
+   different plans counts once in it. A report for an older week than the mark's is dropped and counted
+   late: a slow brand undercounts, never twice. Only the Loops section, the heartbeat and Work's Used
+   reader import `fleetCells`.
+7. **The floors (question 4, yes).** Numbers of things (made, kept, liked, declined, declines by
+   reason), shares and industry splits show only from 10 contributing organisations
+   (`LOOP_RULES.cellOrgs`): those whose week put numbers in the row (`week.orgs`), not every one seen
+   in the 28 days; an image style's holdback line from 10 behind that style (`styles.<style>`); the
+   longest wait for a check from 10 that wait; thumbs down by reason from 10 that gave a thumbs
+   down (`why.orgs`), and declines by reason from 10 that gave a reason (`declined.orgs`). Made
+   counts show from 10 that made the kind that week (`made.orgs`), never from those whose only
+   numbers are answers, unused things or saves with no stamp: Work's Used reader and Stamp
+   coverage's Made floor on it, and coverage on those that saved the kind, stamped or not
+   (`cov.orgs`). Counts of organisations per stage, stuck per plan, by
+   refusal reason and with a Go back card show below 10, to the people who run the copy only, and
+   never set defaults; refusal reasons count each organisation once for the copy
+   (`_orgs.refused`), however many kinds refused it. Declines by reason never say "none": until a
+   kind has 10 organisations that gave a reason they read "fewer than 10 organisations".
+8. **Settings › Loops, for operators only.** `/admin/account/loops`, the last tab, shown while
+   `LOOPS_ENABLED` is on and `isLoopsOperator(ctx)` is true, and `notFound()` otherwise. It reads the
+   `fh:` rows of the 2 closed weeks in one batched read, with every kind by its label (`kindLabel`)
+   and every refusal in words (`reasonWords`), all in house style. The sidebar doesn't change.
+9. **The judge defers, with no switch (question 7).** In `src/lib/distribute/feedback/patterns.ts`
+   a judge with no answer, or prose with no JSON, adopts nothing, and an unsafe proposal is never
+   adopted, a brand's first included. Each deferral writes a learn line (kind `post_feedback`,
+   reason `error`, code `judge_unavailable` or `judge_unsafe`), and the next post that lands in a
+   promoted cluster tries again.
+10. **Vizzy reads the brand's own learning: `get_learning`.** `GET /api/agent/learning`
+    (`src/lib/loops/agentApi.ts`), behind `LOOPS_ENABLED`, the canvas token and a rate limit of 10 a
+    burst and 120 an hour, with `tools/learning.py` and `learning_client.py` on the root agent. It
+    reads only the brand's own `lb:`, `lt:`, `lw:` and `lv:` by id, in at most 2 batched reads of at
+    most 89 small counter documents, and never `ls:`, `lk:` or `fh:`. By default the last 90 days
+    (7 to 182 on request) and the kinds made or learned in them, learning kinds first; others by key
+    or label (`?kinds=`), or all (`?all=1`). Each kind gives its line and its reason, its stage in
+    words, where it is stuck over the last 4 closed weeks with the learner's top reason, its counts,
+    `keptShare`, `editShare`, `declineShare` and `unusedShare` for written things (but not for a
+    kind no path can answer yet, which gives `unanswered`, its reason, in their place), and for the image
+    pool each look in use with its version and votes; the look's words stay with `get_image_style`,
+    whose docstring now says what `learned` holds. The `loop_day` type claims those four meanings
+    with `get_learning`, so no meaning is left unserved. Read only, and it needs a Vizzy redeploy
+    (asked first).
+11. **Help and self host.** `/help/what-yougrow-learned#counts-across-brands`, shown while
+    `LOOPS_ENABLED` is on (the How to drawer is passed the switch as `loops`), says what is counted
+    across brands in the words of question 4's yes, that the counts stay inside the copy and how a
+    brand leaves them; the learning setting's How this works opens it. The learning setting, its
+    `help_check` op and the page show while image style versions or `LOOPS_ENABLED` are on, so a
+    brand can always leave the counts; with only `LOOPS_ENABLED` on they speak of the counts alone
+    (the drawer is passed `imageVersions`). `docs/self-host.md` says
+    "Loops counts stay inside this copy": `fleet_cells` and `loop_lane` are written to the copy's own
+    `(default)` database and sent nowhere else, and a copy that holds other people's brands says so
+    in its privacy policy and DPA first. `npm run selfhost` keeps `LOOPS_ENABLED` off on a new copy
+    (`KEPT_OFF`, `addon: null` in `scripts/selfhost/spec.mjs`), because it counts what every brand
+    makes and keeps; the copy's owner turns it on once their privacy page says so and
+    `LOOPS_OPERATOR_EMAILS` is set.
+
+Where the build follows the code, not the plan (the plan's intent kept):
+
+- Organisations are never deleted and there is no path to erase a whole brand, so `loop_lane`'s
+  marks are an erase gap, as `brand` is. The fake Firestore has no batch, so `addToFleetCells` sends
+  one merged increment per row, all at once; it still never counts twice.
+- The made exemption is `campaign_scheduled_posts.made`, not `scheduled_posts.made` as ADR-0028's
+  item 14 says. `setPostSpintax` takes no `made`: it saves a person's template. `setPostCarousel`
+  keeps no stamp on the post either, whose one `made` is its words; the carousel counts made at its
+  route. The auto plug comment counts made where its job is saved (`enqueueAutoPlug`), once for
+  each publish.
+- The stamp scan found 53 unread files, not only the agent and v2 handlers, so 26 files were wired
+  to count made. The two upload routes call no model and sit outside the scan. Four agent POSTs
+  aren't read only: the article review, brand notes and business profile POSTs, and the canvas
+  route, which works its kind out in code, are in `UNRESOLVED`.
+- `dropPick` also takes picks a run uses, so it counts kept or declined. An invite wave counts made at
+  its canvas save; its send counts kept or edited (`madeEdited`) and its delete declined. Its invite
+  emails count no `records_off` or `stamp_lost`: the wave keeps its own stamp, so the wave is one
+  made thing and one answer. `sendMetadata` counts nothing, as it runs before the send: it returns
+  `unrecorded`, and each sender counts it beside made once the email went, so a failed send or a
+  retry never counts it. Research, situations and their questions count their own made, so the
+  canvas route counts `canvas.brand_map` only for Vizzy's own suggestions. Field
+  confirms skip `transitionAgentAction`, so `recordFieldWrites` counts them. Only dismissals count
+  declined, never expiry, and only research's brand map suggestions count.
+- `fleet_cells` only adds, so the longest wait and the oldest week not yet folded are month and week
+  buckets. Calls are uses, so they aren't capped: a purpose's calls are the most any one resource
+  counted for it, since one call records each resource it spends (a grounded call its searches and
+  its tokens), and a chat turn's second model is recorded as the same call. Unused skips the image kinds, whose versions say it.
+- The heap test samples the heap and the memory outside it after a collection, since an image's
+  Buffer and base64 sit outside the heap: step 5's peak is 16.9 MiB.
+- The judge's retry needed no new code: a post that lands in a promoted cluster runs the pass again.
+  The plan named no kind for its line, so `post_feedback` joins `LEARN_KINDS`.
+- The `fh:` rows keep only the image pool, so the Loops section has no split by image kind, though
+  it counts organisations per style for the holdback; thumbs down and coverage are for the week, not 28 days;
+  nothing counts the learner backlog, so that row is left out; Go back cards are one count, not
+  open, expired and ignored; and the industry note waits for industry groups.
+- `get_learning` reads a closed week the lane hasn't folded yet from its `lw:` shards, only while its
+  shards are kept, and always reads the 4 closed weeks the stuck rule needs, even when fewer days are
+  asked. It lists kinds with a learner's outcome too, not only those made, and the five image kinds as
+  one entry, `image_style`, with `byKind`, as the Loops section counts them. `looksInUse` moved to
+  `src/lib/loops/stages.ts`, so the agent's reader never loads the heartbeat.
+- After review: Vizzy's new words on an invite wave it drafted take the newest stamp but count no
+  second made, as both stamps land in the same cell (version 0, arm none). The plan's "each route
+  returns a token" holds only where the save checks one (`TOKEN_SAVES`). Brands visited count in
+  `fh:_orgs` as one plain number per brand and week, opted out brands included, not on the lane's
+  own document, since the section reads only `fh:` rows and listed already counts every brand. The
+  longest wait floors on the organisations that wait, not on this week's.
+- The plan listed step 5 as ADR-0023, then 0024: dev took 0020 and 0022 to 0026 (0020 is Work
+  and 0026 the agent record, both merged), the verdict moved to 0027 and step 4 to 0028.
+- After merging the agent record (ADR-0026): a record whose line counts at the transition
+  (`countsAt: "transition"`: launch and product journeys, a journey's own style, the email and image
+  style suggestions and Vizzy's notes) keeps the stamp the canvas route (or `agentSuggestNotes`)
+  handed its save, so `transitionAgentAction` counts the person's answer once where the record
+  closes: kept, edited when its fingerprint changed (`result.edited`), or dismissed; a close by
+  the catch-up when the draft moved on another way counts kept, and superseded, stale and expired
+  count nothing. A record whose line counts at its own path (invite waves, content plans, the
+  autopilot, brand map runs) keeps no stamp, so its answer still counts only there; content plans
+  and the autopilot count neither made nor an answer of their own, as their pieces count under
+  their writers' kinds. A save of
+  another kind on a recorded draft (a style on a journey Vizzy drafted) keeps the draft's own stamp
+  (`stampOf`). The weekly strategy check (`strategy_check`, a gap line) counts made once for each
+  row it opens or changes.
+- After review round 3: a fact check of words already stamped revises that made thing, so the node
+  keeps their stamp, the check counts no made (a rerun neither) and the first approval answers the
+  writer; only a check of a person's own words is stamped `fact_check` and counted made. An AI line
+  counts made only when its draft was still pending and its line saved. Coverage counts as stamped
+  made less `records_off` and `stamp_lost` (`stampedOf`), as those count made against their stamp
+  and once more beside it. A token save counts kept, never edited, since the token carries the
+  stamp and not the words; the notes page sends the split's token with its first note only, as the
+  split is one made thing. `ls:` keeps `optedOutThrough`: weeks up to it enter no report's window,
+  and the report right after it, or after weeks the brand never reported (the switch was off, or
+  the lane fell more than 4 weeks behind), counts no calls and no week before it reports
+  (`reportsFrom`). An organisation counts behind an image style only with counts in the arms the
+  holdback compares (`HOLDBACK_ARMS`), and each style's line names its own organisations. A week
+  whose `_orgs` row holds only brands listed, visited or a fold alarm shows its coverage and the
+  behind banner. With only `LOOPS_ENABLED` on, What YouGrow learned is summed up as the counts
+  across brands (`COUNTS_ONLY_SUMMARY`).
+- After review round 4: a published post counts kept or edited against the words that went out,
+  the spintax variant when it has a template, not only its body. A brand kit stamp token goes with
+  at most one save: a tray group hands its token up once and drops it, Account › Brand keeps only
+  the newest extract's token, and a kit replaced by an extract drops the colour tokens before it
+  (`src/components/admin/brand-kit/kitTokens.ts`). `ls:` keeps `reportsFromWeek`, the week a brand
+  first reported or reported again after a gap, so no report's window, on that visit or a later
+  one, holds a week before it. While image style versions are off, no learned look is in use:
+  the heartbeat and `get_learning` read no `lv:` totals and count no stage from a look the
+  pointers still hold. The holdback block always says something: no images in the 28 days,
+  image learning off on this copy, or votes only on images with no learned look yet. On the help
+  page, the counts across brands sit after Ask Vizzy, where the Help board puts them.
+- After merging Work (ADR-0020): Vizzy's Work route (`/api/agent/work`) is a maker, so each task
+  suggestion and each Log note or decision it drafts keeps a stamp under `vizzy_chat`, in the scope
+  of what it becomes (`work_task`, `work_log` or `work_decision`, by Vizzy), and counts made once
+  where it is saved (the route sits in `UNRESOLVED`, read in `src/lib/work/agentApi.ts`). Add to
+  Work, Edit then add and a saved draft move the action inside Work's own transaction, beside the
+  task or the row, so `src/lib/tenant/work.ts` counts the saved move once after it commits, as
+  `transitionAgentAction` does: kept, or edited when Work's result names a field the person
+  changed (`result.edited`, a list); a drafted decision counts kept, as its question and options
+  are Vizzy's and the choice is the person's. Dismiss goes through `transitionAgentAction` and
+  counts declined with Work's why; expiry counts nothing. The counts go to the session brand's own
+  region, even when a decision's task is kept in another. Follow-ups from the investor and funding
+  board (#270) are raised by YouGrow's rule (`investor_quiet`, a gap line) with no stamp, so their
+  moves count under no kind. Approved examples (#256) keep a person's approved emails and hub
+  pieces through `recordExemplar`, a learned writer from before the loops, frozen with the others.
+- Work reads the loops counts (4.10, and the pick on Work's counts across brands): with
+  `LOOPS_ENABLED` on, a due measure check that counts a purpose, an ontology type or a `LOOPS`
+  kind reads `usedAcrossBrands` over the closed ISO weeks it covers, the newest 13
+  (`loopsCountForCheck` in `src/lib/work/counted.ts`), never walking brands, so a type and a kind
+  are counted for the first time. A week below 10 organisations adds nothing and is said, and the
+  line says the weeks not over yet, the older weeks left out and `USED_NOTE` in Work's words
+  (`LOOPS_COUNT_NOTE`); the check keeps it under an optional `counted.weeks`, so old checks read
+  as before, and the Log hides it from anyone who isn't an operator, as it hides units, and
+  `work.checked` events leave it out. With the switch off Work v1's purpose walk stays, and leaves
+  out every brand whose `lb:` holds `fleetOptOut`. Product events stay the brand's own. Tested in
+  `src/lib/work/counted.test.ts`, `words.test.ts`, `service.checks.test.ts`, `screenWords.test.ts`
+  and `src/lib/ontology/events.test.ts`. An image kind counts nothing while image style versions
+  are off (decision 22), so with only `LOOPS_ENABLED` on its check reads no row, keeps no count
+  (so it is counted once they are on) and says "Work can't count images while image learning is
+  off on this copy" (`IMAGES_OFF_LINE`).
+- After review round 5: the kinds no path can answer yet (`UNANSWERED` in
+  `src/lib/loops/unanswered.ts`, each with why: send time, the auto plug comment, templates,
+  briefs, research, the architect, eBook chapters, the strategy and its check, the competitor
+  readers, the brand map's situations and questions, the judge, trending, notes, Your next action,
+  the hand backs that sign no token, person plans and Vizzy's brand map changes) count made but
+  no unused, in the heartbeat or `get_learning`, and `get_learning` gives them no shares, since
+  every thing made would read as unused. With `LOOPS_ENABLED` off, a node write that changes the
+  words or the image drops that field's stamp, and a post re-armed with new words drops its own
+  (TenantCollection.update takes `remove`), unless the write hands back the same stamp, so once
+  the switch is back nothing answers a thing made while it was off. The lane's document keeps
+  `loopsOnFrom`, the week the loops were last turned on in: set by the first run with
+  `LOOPS_ENABLED` on, taken away by a run with it off, and a floor for every report, so no week
+  before it is reported, listed or held in a window (a short time off with image style versions
+  on included), and the first report after it counts no calls. Stamp coverage says "Nothing was
+  made in the last 28 days." in place of an empty table.
+- After review round 6: the brand kit a guidelines PDF is read into is stored by its route, so it
+  counts made and kept there and hands back no token; only colours kept from a source wait for a
+  save. A post that went out with no AI draft kept (`no_draft`) counts as an answer in
+  `unusedForWeek`, so with `CONTENT_AI_DRAFT_KEPT_ENABLED` off published posts never read as
+  unused. Turning Help check that learning works back on, while the loops are on, keeps the week
+  it ended in as `optedOutThrough` on `ls:` (in the same transaction as `lb:`), and the heartbeat
+  sends a week up to it as an opted out week, the visit only, so a time out between two
+  heartbeats sends nothing of that week and no calls from it. A lane run that finds the last one
+  more than a day ago (`LANE.GAP_HOURS`) sets `loopsOnFrom` to its own week, since with both
+  switches off nothing runs the lane to take it away. While `AGENT_RECORD_ENABLED` is off, the
+  kinds only the record answers (`RECORD_ONLY`: Vizzy's journeys and lifecycle journeys, a
+  journey's own style, the email and image style suggestions) read as unanswered
+  (`unansweredWhy`), with no unused and no shares, and Vizzy's notes count no made. The Loops
+  section says what happened to Go back cards in plain words (suggested, went back, kept the
+  look, closed without an answer), an ignored card as one of those closed.
+- After merging Paste a list (#271), translations (#279) and the strategy's month (#278, #280):
+  a list pasted on People is one card made by the code that reads its columns, so `readPaste`
+  (`src/lib/crm/paste/batch.ts`) stamps it `paste_columns`, by Vizzy from the chat and by `paste`
+  from the People box, and counts it made once where it is saved; Add and Dismiss count kept and
+  declined against it through `transitionAgentAction`, and expiry counts nothing. Vizzy's paste
+  route sits in `UNRESOLVED`, read in `batch.ts`. A journey email's translation counts made once its
+  draft is kept (`translateOne` in `src/lib/i18n/translationsTick.ts`), with no stamp on the record
+  and no type, as a translation is part of its journey; a person's approval isn't counted yet, so
+  `translation` sits in `UNANSWERED`, and `src/lib/i18n/translate.ts`, the model call, sits in
+  `UNRESOLVED`. How it went (`strategy_month`) and the month's suggestion (`strategy_suggest`) are
+  rules that count made nowhere. Tested in `src/lib/crm/paste/loops.test.ts` and
+  `src/lib/i18n/translationsTick.test.ts`.
+- After review round 7: a Next up pick a person uses by hand (Write it saving an article from it,
+  or Find what buyers ask starting on it) counts kept once against its stamp (`usedPick` in
+  `src/lib/nextUp/pick.ts`), read on the server from the stored pick whether or not
+  `STRATEGY_RESULTS_ENABLED` is on. The stamp comes off the pick, which stays on the list, so a
+  run taking it or Not now after it counts nothing more. An article approved by its live mark
+  counts as a canvas Approve does: the first approval of each AI original counts kept or edited
+  wherever its pair is kept (`recordApproval` and `recordApprovals`), so whichever comes first
+  counts once. A piece for a channel other than LinkedIn or X counts at that first approval, and
+  its publish through Distribute counts `no_draft` only when no approval did; the publish then
+  keeps `publishedFor` on the AI original, so an approval after it counts nothing
+  (`publishAnswers`). While `CONTENT_AI_ORIGINALS_ENABLED` is off, the kinds only that approval
+  answers (`ORIGINALS_ONLY`: articles, workflow emails and hub pieces) read as unanswered, as the
+  `RECORD_ONLY` kinds do, and posts still count at publish. A brand kit stamp token goes with a
+  save only while what it stamps is still in it: the kept palette, by its id, or a colour it added
+  to the Colour palette. The fold alarm across brands adds nothing to a week before `loopsOnFrom`.
+  Work's lines keep a label's acronym or name mid sentence ("AI lines in emails", "Vizzy chat"),
+  and the measure picker tells an operator that Work counts their purpose, type or loop kind from
+  the loops' weekly counts while they are on (`loopsCountHint`). The kinds table on the Loops
+  section heads each kind's rows as a row group, and Help check that learning works announces a
+  save that failed. Tested in `src/lib/nextUp/pick.test.ts`, `src/lib/autopilot/find.test.ts`,
+  the content plans route's `route.loops.test.ts`, `src/lib/content/blog/foundLive.counts.test.ts`,
+  `src/lib/distribute/scheduler.counts.test.ts`, `src/lib/loops/unanswered.test.ts`,
+  `src/components/admin/brand-kit/kitTokens.test.ts`, `src/lib/loops/tick.test.ts`,
+  `src/lib/work/words.test.ts`, `screenWords.test.ts`, the Work screens test and
+  `src/components/admin/settings/learningScreens.test.ts`.
+- After merging pages in each language (#281), Carry over (#282) and the Raise kit's decks (#272):
+  a deck's words are `raise_write`'s, so `draftDeck` (`src/lib/raise/docs/draft.ts`) reads it where
+  the deck is saved and counts it made once when the model's words are on it, by Vizzy when the
+  chat asked for it, and an outline saved without them counts none; `reviseDeck` (`revise.ts`)
+  counts made once for a version that took the model's words, and nothing for a change made in
+  code or a version saved over nothing. The deck keeps no loop stamp, as its own `made` names the
+  prompt, and counts under the type `raise_doc`; a person's kept or changed slides aren't counted
+  yet, so `raise_write` sits in `UNANSWERED`. The deck canvas (`canvas.raise_deck`) counts no made
+  of its own, as the content plan doesn't: a draft says `none`, a revise that saved a version
+  `rewritten`, and the Loops section calls it Deck or lender pack. The deck's outline
+  (`deck_outline`) is a rule that counts made nowhere. An article's or a launch page's translation
+  counts made once its draft is kept (`translateArticleOne`, `translateLaunchOne`), as a journey
+  email's does, with no stamp and no type, and `src/lib/i18n/translate.ts` sits in `UNRESOLVED`,
+  read in all three. Carry over is a person's tap on an admin route that logs entries in their
+  name (`work_carry`) and calls no model, so the stamp scan finds nothing there and it needs no
+  line of its own. Tested in `src/lib/raise/docs/loops.test.ts`,
+  `src/lib/canvas/kinds/raiseDeck.test.ts`, `src/lib/i18n/articleTranslations.test.ts` and
+  `src/lib/i18n/launchTranslations.test.ts`.
+
+Enforced where:
+
+- `src/lib/loops/flags.test.ts`, `operators.test.ts`, `registry.test.ts` and
+  `scripts/config/feature-switches.test.ts`: the switch, the operator gate and the stuck rule's numbers.
+- `src/lib/loops/stampedWriters.test.ts`, `made.test.ts`, `handBack.test.ts`, `writers.test.ts`,
+  `src/lib/tenant/workspaceContent.stamps.test.ts`, the canvas route and kind tests, the brand
+  kit colours route test and `src/components/admin/brand-kit/kitTokens.test.ts`: the writers, the
+  overlay, made once per saved draft and the token round trip, each token with one save; `src/lib/email/sends.test.ts`, `src/lib/lifecycle/runner.test.ts` and
+  `src/lib/agents/creative.holdback.test.ts`: `records_off` and `stamp_lost`;
+  `src/lib/agents/groundedMeter.test.ts`: the stamp scan.
+- `src/lib/loops/count.test.ts`, `decisions.test.ts`, `tally.test.ts`, `unanswered.test.ts` and
+  `learnLog.test.ts`: each count once, coverage and unused, and no unused for a kind no path can
+  answer; `src/lib/distribute/scheduler.counts.test.ts`: a post against
+  the words that went out; `src/lib/plans/meter.test.ts`: calls by purpose only while the switch is on; `src/lib/agentRecord/loopsCount.test.ts` and
+  `src/lib/brandStrategy/check.test.ts`: each recorded draft's answer once, made once through the
+  canvas route's count, and the strategy check's rows; `src/lib/content/blog/hubActions.test.ts`
+  and `src/lib/lifecycle/personalise.test.ts`: an article made once however often it is checked,
+  and an AI line made only once saved.
+- `src/lib/loops/stages.test.ts`, `heartbeat.test.ts`, `fleetView.test.ts`, `tick.test.ts`,
+  `src/lib/tenant/fleetCells.test.ts`, `loopLane.test.ts`, `indexes.test.ts` and `lane.heap.test.ts`
+  (with `--expose-gc`): the stages, the marks and their budgets, the floors, brands visited and the
+  lane's memory; `src/lib/loops/actions.test.ts` and the learned route test: the opt out under
+  either switch.
+- `src/lib/distribute/feedback/patterns.judge.test.ts`: the judge defers.
+- `src/lib/loops/reasonWords.test.ts`, `loopsSection.test.ts` and the Loops page test: plain words,
+  the floors on screen, a 404 for anyone else, and who imports `fleetCells`.
+- `src/lib/loops/agentApi.test.ts`, the learning route's test and `agents/root_agent/tests/`
+  (`test_learning_client.py`, `test_tool_declarations.py`): get_learning's 90 days, its order, the
+  ids it reads, its bounds and its words; `src/lib/ontology/registry.test.ts`: every meaning served;
+  `src/lib/help/help.test.ts`: the counts across brands section, on and off.
+
+Not yet: email assist, the hero, Edit mode Vizzy, the email layout and block image and Suggest an
+angle sign no token until their saves send one and check it (`TOKEN_SAVES`); they count made at
+hand back and no answer, so the words among them sit in `UNANSWERED`, made only with no unused or
+shares, until their saves count one. Work's looks by outputs (`{outputs: 10 | 20 | 40}`, which
+plan 4.10 makes countable for a `LOOPS` kind) still set no check, so the outputs hint and the Work
+help's "Work can't count those yet" stay true: the counts across brands come by closed week and
+from 10 organisations, so they can't say when a task's outputs since Done reach N, and a check
+that falls due on a count needs a run that counts before the check shows. They move to the
+company retro (step 6), with a per brand made count since Done. Person plan drafts and brand map records keep no stamp (counted only), and journeys,
+product journeys, a journey's own style and the email and image style suggestions keep theirs only
+on their agent record, so with `AGENT_RECORD_ENABLED` off their answers aren't counted: they count
+made with no unused or shares then, and Vizzy's notes count no made. An email named by its enrolment keeps its
+stamp nowhere (`records_off`), and `get_learning` doesn't yet say "no draft kept". Judge deferrals are logged, not
+counted, and a failed synthesis writes no line. An operator path for agents waits for the company
+retro (step 6), decline reasons for other kinds for the edits loop (step 7), and fleet defaults,
+industry and Proven for step 9.
+
+What follows: one new collection in the control plane, `fleet_cells`, and the organisation marks
+in step 4's `loop_lane`; the 4 step 5 field exemptions written in ADR-0028's deploy, deployed only when
+the owner says; one switch, off; and one Vizzy tool, which needs a redeploy (asked first). No new
+service, Function, scheduler job, secret, dependency, rule change or composite index. With the
+switch off, two things change for everyone: the post pattern judge defers, and Work's Used
+{purpose} walk reads each brand's learning setting (`lb:`, one regional read a brand on a due
+check) and leaves out the brands that opted out of counts across brands. The privacy page line
+and the DPA's aggregate statistics clause, checked by counsel, must be live before `LOOPS_ENABLED`
+is on in prod. `docs/ONTOLOGY.md` gains `fleet_cell`, `loop_lane` and `get_learning` for `loop_day`.
+
+---
+
+## ADR-0028 · Image style learns properly: looks kept as versions in the brand's region, every image stamped, learned once a day and checked (learning loops step 4) (2026-11-26)
+
+Context: before this step a brand's image looks lived on its brand record in the control plane, in
+the United States for every region (`brandKit.learnedImageStyle` and
+`imageStyle.learned[styleId].directive`). One thumbs up rewrote a style's look at once, with up to 3
+model calls inside the vote, and a failed call wrote a fixed directive in its place. Nothing recorded
+which look made an image, so no change could be checked or undone, and once any style had learned, a
+painted style with no look of its own lost the brand look. Email heroes and the hero Vizzy makes in
+chat read no look at all, while the email layout picked up the brand look by accident. The approved
+learning loops design makes image style the reference loop in its step 4: every change a version a
+person can undo, every image stamped with what made it, and the verdict (ADR-0027) reading each
+change. The owner approved the plan for steps 4 and 5 (v4) on 26 Nov with every pick, plus the why
+behind a vote. ADR-0021 is step 2, ADR-0027 is step 3, and step 5 takes ADR-0029.
+
+Decided:
+
+1. **One switch, off: `IMAGE_STYLE_VERSIONS_ENABLED`.** Server only, RUNTIME, `"false"` in
+   `apphosting.yaml`, empty in `.env.example`, and the first entry in `LOOP_SWITCHES`, its only
+   read. `isImageStyleVersionsOn()` (`src/lib/content/imageStyle/flags.ts`) also needs
+   `BRAND_STYLE_LOOP_ENABLED` and `BRAND_IMAGE_STYLE_ENABLED`, so learning never runs without the
+   page that shows it. Off is today exactly (decision 22): `learnedFor` hands back the look the path
+   already read, with `{ unstamped: "image_versions_off" }` and no read; nothing is counted or
+   stamped, the lane doesn't run, and no screen, answer or search result changes. Client screens
+   learn that the switch is on from the image style GET (`versions: true`), so they never call a
+   route that is off. `npm run selfhost` turns it on for a new copy, whose core steps deploy the
+   index file and set the time to live; a copy set up before it follows the upgrade note in
+   `docs/self-host.md`.
+2. **The registry.** `post_image`, `blog_hero`, `ebook_image`, `email_block_image` and `email_hero`
+   learn from votes in `IMAGE_STYLE_SCOPES`: one scope per painted style and `image_style.brand` for
+   the brand look, checked against the catalogue in a test. Each reads `likedShare`, guarded by
+   `remadeShare`, at a band of 0.15, in suggest mode. `customize_image` and `carousel` stay `none`
+   and stamp arm none; the 6 drawn styles never learn. A painted style with no look of its own uses
+   the brand look and stamps `image_style.brand` (decision 10). `loop_learn` is a new `model_tokens`
+   purpose, counted and never capped, with a `none` line. `LOOP_RULES` gains the learner, outcome,
+   lane, storage, stamp and card numbers, each with its reason in the file.
+3. **Where a look lives.** Every change is an append only row in the brand's regional
+   `learned_pattern_versions`, channel `image_style.<styleId>`, with the look in a new `items` field
+   (one item, at most 2,000 characters) and `directive` left null. The pointers sit on `lb:<tenant>`
+   in the new regional `loop_days`, written in the same transaction as the row they point to through
+   `appendPatternVersionTx`, which uses `create()` so a second writer fails. `loop_days` holds six
+   kinds of document, each `{tenantId, d, ttlAt?}` with all data under the one map `d`: `lw:` weekly
+   counter shards (70 days), `lt:` folded weeks (2 years), `lv:` each learning version's totals and
+   reads, `lb:` pointers, pause and the opt out, `ls:` the lane's own state, and `lk:` the stamp key,
+   which only `src/lib/loops/stamp.ts` reads. No words and no member ids are kept there.
+4. **The data move is a copy.** On a brand's first visit the lane seeds version 1 of each scope from
+   the old fields (`createdBy: "seed"`, `setBy: "seeded"`, with `seededAt`), in one regional
+   transaction; a look the text check refuses is not carried over. Until then images use the old
+   field, stamped `legacy`. The old copy stays for switching back; Forget and Reset clear it for that
+   brand, and clearing the rest is dated work, asked first, 30 days after the prod flip. Image bytes,
+   model calls and Vizzy's chats are not regional, and the help page says so.
+5. **The one reader and the stamp.** `learnedFor(ctx, kind, { scope, outputId })`
+   (`src/lib/loops/read.ts`) reads `lb:`, then the style's and the brand look's version rows at
+   once: 2 regional round trips against an image that takes 10 seconds or more. Each path that
+   paints an image calls it once, with the image's id minted first (`newImageAssetId`), and
+   `settleStamp`, called where the image is made, sets arm learned only when the look reached the
+   prompt; a drawn fallback, a format, a drawn style's painted half and an eBook edit are arm none,
+   and a person's own upload is unstamped (`own_image`). The stamp, `made` on the row, holds a
+   `MadeId` (`m1.<scope>.<v>.<l|h|n>`, no person and no brand in it) with its kind, scope, version,
+   arm, prompt and sources, kept only with the switch on. A stamp handed to the browser travels as a
+   token signed with the brand's own key and is good for 7 days.
+6. **The holdback (owner decision 2).** About 1 image in 20 per scope is made without the learned
+   look, by FNV-1a over its id salted per scope, so the fleet can later check that learning helps.
+   It applies to looks learned from votes, carried over or set from the fleet, never to a look a
+   person set or kept, and never for a brand that opted out. It removes only the learned look and the
+   style references picked from votes, and keeps the brand's own icons and graphics, the model path
+   and best of N. The arm is never shown before a person votes. The first remake of a held back
+   image within 14 days is metered under `loop_learn`, now an images purpose that the cap leaves
+   out and the meter never checks, so at worst a brand gets about 5% more images than its
+   allowance. That free remake is reserved on the earlier row (`remakeClaimAt`) in a transaction
+   before the new image is made, so of several at once only one is free; the reservation lapses
+   after 5 minutes, so an image that failed lets it go. Plan and usage shows a capped row's count toward its cap, so used and left agree.
+7. **Counting.** `countSignal` (`src/lib/loops/count.ts`) is one merged write of increments to one
+   of 5 random shards of the ISO week: never a read, never a transaction, never failing the work.
+   It counts made, kept, edited, declined, voted, liked, remade, undone and reversed per scope,
+   kind, version and arm, plus unstamped reasons, learner outcomes and card signals. Liked counts a
+   first up vote; `firstVotedAt` is set once, and a vote from before versions dates to when the image
+   was made, so re-rating an old like is never a new one. A changed vote moves the counts. An upload
+   is never stamped, so its like counts as an own image's (`o.image`), which the learner reads. A
+   remake is a new image in the same place (a post's image, a hero's Make again, an eBook slot or
+   cover), found by reading the earlier row by brand and filename before the new one is made, and
+   counted only within 14 days. Email images, email heroes and carousels never count remakes.
+8. **The why behind a vote (owner ask, 26 Nov).** After a thumbs down a row asks what's off, and
+   after a thumbs up a quieter link offers what works, each from a closed list per direction
+   (`VOTE_REASONS` in `src/lib/loops/reasons.ts`, labels tested against `NO_DASHES` and `AI_TELLS`),
+   with an optional note of up to 200 characters. The vote saves first. The note passes the same
+   text check as a person's own look (no links, email addresses, handles or phone numbers) and is
+   kept on the image's row in the brand's region, never counted, folded, logged or sent across
+   brands; the model that learns looks reads it in the learner's prompt, and Vizzy reads the 5
+   newest per style (item 13), so a note can leave the region in a model call or a Vizzy chat, as
+   the help page says. A changed vote clears both. Reasons are counted per scope, and the learner groups
+   dislikes by reason and quotes each note as data. A brand that skips the reason on 8 of 10 or more
+   thumbs down over 4 weeks sees the row start closed. Members can give reasons, and a note shows to
+   the brand's team without its writer.
+9. **The one writer and the votes learner.** `proposeLearned` (`src/lib/loops/write.ts`) is called
+   only from `src/lib/loops/learners/`. It reads every evidence id itself and refuses unless each is
+   this brand's image row with `brandVoteVia` of vote or upload, and its text check refuses with
+   reason `trust`. The learner (`learners/votes.ts`) gives a style its first look after 3 likes with
+   no share rule, since a brand that dislikes most images is the one whose default look is wrong.
+   A learned look then holds until 20 images are made with it, 10 of its votes count toward a check
+   and its own check has settled (or 40 of its votes count); a look liked at most once in its first
+   6 votes may change once 20 are made. Then it is due at 3 new likes, at most once a week. It writes
+   from the top 20 liked and 8 disliked images with a new prompt, `content.style_look_learn`, so the
+   old learner's prompt is unchanged with the switch off. A model that is missing, fails or times out
+   adopts nothing (fail closed, no fixed directive), and the card says so only after 3 failed days.
+   The vote route records and counts the vote and profiles that image if it has none, and the upload
+   route profiles and counts: neither rewrites a look.
+10. **The lane, images only.** `src/lib/loops/tick.ts` rides the lifecycle tick every 5th tick at
+    offset 1 (about every 10 minutes) within a 20 second budget, and skips its run above 600 MiB held
+    or 60% of the container's limit. It visits a page of brands from a cursor on the control plane's
+    new `loop_lane` (its one `lane` document, brought forward from step 5), sized so each brand is
+    visited about once a day, 4 at a time. Per brand: an idle check in one batched read, the seed,
+    a forgotten look's old copy, the fold of closed weeks, card expiry, the learner and the verdict.
+    Ceilings: 6 learner calls a run and 2,000 a day per copy, profiles included; 2 images profiled a
+    run, one at a time; 2 verdict reads a run of at most 500 rows each.
+11. **The verdict for image looks.** `src/lib/loops/imageVerdict.ts` runs ADR-0027's verdict on a
+    scope's images either side of a version's start, leaving out held back, person off, customised
+    and uploaded images, images made less than 14 days ago, images the look never reached (stamped
+    `fallback_drawn` or `not_learning`), and images with no stamp, made before versions when no first
+    vote or remake was kept. The brand look's images are those stamped with its scope, whatever style
+    they were painted in; a style's are its images. Since a version began, only images stamped with
+    its own scope and version count, and while it has a look only arm learned: arm none counts only
+    for a version with no look. Only the seed's own version 1 is carried over: it
+    reads nothing before it and its images from the seed on, and the version after it reads back to
+    the scope's start. No card is offered for a version with no look (a Forget, or an Undo of a first
+    look), nor back to a look whose words a Forget took out. The check counts images voted within
+    14 days, a hit being an up vote as the vote stood at 14 days (`outcomeVote` on the row, written
+    with each vote in that time and never after); the guard counts every such image, a hit being a
+    remake within 14 days. The window before is read newest first on the existing `(tenantId, createdAt desc)`
+    index; the window after is read oldest first, which needs a new composite index,
+    `image_assets (tenantId, createdAt asc)`, because a composite index serves one sort order
+    (Firebase's index overview: the same query sorted the other way needs "an additional index in
+    the descending direction"). The window after is paged across the lane's visits: each reads on
+    from the last image the one before read, taking only images 14 days old, whose outcomes are
+    fixed, and keeps the entries on `lv:` (`after`) until it has the last look's 120. Both are
+    projected to the fields used. The read is kept on `lv:`, worded by `verdictWords`, and a worse
+    read offers a Go back card; on a copy without Review (nav v2 phase 2 off) it shows on What it
+    learned with Go back and Keep this look instead, as under the attention rule.
+12. **What a person can do.** Behind `POST /api/admin/brand-kit/image-style/learned`, with the
+    origin check, `getAdminContext()`, an admin role and the switch on: Undo, Pause and Resume (one
+    level, image learning), Forget (a retire version, the words removed from older rows, the old
+    field cleared, the search entry removed and open cards declined), Forget of the look an Undo
+    left, Edit the words (`setBy: person`, through the same text check), Keep (`keptAt` and the
+    look of the read kept, `keptLook`, no new version, whether from a card or the card's notice),
+    Go back, Resume suggestions, and the learning setting, Help check that learning works,
+    whose off puts `fleetOptOut` on the pointers so none of the brand's images is held back. A Go
+    back card is an `agent_actions` row with agent `learning`, target `learned_item` and action
+    `learned.go_back`, its payload `{scope, from, to}` and never the look's words: deduped per
+    version, gone after 14 days, away 30 days once declined, at most 1 per kind per brand a week and
+    3 open. It never comes on too few, nothing reverts on its own, and a kind whose cards were ignored
+    more than half the time over 4 weeks drops to a notice on the card.
+13. **Screens and Vizzy.** Brand › Image style gains the What it learned card; Create's post image
+    panel, the blog hero card and the image details gain thumbs, the reasons and a notice when a look
+    changed; Review gains the `learned` kind; Settings › General gains the learning setting; the help
+    page is `/help/what-yougrow-learned`. `get_image_style` returns `learned[]` with each style's
+    reason counts and its 5 newest notes quoted as data, so Vizzy needs no redeploy, and each look in
+    use is a `learned` search source, `image_style.<id>@<v>`. No member names are stored, so History
+    says "by you" or "by a teammate".
+14. **Infra, written and not deployed.** `firestore.indexes.json` gains the composite index above and
+    9 field exemptions for fields nothing queries: `loop_days.d`, `loop_days.ttlAt`, `loop_lane.d`,
+    `image_assets.made`, `image_assets.brandVoteNote`, and for step 5 `fleet_cells.n`,
+    `email_sends.made`, `scheduled_posts.made` and `agent_actions.made`, so one deploy covers both
+    steps. `infra/lifecycle/setup.sh ttl` sets the time to live on `loop_days.ttlAt` in every
+    database it covers. Readers never rely on it: they pick weeks by computed id, and the fold skips
+    weeks it has folded. The index file is deployed first, non interactive and never with `--force`,
+    since deleting overrides would clear every time to live, then `setup.sh ttl`, each asked first
+    with the project named.
+
+Where the build follows the code, not the plan (the plan's intent kept):
+
+- `LEARNED_STORES.brand_kit` is removed rather than reworded, since no own line names it once the
+  image kinds learn; the `brand_kit` ontology type says its looks are used only while versions are
+  off. There is no brand export, so a vote's note is erased with its image instead of "included in
+  the brand's export" (`deleteImageAsset` is the only path that erases it).
+- Plan 3.1 has `loop_days` erased with the brand. No path erases a whole brand, so its counts
+  and pointers, which hold no one's data, are kept with the brand, and its weekly counts go by
+  their time to live, as the `loop_day` ontology entry says.
+- Counters can't tell when a look is due (a brand look image is stamped with the brand's scope, and
+  uploads are never stamped), so whether a scope is free comes from counters and pointers, and likes
+  are counted on projected image rows, read only after a new like or when a scope becomes free.
+  The rejected look rule reads totals, so it is stricter than the plan's.
+- The holdback also covers looks set from the fleet; a look used on a held back image anyway stamps
+  arm none; a failed read falls back to the old look, stamped legacy, so the image is still made.
+- Reset seeds first, and a seed that fails resets nothing. The meter skips its cap check for
+  `loop_learn` itself, and remakes are metered through `remakeUsage`.
+- Actions gain Forget of the look an Undo left and the setting's Help check; Undo and Go back answer
+  with the restored version's date, and carry the restored look's `evidenceIds`, so a Forget of it
+  leaves out the images that taught it; version rows count uploads among the liked (`evidenceCounts`).
+- Images made before `seededAt` are not outputs of the seeded version, as the plan had them: those
+  made before versions have no stamp, first vote time or remake, so their outcomes aren't known. The
+  version after a seeded one still reads back to the scope's start, over stamped images only.
+- The lane's idle check hashes the brand's pointers along with the week's signals, so a Resume,
+  Undo or Keep, which write only `lb:`, makes the next visit full. The learner's own mark also
+  compares a hash of the week's vote counters, since a changed vote and a new like in one week leave
+  the net likes as they were. When the open cards can't be read, the learner skips the brand that
+  visit rather than learn past an open card.
+- The plan's closed list of stamp sources gains `not_learning`, on images made on a path that never
+  learns (a format's card, a drawn style's painted half, an eBook edit), so the verdict can leave
+  them out. Image rows gain `outcomeVote`, no index and no exemption needed.
+- The verdict's window before is still one page of at most 500 rows a visit. For a style that makes
+  a small share of a busy brand's images it can see fewer outputs than were made, which reads as
+  too few or can't check, never as a hold that can't end.
+- "Couldn't learn lately" shows only while the last failed day is today or yesterday and learning
+  isn't paused; a model call that answers ends the days in a row.
+- `TenantCollection.increment` also takes ids with the tenant id between colons, and the tenant layer
+  gains projected reads (`findFields`).
+- `skipPick` keeps the stored pick's question, never the request's words, and answers 404 for a pick
+  no longer on the list. This one has no switch.
+- The plan counted 8 exemptions before the note's; with it there are 9. Step 4 is ADR-0028, not the
+  plan's 0022: connectors took 0019, the pieces merged into dev before it took 0022 to 0025,
+  the agent record, then in progress and now merged, took 0026, and the verdict moved to 0027. It
+  was ADR-0023 until that merge.
+
+Enforced where:
+
+- `src/lib/loops/registry.test.ts`, `src/lib/content/imageStyle/flags.test.ts` and
+  `src/lib/ontology/registry.test.ts`: the five lines, the scopes against the catalogue, the switch
+  and its parents, every new number's reason, learning kept off the meter but for
+  `edit_vizzy_learning`, and `image_asset` claiming `likedShare` and `remadeShare`.
+- `src/lib/tenant/loops.test.ts`, `src/lib/loops/stamp.test.ts`, `src/lib/types/loopStamp.test.ts`
+  and `src/lib/loops/read.test.ts`: ids built from the server's tenant id, expiries, the stamp and
+  its token, only `stamp.ts` reading `lk:`, every arm, and a held back image keeping its references,
+  model path and best of N (with `src/lib/agents/creative.holdback.test.ts`).
+- `src/lib/loops/count.test.ts`, `imageRows.test.ts`, `remake.test.ts`, `textCheck.test.ts`,
+  `reasons.test.ts` and the vote and upload route tests: one write per signal, a changed vote moving
+  the counts, remakes within 14 days only, the note refused with a link and kept on the row, and a
+  held back remake leaving the image allowance alone (`src/lib/plans/meter.test.ts`).
+- `src/lib/loops/write.test.ts`, `oneWriter.test.ts` and `learners/votes.test.ts`: the one writer,
+  its bans on gates, network calls and outside sources, and the Hearth Bakery fixture, seen to fail
+  before the learner existed.
+- `src/lib/loops/imagePaths.test.ts`: a new image route that reads no `learnedFor` and isn't a
+  person's own image fails it.
+- `src/lib/loops/tick.test.ts`, `fold.test.ts`, `seed.test.ts`, `imageVerdict.test.ts`,
+  `verdictWords.test.ts`, `actions.test.ts`, `attention.test.ts` and the learned route's test; the
+  tick route test, which stays dark with this switch on and a parent off; and `lane.heap.test.ts`
+  (with `--expose-gc`) at the caps.
+- `src/lib/loops/indexes.test.ts`: the 9 exemptions, no composite index naming an exempt field,
+  every loop document keeping its data under `d`, both image indexes, and `loop_days ttlAt` in
+  `setup.sh ttl`'s loop over the databases and in its header.
+- `src/lib/loops/learnedView.test.ts`, `learnedWords.test.ts`,
+  `src/components/admin/brand-kit/WhatItLearnedCard.test.ts` and `src/lib/help/help.test.ts`: the
+  card's states and done lines, every message in house style, and the help page quoting them.
+
+Not yet: step 5 brings `LOOPS_ENABLED`, stamps on every other writer, the save route that checks the
+email hero's token, `fleet_cells` and `loop_lane`'s organisation marks, the Loops section,
+`get_learning` and `get_image_style`'s docstring line. Pause for the whole brand and decline reasons
+for other kinds come with the edits loop (step 7). Making a look due on 3 dislikes with one reason
+waits until the checks show how looks move. Fleet defaults and industry wait for step 9, and nothing
+is adjusted for season. ADR-0027's "nothing calls the verdict" and "the lane that runs verdicts in
+step 5" describe step 3 and stay as written.
+
+What follows: two new collections, `loop_days` (regional, kept with the brand: no path erases it,
+and its weekly counts go by their time to live) and `loop_lane` (control plane, one document); one composite index, 9 field exemptions and 1 time to live, all in
+the pull request and deployed only when the owner says; one switch, off. No new service, Function,
+scheduler job, secret, dependency or rule change, and no Vizzy redeploy. With the switch off, three
+things change for everyone: `skipPick`'s fix, and the contrast of the selected image style tile's
+small text and of the help accent box's title, from `text-neutral-500` to `text-neutral-600`, which
+read 4.36:1 and 4.45:1 before, under AA's 4.5:1. `docs/ONTOLOGY.md` gains `loop_day` and `loop_lane`,
+`post_learning` as team, and the residency notes for the looks on the brand record.
+
+---
+
+## ADR-0027 · The verdict: one check for every loop, better, same, worse or too few to tell (learning loops step 3) (2026-11-25)
+
+Context: the approved learning loops design asks for the check before anything learns. A loop
+changes how YouGrow makes something for a brand; the verdict compares the outputs made after the
+change with those made before it, on the loop line's check and guard, and answers better, same,
+worse or too few to tell. The design fixed the rules: units are outputs (a post, email, image or
+draft), never views; every level is blended toward a prior with the weight of 5 outputs (the
+`PRIOR_N0` precedent in `src/lib/distribute/feedback/reward.ts`); looks at 10, 20 and 40 outputs a
+side, then every 40, never daily; at most 5% false better or worse across looks in a simulation of
+a change that did nothing; better, same and worse read against the loop's band; the scope's first
+10 outputs never serve as a before window; verdicts say not adjusted for season, and nothing
+reverts on its own. It left the interval open. This step adds one pure module, its tests and five
+numbers. ADR-0017 is step 1 (Declare); ADR-0018 is the onboarding piece (PR A); ADR-0019 is
+connectors; Work takes ADR-0020 in its own pull request; ADR-0021 is step 2 (the Memory Bank stall).
+This record was ADR-0022 until the pieces merged into dev took 0022 to 0025.
+
+Decided (this step departs from the approved design in four places, each recorded below, and
+the owner sees them in this pull request: the windows stop at 120 outputs a side (item 3); the
+design's "about 40 points of edit share at 10 outputs a side" does not hold, so the verdict quotes
+its exact number, and from most before windows at 10 a side says no change could show (item 4);
+better waits for the guard, both for the guard to reach the check's look and while a guard
+too few to read sits wholly on the worse side of no change, which is stricter than the design's
+"the guard not worse" (item 5); and the warm up counts each list's own entries, so liked share
+drops its first 10 voted images, which is stricter than the design's "a scope's first 10
+outputs" (item 6). Naming the items that changed between two versions waits for
+versions in step 4 (Not yet). Numbers for the chosen method were measured through the real
+`verdict()` with a seeded generator; numbers for rejected intervals, other z values and longer
+windows come from the same simulation with that one piece swapped):
+
+1. **Newcombe's hybrid score interval, read against the band in three zones.** `compare` in
+   `src/lib/loops/verdict.ts` takes two equal windows and finds where after minus before could be
+   with Newcombe's method 10, which adds each side's distance to its own Wilson limits in
+   quadrature. It matches Newcombe's published examples to four places (56/70 minus 48/80 gives
+   0.0524 to 0.3339). Kruschke's region of practical equivalence rule reads it: better when the
+   blended range is wholly past the band the better way, worse when it is wholly past the band the
+   other way, same when the raw range sits wholly inside the band, which is Schuirmann's two one
+   sided tests for equivalence at 1.25% a side, otherwise too few to tell. The
+   direction comes from `Meaning.better`. The check and guard must be shares (`unit: "ratio"`) with
+   better and family, in different families, or it throws. Rejected: the plain normal (Wald)
+   interval, whose coverage is erratic at small counts and which has zero width at no hits or
+   all hits (Brown, Cai and DasGupta); adding one success and one failure to each side (Agresti and Caffo),
+   whose false same near 0 and 1 reached 8% on the grid in item 3; a Beta posterior on
+   the blended counts, whose false same reached 22% when a 10% rate fell to none in an earlier run
+   of the same simulation (that script is not kept) and whose width moves with the prior; group sequential
+   boundaries (Pocock, O'Brien and Fleming, Lan and DeMets) and always valid tests, which test
+   against no change and are more than this needs once the band carries most of the peeking risk.
+2. **Equal windows either side of the change, blended toward one prior.** Each number reads the
+   largest look both its sides have reached: that many outputs just before the change against the
+   same number just after it. Looks are nested and adjacent, and between looks the verdict reads
+   the same windows and gives the same answer, so calling it after every output finds nothing new.
+   With equal sides the prior cancels, so the blended change is n / (n + 5) times the raw one and a
+   prior of 0 or 1 never moves a call, only the levels people see. Unequal sides would not cancel:
+   20 before and 120 after, a true rate of 0.8 on both and a prior of 0.2 read as a change of about
+   one band. Better and worse read the blended range, which is shrunk toward no change; same reads
+   the raw range, so for the check blending can only make a call more careful, which also makes a
+   check that got worse slower to read (edit share rising two bands, from 0.3 to 0.5, reads worse at
+   80 a side in about 15% of runs, against 18% on the raw range). For the guard it
+   cuts the other way: shrinking the guard's range makes a guard worse harder to read, which would
+   make better easier, so item 5 adds a test on the guard's raw range. Rejected: reading same on
+   the shrunk range, which let a change of one band read same more often.
+3. **One interval at every look: z = 2.24, looks at 10, 20, 40, 80 and 120 outputs a side.**
+   `LOOP_RULES` gains `verdictZ` (2.24, a 97.5% range), `lookEvery` (40), `lastLook` (120),
+   `falseAlarm` (0.05) and `holdbackPowerZ` (0.84), each with its reason. The verdict reads
+   `verdictZ`, `lookEvery`, `lastLook`, `holdbackPowerZ`, `blendM`, `looks`, `warmUp` and
+   `holdbackOneIn`, and hard codes none; `falseAlarm` is the limit its tests hold it to. With
+   20,000 runs a case on the test's seeds, both learners' lines and guards at 0.1 and 0.5, a change
+   that did nothing reads better or worse at any look in at most 0.82% of runs (edits at base rates
+   0.1, 0.3, 0.5 and 0.8: worst 0.33%, 0.60%, 0.82% and 0.38%; votes: worst 0.15%), against a
+   limit of 5%. A real change of exactly one band reads same in at most 2.3% (likedShare 0.8 to
+   0.95). The band does most of the work against peeking: with the band shrunk to 0.001 the same
+   simulation and verdict read better or worse in 14.9% of runs (10.2% at 0.01), and a plain 95%
+   test against no change, read at the same five looks, fails too. For the swapped pieces the grid is every rate
+   from 0 to 1 in steps of 0.05, both learners, a change of one band either way, 10,000 runs a
+   case. At z 1.96 false same reached 4.8% and at 1.645 it reached 11.5%, so 2.24 keeps a margin.
+   That margin does not cover drift, which the simulation leaves out. Through the real verdict,
+   4,000 runs with edit share drifting steadily through 0.5 across both windows, a flat guard and
+   nothing changing at the change: a drift of one band per 120 outputs reads better or worse at
+   some look in about 2% of runs, 1.5 bands in about 7% and two bands in about 24%. That is why
+   every verdict says not adjusted for season. The simulation also draws each output on its own.
+   Outputs made in sets that tend to share an outcome push both rates up and can break both
+   limits: through the real verdict, 5,000 runs a case, in sets of 3 with an intra set correlation
+   of 0.3 a change that did nothing reads better or worse in about 4% of runs and a one band change
+   reads same in about 6% (0.6% and 2.5% in the same runs with each output on its own), and in sets
+   of 4 about 7% and 8%. So each entry must be an output whose outcome stands on its own (item 6).
+   The windows stop at 120: each extra look adds a chance of a false same (2.3% to 120, 5.3% to 400 and 6.6% to 800 a side at
+   this z), and longer windows reach back across seasons, where drift has longer to build. This
+   amends the design's open ended "then every 40".
+   Rejected: a Bonferroni split (0.01 a look, z 2.576), valid but it costs power for nothing.
+4. **Too few to tell says the smallest change it could have seen.** `smallestVisibleChange` moves
+   the after count away from the before count until the change would read better and quotes the gap
+   in points between the blended levels, a documented choice the reason line labels "an estimated
+   change" (null when no after window could). From a 50% before
+   window and a 10 point band: none at 10 a side, then 36, 31, 27 and 24 points at 20, 40, 80 and
+   120 (45, 35, 29 and 25 points of raw edit share). At 10 a side a change can read better only from
+   7 or more of 10 edited, and then only by a fall of 7 drafts or more (47 points). So the design's "about
+   40 points of edit share at 10 outputs a side" agrees only with the normal approximation for a
+   50% rate, band + w x verdictZ x sqrt(2 x 0.25 / 10), which is 43 blended points (band / w +
+   verdictZ x sqrt(2 x 0.25 / 10) is the same in raw edit share points, 65), and it matches a
+   plain single look 95% half width (44 points) more than this rule; the verdict quotes its exact number and says when there is
+   none. The search halves the distance, which is right because better never flips back as the
+   count moves; the test checks that for every look and before count. A bakery at 12 drafts a month
+   needs at least 2.5, 4.2, 7.5, 14.2 and 20.8 months from its first draft to reach each look (the
+   warm up, then that many outputs before and after), so most of its verdicts read too few, as the
+   design expects. For edit share's 10 point band, same is out of reach by 120 a side at any rate
+   from about 0.13 to 0.87, even when nothing changed; only a rate near none or near all reaches
+   it, at 80 or 120. For liked share's 15 point band it is reachable at 120 a side at any rate, and
+   at 80 only below about 0.25 or above 0.75. Better has a reach too. For edit share no look can
+   read better when 21 or fewer of the 120 before the change were edited (about 0.175; 16 or fewer
+   of 80, 11 of 40, 8 of 20, 6 of 10), so a before window of 16 to 21 of 120 can only read worse or
+   too few. For liked share no look can read better at 91 or more of 120 liked (about 0.76; 59 of
+   80, 26 of 40, 11 of 20, 3 of 10). A brand already near the good end never has a change
+   confirmed better. Outcomes become known in the order outputs were made (item 6), so once one
+   output since the change is known the before window is fixed, and the largest look a change can
+   reach is set by its usable before outputs: every too few line the
+   check decides, whether or not it quotes a smallest change, names the next look only when the
+   before window can reach it, otherwise says this is the last look this change can reach, and at
+   120 says the windows stop; a line with no look, once an output since the change is known, says
+   when fewer than 10 usable before the change means the check never will have one, so this change
+   can never read better or same; a too few line where the guard holds better back says the same
+   of the guard (item 5). The smallest change is what the check alone could read as better,
+   before the guard has its say, and the line says when the guard stands in the way: no change could have shown as better
+   while a guard too few to read got worse (with its counts), a change could show only once the
+   guard has reached the check's look, or no change can show when the guard has fewer than 10
+   outputs before the change (until one of the guard's outputs since the change is known, the line
+   says instead that no change can show until it has 10 known outputs before the change, since
+   outputs from just before the change can still join). When the check's raw range sits wholly on
+   the worse side of no change, the line says it got worse, though not clearly by more than the band, before what could
+   have shown as better, and a guard that moved the wrong way is named too, so the likely harm is
+   never left to the counts alone. Every reason line leads
+   with the real counts, such as 5 of 10 to 2 of 10,
+   then the estimated levels, and says estimates lean toward the default while outputs are few;
+   each read keeps its counts beside the blended levels.
+5. **Better waits for the guard.** The guard keeps its own outputs, which can be fewer or more than
+   the check's: unused share is known only 14 days after each output, and remade share counts every
+   image while liked share counts only the voted ones. A guard worse against the band gives worse
+   whatever the check says; the verdict's look is then the guard's and `decidedBy` is `"guard"`, so
+   a worse can come before the check has a look. A check that reads better gives too few to tell
+   until the guard has reached the check's look, or the last look the guard's own before window
+   can reach, and while the guard is too few to read and its raw range sits wholly on the worse
+   side of no change. Both are stricter than the design's "the guard not worse". A guard read at a
+   smaller look than the check's, as unused share is while it lags, has a wider range, so harm
+   that is there often does not show on it and would let better through; and
+   blending shrinks the guard's range toward no change, so the second test reads the raw range. A
+   guard that reads same is within the band, so it is not worse and lets better through, even when
+   its raw range sits on the worse side of no change. Through the real verdict, 5,000 runs with
+   edit share falling from 0.5 to 0.1 and the guard exactly as long as the check: with the guard
+   going from 0.2 to 0.4, better at 40 a side fell from 69% of runs to 46% with the raw range test,
+   and at 120 from 73% to 12%; with a flat guard it barely moved (100% to 99% at 120). Those
+   numbers assume no lag. With the guard 6 outputs behind the check (unused share's 14 days at 12
+   drafts a month), waiting only for a look of the guard's own let 83% of runs read better at some
+   look, against 64% with no lag; waiting for the check's look gives 64% (55% at 30 behind), and
+   the call once the guard has caught up is 12% either way. Liked share rising from 0.3 to 0.75
+   with remade share going from 0.1 to 0.4, 30 behind: 58% before, 11% now. With a flat guard the
+   lag only delays better (99.5% of runs still read it). The rule only removes better calls, so
+   the false alarm limit cannot get worse. The reason line says the guard did not get worse only
+   when it reads better. Same allows up to one band worse, so a guard that reads same "stayed
+   within the band", or "got worse, but stayed within the band" when its raw range sits wholly on
+   the worse side; a guard too few to read was only "not shown to get worse"; a guard that holds
+   better back "got worse, though not clearly by more than the band", and the line names the
+   guard's next look, or says this change cannot read better when the guard can reach no further,
+   which a too few line whose check has a next look says too, after that next look;
+   a guard that lags says how many outputs since the change better waits for; a guard with fewer
+   than 10 outputs before the change, once one of its outputs since the change is known, never
+   reaches a look, and the line says this change cannot read better. Before that, outputs from
+   the 14 days before the change can still join its before window (item 6), so the line says
+   better waits until it has a look. Worse, same and too few lines the guard does not decide name
+   a guard that moved the wrong way, with its counts. A guard like that does not hold back a same,
+   since same speaks for the check; whether it should is put to the owner in this pull request. When the check and the guard
+   both read worse, the guard decides and the line names both. Every line that names the guard's
+   change quotes its counts. The order is: guard worse, check better, check worse, check same, too
+   few. Every verdict carries
+   `notAdjustedForSeason: true` and a reason line a person can read that ends "Not adjusted for
+   season."; nothing in it undoes a change.
+6. **Outputs in, mistakes thrown.** Each number takes its outputs oldest first, one true or false
+   per output, so a view can never count. Each entry must be an output whose outcome does not
+   depend on another entry's: the false alarm limits assume it (item 3). Outputs made together that
+   tend to share an outcome, such as a set remade at once, can break both limits, so the caller
+   stamps such a set as one entry; step 5 decides how. Each list holds only the outputs whose
+   outcome is known, and outcomes become known in the order the outputs were made, as with unused
+   share's 14 days, so once one output since the change is known the before list is complete.
+   The warm up drops each list's own first 10 entries: for a
+   list of every output, such as edit share's drafts or remade share's images, that is the scope's
+   first 10, and for liked share it is the first 10 voted images. That last is stricter than the
+   design's "a scope's first 10 outputs", the fourth departure: liked share drops voted images
+   long after the cold start the warm up is for, and `startsAt` cannot give the design's count for
+   a list that starts at the scope's first voted image. `startsAt` says how many entries
+   each list would hold before its first one, as one number for both or one for each, since the
+   two lists can start at different points; left out it is 0, so each list's first 10 are dropped,
+   the careful default.
+   A mistake in the caller throws rather than reading as too few: a band or prior outside 0 to 1, a
+   negative or fractional `startsAt`, a check or guard that is not a share with better and family, a
+   guard in the check's family, and in `compare` hits outside 0 to n, unequal sides or a size that
+   is not a look.
+7. **Months until the holdback could read.** `monthsUntilHoldbackReads` is the usual sample size sum
+   for two shares with 1 decision in 20 held back (`holdbackOneIn`): (verdictZ + holdbackPowerZ)
+   squared x p(1 minus p) x (20 + 20/19), divided by outputs a month x band squared, with p the most uncertain rate within
+   one band of today's so a rate at 0 or 1 never promises a read now. At a rate of 0.5 and a band of
+   0.1 that is about 5,000 divided by outputs a month: 416 months at 12 a month, 50 at 100, 5 at
+   1,000 and 1 at 5,000. The outputs a month are that scope's, pooled across every brand in the
+   copy that has not opted out: as the owner decided, every brand feeds the fleet's counts from day
+   one, counts only, and a brand that opts out leaves both arms. It counts outputs, which is right
+   only when each held back decision makes one output; a decision that makes several outputs makes
+   the answer too hopeful. The design reads the holdback only
+   across the fleet and never for one brand. Two of its rules are
+   not modelled: each organisation counts at most 20 outputs per arm, so a few busy organisations
+   make the answer too hopeful, and a fleet number publishes only for `cellOrgs` (10) organisations
+   or more, so below that nothing reads whatever the months say. The 21.05 against 4 for an even split is Kohavi's
+   factor of about 5 for a 95/5 split. Under the band rule a true change of exactly one band is
+   never reliably called better, so step 9's Proven read may need its own rule.
+
+Enforced where:
+
+- `src/lib/loops/verdict.test.ts`, with a seeded mulberry32 generator, in about a second on its own: a change
+  that did nothing at base rates 0.1, 0.3, 0.5 and 0.8, for both learners' lines with guards at 0.1
+  and 0.5, through all five looks, reads better or worse at most `falseAlarm` in every case, under
+  2.5% at worst and under 1% on average (0.75% and 0.22% today); the same simulation with a band of
+  0.001 or 0.01 goes over `falseAlarm`, so that check can fail, and so does a plain 95% test against
+  no change; a change of exactly one band reads same at most `falseAlarm` (2.33% at
+  worst today); edit share falling from 0.5 to 0.1 is called better by 120 a side in 95% or more
+  of runs and rarely at 10. Also Newcombe's published examples for the difference and for Wilson's
+  interval, Hearth Bakery fixtures at 12 drafts a month (too few, with the smallest change quoted
+  or none, and the next or last look named), the warm up for the check and the guard, each list
+  counting its own entries with `startsAt` one number or one for each, the same answer between
+  looks, no next look named that the before window cannot reach, with or without a smallest
+  change, and the windows' end at 120, guard worse (read in the guard's own direction, over a
+  check better or same, with the guard's look when the check has none, and deciding when both read
+  worse), same inside the band and read on the raw range, better waiting for the guard to reach
+  the check's look (a simulation with the guard 6 to 60 outputs behind on both lines never reads
+  better more often than with no lag), held back while a guard too few to read sits wholly on the
+  worse side and let through by a guard that reads same, the lines for a guard that reads same,
+  for a guard that holds better back (its next or last look, or the windows' end, also after the
+  check's next look), for a guard that lags or never reaches a look, for a guard none of whose
+  outputs since the change is known yet (better waits rather than never comes), for a guard that
+  moved the wrong way on a worse, a same or a too few, for a check with fewer than 10 before the
+  change (it never will, once an output since the change is known), and for a check that moved
+  the wrong way, better's reach for both learners at every look, the smallest change for a check
+  that is better higher over a guard that is better lower, a rise mirroring a fall at every look, the check and guard
+  each blended toward its own prior, priors of 0 and 1, fewer than 10 outputs a side, every throw,
+  every reason template in house style (the test checks each template comes up), the halving
+  search, the holdback's most uncertain rate within one band, and `blendM` equal to the
+  `PRIOR_N0` default in `reward.ts`.
+- `src/lib/loops/registry.test.ts`: the five new `LOOP_RULES` numbers each have a one line reason.
+
+Not yet, in later steps: nothing calls the verdict, and nothing is stamped or counted, so it reads
+no real outputs. It does not name the items that changed between two versions; that comes with
+versions in step 4 and the lane that runs verdicts in step 5, which also decides how a set of
+outputs made together is stamped as one entry. There are no fleet cells, so the prior is whatever the caller passes, no Go
+back card, no Loops section and no adjustment for season, which waits for a cell of one industry
+with 10 or more organisations.
+
+What follows: no new collection, index, rule, switch, service or dependency, and no runtime
+change: the module is pure and client safe, and `docs/ONTOLOGY.md` is unchanged. ADR-0017's
+"nothing reads the `LOOP_RULES` numbers" and "There is no verdict" describe step 1 and stay as
+written. Sources: Newcombe 1998, Stat Med 17:873 (https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I);
+Newcombe 1998, Two sided confidence intervals for the single proportion, Stat Med 17:857 (https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C857::AID-SIM777%3E3.0.CO;2-E);
+Wilson 1927, JASA 22:209 (https://doi.org/10.1080/01621459.1927.10502953); Agresti and Caffo 2000,
+Am Stat 54:280 (JSTOR 2685779); Brown, Cai and DasGupta 2001, Stat Sci
+(https://doi.org/10.1214/ss/1009213286); Kruschke 2018, AMPPS 1:270
+(https://doi.org/10.1177/2515245918771304); Schuirmann 1987 on two one sided tests
+(https://doi.org/10.1007/BF01068419); Pocock 1977 (https://doi.org/10.1093/biomet/64.2.191);
+O'Brien and Fleming 1979 (https://doi.org/10.2307/2530245); Lan and DeMets 1983
+(https://doi.org/10.1093/biomet/70.3.659); Johari, Koomen, Pekelis and Walsh 2022
+(https://doi.org/10.1287/opre.2021.2135); Evan Miller on peeking
+(https://www.evanmiller.org/how-not-to-run-an-ab-test.html); Kohavi, Henne and Sommerfield 2007
+(https://ai.stanford.edu/~ronnyk/2007GuideControlledExperiments.pdf).
+
+---
+
 ## ADR-0026 · Agent record: today's agent drafts become agent actions (wave 3) (2026-11-26)
 
 Context: what Vizzy drafts in chat (nine canvas kinds), the notes it suggests, learning a product's
@@ -669,6 +1601,203 @@ Gaps and follow-ups:
   fallback has none.
 - Turning it on needs a Vizzy redeploy for `get_next_action`, in either order: an older Vizzy has no
   tool, and the card works without it.
+
+---
+
+## ADR-0021 · The Memory Bank stall: every learn logged by reason, then Edit mode learning follows Edit mode in the agent's region (learning loops step 2) (2026-11-25)
+
+Context: since about 16 Nov, Free and Pro brands have Edit mode outputs but no Memory Bank learning
+signal. Learning from edits needs the plan key `edit_vizzy_learning` (`brandCanUse` in
+`src/lib/plans/brandAccess.ts`), which only Self-hosted, Ultra and Enterprise include, as well as
+`EDIT_MODE_VIZZY_LEARNING_ENABLED`, a Memory Bank set up for the copy (`VIZZY_MEMORY_BANK_ID`), the
+person's own "Learn from my edits", and Memory Bank lives in the agent's region
+(`ROOT_AGENT_LOCATION`, us-central1 when unset). Nothing recorded which of these refused: Edit mode
+sent nothing when learning was unavailable, the scheduler dropped `learnFromPublishedPost`'s
+outcome, and an error read the same as the switch. The approved design's step 2 asks for every
+outcome logged by reason, a week of prod logs, and then Edit mode learning that follows the paid
+Edit mode feature, `edit_vizzy`, for brands in the agent's region (decision 1, agreed by the owner).
+ADR-0019 is connectors, Work takes ADR-0020 in its own pull request, and step 3, the verdict,
+takes ADR-0027 (first numbered 0022).
+
+Decided:
+
+1. **One `loop_learn` line for every learn tried or skipped.** `src/lib/loops/learnLog.ts` builds
+   it and writes it as one JSON line (INFO on stdout, WARNING on stderr for an error), the shape
+   `src/lib/auth/cleanup.ts` uses, so Cloud Logging reads it as `jsonPayload`. For example:
+   `{"severity":"INFO","message":"[loops] edit_mode skipped: plan","event":"loop_learn","kind":"edit_mode","outcome":"skipped","reason":"plan","tenantId":"ten_example","plan":"pro","granted":false,"grantedOnly":false,"region":"us","agentRegion":"us","editVizzy":true,"entries":3}`.
+   `kind` is the registry kind, `edit_mode` or `content_write`. `outcome` is `learned` or
+   `skipped`; a learned line has `reason` null and `via` (`learning_key` or `edit_vizzy`). `reason`
+   comes from the design's fixed list, `switch`, `paused`, `floor`, `budget`, `full`, `trust`,
+   `region`, `plan`, `not_configured`, `error`, plus `off_by_person` for the person's own choice,
+   which is separate from the switch. Memory Bank paths give switch, budget (the per person rate
+   limit on Edit mode, 6 a burst and 60 an hour), region, plan, not_configured, error and
+   off_by_person; the other four wait for the loops' own learners. `plan` is the plan that decides,
+   `plans_off` or `none`; `granted` is the brand's own grant of the key (null when access needed
+   no read); `grantedOnly` says this copy holds the key back in `GRANTED_ONLY_FEATURES`; `region`
+   and `agentRegion` are the brand's data region and the agent's; `editVizzy` (Edit mode only)
+   says the brand may use Vizzy in Edit mode; `entries` is how many changes; `code` (errors only)
+   is the app's own code such as `memory_bank_404`, anything else becomes `other`. The builder
+   copies named fields only, so no text a person wrote, no memory, no email and no person id can
+   reach a line; `userId` and `scheduledBy` are never there. The brand's id is, as in
+   `src/lib/plans/meter.ts` and the scheduler's lines. The facts come from the one read brand
+   access already makes (`onceTenant`). The event is `loop_learn`, snake case like
+   `auth_code_locked` and `forwarded_shape_sample`, rather than `loop.learn`.
+2. **Where lines are written.** Edit mode: `src/app/api/admin/editor/vizzy/learn/route.ts`, once a
+   signed in person closes Edit mode with Vizzy changes. Post edits: inside
+   `learnFromPublishedPost` (`src/lib/distribute/learnFromPostEdit.ts`), so both scheduler sites
+   are covered, for a LinkedIn or X post with Vizzy's draft, changed, and a person who scheduled
+   it. Mapping on posts: `not_configured` is not_configured, `not_included` is plan, `person_off`
+   is off_by_person, a throw is error, and the switch is logged only for a post that had
+   something to learn. No line for what is not a learn: a post with no draft, no change or no
+   person, another channel, a request from another site, a stranger, or a body that is not a close.
+   Return values and answers are as before. The memories, forget, brand voice and settings routes
+   write no `loop_learn` line; a memory list Memory Bank fails writes one `memory_list_failed`
+   line (decision 3).
+3. **Edit mode sends a count when it can't learn.** The page sent its changes only when the memory
+   list loaded and the person let Vizzy learn, so a line at the learn route alone would never show
+   plan, the suspected cause. Now `learnCloseBody` (`src/lib/content/editor/vizzyLearning.ts`)
+   sends `{ "skipped": n }` (a whole number from 1 to 20 and nothing else) when there were changes
+   but learning wasn't offered. The server works out the reason from its own checks, never from the
+   page, and nothing goes to Memory Bank. When every check passes and the person hasn't switched
+   it off, the line is error with code `not_loaded`: the list didn't load, or Edit mode closed
+   first. A list Memory Bank refuses or fails (a 403 or a 5xx from `memories:retrieve`; a 404 is an
+   empty list) ends that way too, so the memory list's GET then writes its own line,
+   `memory_list_failed` (WARNING, with `code` such as `memory_bank_403`, `tenantId`, `region` and
+   `agentRegion`, nothing else; `memoryListLogEntry` in `learnLog.ts`). For Edit mode, then, a
+   bank that refuses the list shows as `memory_list_failed` lines beside not_loaded ones, an early
+   close as not_loaded alone, and a missing bank as `memory_bank_404` on the learn line itself
+   (the list loads empty and `memories:generate` fails). A person's choice that can't be read at
+   close (the membership read failing) is one error line too, and the close answers 502
+   `memory_unavailable`, as the post path logs the same failure. For a person who switched
+   learning off, only the count is sent, and the line names no person. Rejected: a `loop_learn`
+   line at the memories list (it counts opens, and Distribute's panel reads the same route, so the
+   kind would be wrong; its failure line has no kind for that reason) and one in the Vizzy route
+   (it counts asks, not visits).
+4. **No switch for the lines.** They, and the memory list's failure line, write no data, send
+   nothing anywhere, carry no text or person ids, and must run in prod to find the cause. `EDIT_MODE_VIZZY_LEARNING_ENABLED` and
+   `DISTRIBUTE_LEARN_FROM_EDITS_ENABLED` can't hold them, because the switch is itself a reason
+   they log. With learning off, the learn route now reads the session of a close to log it, then
+   answers 503 `learning_disabled` as before; a body that is not a close reads nothing.
+5. **A missing bank is an error, not learned.** `memories:generate` answering 404 (a wrong or
+   deleted `VIZZY_MEMORY_BANK_ID`) counted as learned, because the client reads 404 as nothing
+   there. `learnFromEventTexts` in `src/lib/agents/memoryBank.ts` now throws `memory_bank_404`, so
+   the line says error. No person sees a change: Edit mode's close request is fire and forget and
+   the scheduler ignores the post outcome; the learn route answers 502 instead of 202.
+6. **The switch: `EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED`.** Server only, RUNTIME, `"false"` in
+   `apphosting.yaml`, empty in `.env.example`, kept off locally with its parent and on a new
+   self-hosted copy (`KEPT_OFF` in `scripts/selfhost/spec.mjs`, addon null), read in
+   `src/lib/content/editor/flags.ts` and needing `EDIT_MODE_VIZZY_LEARNING_ENABLED`. It is not a
+   loop switch (`LOOP_SWITCHES` stays empty). With it on, exactly this changes:
+   `learningAccess(ctx, "edit_mode")` (`src/lib/content/editor/learningChoice.ts`) also lets a
+   brand learn that may use `edit_vizzy`, with every hold on it including `GRANTED_ONLY_FEATURES`,
+   and whose data region equals `agentRegion()`. That opens the Edit mode learning routes (learn,
+   the memory list, forget one, forget all, add to brand voice, the person's setting) and Vizzy's
+   use of the person's memories in Edit mode. A brand with `edit_vizzy` in another region, or every
+   such brand when `ROOT_AGENT_LOCATION` maps to no region, is refused with 403 `not_in_region` and
+   logged as region. A brand with the key learns as before in any region: no paid feature is taken
+   away, and its edits already went to the agent's region before this. A hold on
+   `edit_vizzy_learning` in `GRANTED_ONLY_FEATURES` then holds back post edits only, so a copy that
+   keeps Edit mode learning to some brands holds `edit_vizzy` as well or leaves the switch off.
+   `docs/self-host.md` and the switch's comments in `apphosting.yaml` and `.env.example` say so,
+   and `npm run selfhost` leaves the switch off, so no copy gets it without turning it on. Unchanged
+   either way: learning from post edits, the preferences post drafts read (`editPreferencesFor` now
+   takes the kind, so drafting can't take the Edit mode route by mistake), the Distribute card, the
+   plan keys, `METERED_FEATURES`, the catalog and `FEATURE_LABELS`, the person's own choice and the
+   parent switch. Off, everything is as before, and the tests say so.
+7. **Why the plan keys stay.** `edit_vizzy_learning` still gates post edits, which every region
+   sends to the one bank in the agent's region. Taking it out of `METERED_FEATURES` now would open
+   post learning to every plan in every region and send more regions' words to that bank. The
+   catalog stays as it is, so Plan and usage, the tiers table and plan change previews keep their
+   meaning; the Write and schedule and Plan and usage help pages say what the switch adds. One line
+   goes stale with the switch on: the plan change preview (`src/lib/plans/preview.ts`) says losing
+   the key stops learning from edits, which is then true for posts and for brands outside the
+   agent's region only. It goes with the key in step 7.
+8. **The agent's region.** `agentRegion()` in `src/lib/agents/agentRuntime.ts` maps a location that
+   starts `us-`, `europe-` or `asia-` to `us`, `eu` or `asia`, the app's data regions, and anything
+   else to null, so no brand counts as inside it by mistake. It sits beside `agentLocation()`,
+   which Memory Bank's address already uses.
+
+The owner's read after a week, read only. App Hosting runs on Cloud Run; name the project first,
+and run it with the account that reads that project's logs:
+
+```
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="loop_learn"' --project=YOUR_PROJECT_ID --freshness=7d --limit=20000 --format='value(jsonPayload.kind,jsonPayload.outcome,jsonPayload.reason,jsonPayload.code,jsonPayload.via,jsonPayload.plan,jsonPayload.granted,jsonPayload.grantedOnly,jsonPayload.region,jsonPayload.agentRegion,jsonPayload.editVizzy)' | sort | uniq -c | sort -rn
+```
+
+Then the memory lists Memory Bank failed in the same 7 days:
+
+```
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="memory_list_failed"' --project=YOUR_PROJECT_ID --freshness=7d --limit=20000 --format='value(jsonPayload.code,jsonPayload.region,jsonPayload.agentRegion)' | sort | uniq -c | sort -rn
+```
+
+Each prints one count per kind of line. The counts add up to at most the `--limit`: if they add
+up to 20000, raise it, or add `AND jsonPayload.kind="edit_mode"` to the first filter, and run it
+again.
+
+What decides the flip: over those 7 days, with `EDIT_MODE_VIZZY_LEARNING_ENABLED` on, the
+leading Edit mode skip is plan for brands with `editVizzy` true and `region` equal to
+`agentRegion`, and error, not_configured and switch are a handful at most. Then flip the switch in
+the deployment's own settings. Read error by its code, never as one cause. A `memory_bank_` code
+on a learn line (`memory_bank_404`, or a 5xx) means the bank id or the runtime's access is wrong:
+fix that, not the tiers. `not_loaded` on an edit_mode line means the memory list didn't load
+before Edit mode closed: with `memory_list_failed` lines in the second query (`memory_bank_403` or
+a 5xx), the bank refuses the list, so fix its access; with none, Edit mode closed first, so look
+at the page. `other` is a failure with no code of the app's own, such as the person's choice not
+loading. If the plan lines mostly carry `grantedOnly` true, the copy's own hold is the cause; the
+switch still fixes Edit mode, and the flip should say so. If off_by_person leads, people chose it
+and there is nothing to flip. No edit_mode lines at all means nobody used Vizzy in Edit mode that
+week.
+
+Enforced where:
+
+- `src/lib/loops/learnLog.test.ts`: the reasons are the fixed list, kinds are registry kinds, a
+  line copies named fields only (a facts object carrying a person id, an email, an instruction and
+  a memory gives a line with none of them), error codes outside `[a-z0-9_]` become `other`, the
+  brand is read only when brand access reads it and at most once, and the memory list's failure
+  line carries the code, the brand and its regions only.
+- `src/app/api/admin/editor/vizzy/learning.routes.test.ts`: exactly one line for each of learned,
+  switch, not_configured, plan (from one read of the brand), off_by_person (changes or a count),
+  not_loaded, budget, error, and error when the person's choice can't be read, none for a stranger
+  or a body that is not a close, none from the other learning routes, no line carrying the words,
+  the person or their address, and one `memory_list_failed` line with the bank's code for a list
+  Memory Bank fails. With the
+  switch on, a Pro brand in the agent's region lists, forgets and learns; one in another region gets
+  `not_in_region` and a region line; the person's choice and the parent switch still hold. Off,
+  nothing changes.
+- `src/lib/content/editor/vizzyLearningAccess.test.ts`: `learningAccess` with the switch off and
+  on, for both kinds, every region case, both holds, and Edit mode preferences against post draft
+  preferences for the same brand.
+- `src/lib/distribute/learnFromPostEdit.test.ts`: one line per post skip with its reason, none for
+  a post with nothing to learn, the old outcomes, post edits needing the key with the switch on or
+  off, and post drafts reading `content_write` preferences by default. Its partner,
+  `src/app/api/admin/editor/vizzy/route.test.ts`: Edit mode's Vizzy asks for `edit_mode`
+  preferences. Swapping either kind fails a test.
+- `scripts/selfhost/envfile.test.ts`: a new self-hosted copy keeps the switch off, and no add-on
+  turns it on.
+- `src/lib/content/editor/vizzyLearning.test.ts`, `src/lib/agents/memoryBank.test.ts` and
+  `src/lib/agents/agentRuntime.region.test.ts`: the close body, the 404, the region map.
+
+Not yet: the design's status line for brands in other regions needs its words and a mockup the
+owner approves first, so Edit mode hides learning on `not_in_region` as it does on `not_included`.
+
+Step 7: post edits move to a regional edits learner, so each brand's edits are learned in its own
+region, and Memory Bank's post path turns off. Only then does `edit_vizzy_learning` leave
+`METERED_FEATURES`, the catalog, `FEATURE_LABELS` and the plan change preview. Edit mode stays on
+Memory Bank in the agent's region, so the region check stays: the switch retires by making its on
+path the only path (`edit_vizzy`, and the brand's region equal to `agentRegion()`), and the
+`edit_mode` and `content_write` registry lines are written again. A brand outside the agent's
+region that holds the key today then loses Edit mode learning: the design says Edit mode learning
+there waits until an agent location serves that region. Step 7's plan names those brands, either
+accepts that or gives Edit mode a regional learner too, and keeps Forget everything open to them
+for the memories already in the bank.
+
+What follows: no new collection, index, rule, store, service or dependency, and one new switch, off.
+With the new switch off, five things change: a 404 from `memories:generate` is an error, Edit mode
+sends a count where it sent nothing, with learning off the learn route reads the session of a
+close to log it, a memory list Memory Bank fails writes a `memory_list_failed` line, and a
+person's choice that can't be read at close answers 502 `memory_unavailable` where it was an
+unhandled 500. The `edit_mode` line in `src/lib/loops/registry.ts` and `docs/ONTOLOGY.md` now name
+both ways a brand gets learning.
 
 ---
 

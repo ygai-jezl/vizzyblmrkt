@@ -4,21 +4,34 @@ import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
-import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleEnabled, isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { ImageStyleCard, type PendingImageStyleSuggestion } from "@/components/admin/brand-kit/ImageStyleCard";
+import { WhatItLearnedCard } from "@/components/admin/brand-kit/WhatItLearnedCard";
+import { learnedCardView, type LearnedCardView } from "@/lib/loops/learnedView";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Brand › Image style (BRAND_IMAGE_STYLE_ENABLED): the look every new image starts from. Members
- * can view, including a pending Vizzy suggestion; only admins save or dismiss it.
+ * can view, including a pending Vizzy suggestion; only admins save or dismiss it. With image style
+ * versions on (IMAGE_STYLE_VERSIONS_ENABLED), What it learned sits below it: what each painted
+ * style learned from votes, read in the brand's region. A read that fails leaves the card out.
  */
 export default async function ImageStylePage() {
   const ctx = await requireAdminContext();
   if (!isBrandImageStyleEnabled()) notFound();
 
-  const tenant = await getTenantById(ctx.tenantId);
+  const versions = isImageStyleVersionsOn();
+  const [tenant, learned] = await Promise.all([
+    getTenantById(ctx.tenantId),
+    versions
+      ? learnedCardView(ctx).catch((err: unknown): LearnedCardView | null => {
+          console.warn("[image style] What it learned didn't load", err instanceof Error ? err.message.slice(0, 200) : "error");
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
   const suggestion = tenant?.imageStyleSuggestion;
   const pending: PendingImageStyleSuggestion | null = suggestion
     ? {
@@ -56,7 +69,9 @@ export default async function ImageStylePage() {
         suggestion={pending}
         palette={palette}
         canEdit={ctx.role === "admin"}
+        versions={versions}
       />
+      {learned ? <WhatItLearnedCard initial={learned} /> : null}
     </div>
   );
 }

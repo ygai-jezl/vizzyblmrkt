@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { aiTellsIn } from "@/lib/content/writingRules";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { getTenantById, isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { PROFILE_KEYS, type ProfileAnswers, type ProfileKey } from "@/lib/types/businessProfile";
@@ -223,6 +225,8 @@ export async function agentSuggestFact(
 
   const r = await suggestBusinessFact(ctx, { kind: parsed.data.kind, text, quote, asked: oneLine(parsed.data.asked ?? "") }, deps);
   if (!r.ok) return { status: 409, body: { error: r.error, message: REFUSED[r.error] } };
+  // A fact Vizzy wrote down is counted made where it is saved to wait for an admin (LOOPS_ENABLED, learning loops step 5).
+  if (r.outcome === "created") await countMade(ctx, "onboarding", (await learnedFor(ctx, "onboarding", { by: "vizzy" })).stamp, { type: "business_fact", db: deps.db });
   return {
     status: 200,
     body: {

@@ -59,6 +59,8 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     onboardingVoice: shell?.onboardingVoice ?? false,
     settingsHistory: shell?.settingsHistory ?? false,
     nextActionCard: shell?.nextActionCard ?? false,
+    loops: shell?.loops ?? false,
+    imageVersions: shell?.imageVersions ?? false,
     agentRecord: shell?.agentRecord ?? false,
     languageReaders: shell?.languageReaders ?? false,
     raiseFollowUps: shell?.raiseFollowUps ?? false,

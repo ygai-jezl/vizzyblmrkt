@@ -179,7 +179,12 @@ export async function POST(req: Request) {
         }
 
         const usage = aiUsage(ctx, "vizzy_chat");
-        for (const [model, n] of tokens) await usage.recordModel(n, model);
+        // One turn is one use of the chat, however many models answered in it.
+        let first = true;
+        for (const [model, n] of tokens) {
+          await usage.recordModel(n, model, first ? undefined : { sameCall: true });
+          first = false;
+        }
         emit({ type: "done", sessionId: resolvedSession ?? undefined });
       } catch (err) {
         console.error("[agent-chat] stream error:", err);

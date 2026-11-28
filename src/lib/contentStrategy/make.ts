@@ -13,6 +13,8 @@ import { competitorCoverage, type CoverageView } from "@/lib/competitors/coverag
 import { matchQuestion, meaningWords } from "@/lib/content/blog/coverage";
 import { readDueArticles } from "@/lib/content/blog/freshnessPages";
 import { readSearchPlanning, type SearchPlanning } from "@/lib/connectors/signals/planning";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { DEFAULT_REFRESH_SHARE, readNextUp } from "@/lib/nextUp/pick";
 import { aiUsage } from "@/lib/plans/meter";
 import { lookUpQuestion, type LookupOutcome } from "@/lib/signals/collect";
@@ -383,6 +385,8 @@ export async function makeContentPlan(ctx: TenantContext, deps: MakeDeps = {}): 
   });
   const saved = await saveMadePlan(ctx, plan, { db: deps.db, now: deps.now });
   if (!saved.ok) return saved;
+  // A plan Vizzy named the pillars of is counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+  if (pillared.made) await countMade(ctx, "content_strategy", (await learnedFor(ctx, "content_strategy", { promptId: pillared.made.promptId })).stamp, { type: "content_strategy", db: deps.db });
   return { ok: true, doc: saved.value, notes: { lookupsAsked, byMeaning: Boolean(vectors), leftOut, slots: plan.slots.length } };
 }
 

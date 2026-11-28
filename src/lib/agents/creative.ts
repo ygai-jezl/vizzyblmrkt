@@ -28,7 +28,10 @@ import { isBestOfNEnabled, bestOfNCount } from "@/lib/content/create/brandStyleL
 import { generateBestOfN } from "@/lib/content/create/bestOfN";
 import type { GeneratedImage } from "./gemini";
 import type { ImageAsset } from "@/lib/types/imageAsset";
+import type { Made } from "@/lib/types/loopStamp";
 import type { Region } from "@/lib/types/tenant";
+import { settleStamp } from "@/lib/loops/stamp";
+import { countLostStamp } from "@/lib/loops/count";
 import type { TenantContext } from "@/lib/tenant/types";
 
 /**
@@ -113,6 +116,33 @@ export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult>
   return { variants: fallbackVariants(input, count, locale), source: "fallback" };
 }
 
+/**
+ * What learnedFor gave an image path (learning loops step 4, 3.3 of the plan for steps 4 and 5),
+ * so the image is made with it and its stamp is settled here, where the image is made.
+ */
+export interface ImageLearning {
+  /** The stamp learnedFor gave, or why there is none. */
+  made: Made;
+  /** The look's words reached the brand context the caller built for this image. */
+  lookUsed: boolean;
+  /**
+   * Held back (decision 3): the style references picked from votes stay out. The brand's own icons
+   * and graphics, the model path those references would take, and best of N all stay, so the two
+   * arms differ only by what was learned. The caller left the look out of the brand context.
+   */
+  holdback?: boolean;
+  /** The painted twin of a drawn style whose render failed. */
+  fallbackDrawn?: boolean;
+  /** Made on a path that never learns: a drawn style's painted half, or an edit of an earlier image. */
+  notLearning?: boolean;
+}
+
+/** A look's words added to a brief, as the image style's direction is: untrusted data like the brief. */
+function briefWithLook(brief: string, look: string | null | undefined): string {
+  const words = look?.trim();
+  return words ? `${brief}\n\nLearned brand image style (from images the team liked): ${words}` : brief;
+}
+
 export interface GenerateHeroImageInput {
   campaign: Campaign;
   brief: string;
@@ -130,6 +160,11 @@ export interface GenerateHeroImageInput {
    * with the brand image model (Nano Banana lite) instead of the hero model. Absent = exactly as before.
    */
   direction?: ArtDirection | null;
+  /**
+   * What was learned for the hero's style (learning loops step 4, from learnedFor), added to the
+   * brief. Absent or null = no look, exactly as before: the email hero never read one until then.
+   */
+  learnedImageStyle?: string | null;
   /** The brand's usage: the brief and the image are counted, and the image cap is checked first. */
   usage: AiUsage;
 }
@@ -155,7 +190,7 @@ export async function generateHeroImage(
   const expandPrompt = renderPrompt("creative.image_brief", {
     brand_tone: strategyVars(input.campaign).brand_tone,
     brand_voice: brandVoiceSection(input.brandVoice),
-    brief: briefWithDirection(input.brief, input.direction ?? null),
+    brief: briefWithLook(briefWithDirection(input.brief, input.direction ?? null), input.learnedImageStyle),
   });
   // Expand the brief into a richer image prompt; fall back to the raw brief.
   const imagePrompt = (await generateText(expandPrompt, { usage: input.usage })) ?? input.brief;
@@ -276,6 +311,10 @@ export interface GenerateSocialImageInput {
   finish?: (img: GeneratedImage) => Promise<GeneratedImage>;
   /** The brand's usage: the brief, the image(s) and any best-of-N judging are counted, and the image cap is checked first. */
   usage: AiUsage;
+  /** What learnedFor gave this image, settled into its stamp here (learning loops step 4). */
+  learning: ImageLearning;
+  /** The id minted before learnedFor ran, so the holdback's hash and the library row name the same image. */
+  assetId?: string;
 }
 
 export interface GenerateSocialImageResult {
@@ -285,6 +324,8 @@ export interface GenerateSocialImageResult {
   imagePrompt: string | null;
   source: "agent3" | "unavailable";
   reason?: HeroImageFailure | "bad_type" | "too_large";
+  /** The image's settled stamp, once it is stored, for the route to count. */
+  made?: Made;
 }
 
 /**
@@ -315,7 +356,8 @@ export async function generateSocialPostImage(
   // this generation from the lite/text-only model to the FULL model so it can SEE the
   // brand look; otherwise stay on the lite path (bounds the added cost to the cases that
   // actually benefit). Gated by the flag + region + the per-generation override.
-  const styleRefs =
+  const learning = input.learning;
+  const fetchedStyleRefs =
     input.region && input.useBrandStyle !== false
       ? await retrieveExemplarImages({
           ctx: tenantCtx(input.tenantId, input.region),
@@ -330,12 +372,15 @@ export async function generateSocialPostImage(
     input.region && input.useBrandStyle !== false
       ? await retrieveBrandAssetRefs({ ctx: tenantCtx(input.tenantId, input.region) })
       : [];
+  // Held back: the style references from votes stay out, and the model path they'd take stays.
+  const styleRefs = learning.holdback ? [] : fetchedStyleRefs;
+  const refPath = fetchedStyleRefs.length + assetRefs.length > 0;
   const refs = [...styleRefs, ...assetRefs];
   const refDirective = refDirectiveFor(styleRefs.length, assetRefs.length);
   const produceImage = (): Promise<GeneratedImage | UsageLimited | null> =>
-    refs.length > 0
+    refPath
       ? generateEbookImage({
-          prompt: `${imagePrompt}\n\n${refDirective}`,
+          prompt: refDirective ? `${imagePrompt}\n\n${refDirective}` : imagePrompt,
           aspectRatio: SOCIAL_ASPECT_TO_GEMINI[input.aspect],
           styleRefImages: refs,
           // Operator override wins; else undefined keeps the ref path's full-model default.
@@ -346,10 +391,11 @@ export async function generateSocialPostImage(
           usage: input.usage,
         });
   // Best-of-N (L3): when enabled, generate several and auto-pick the most on-brand.
+  const bestOf = input.useBrandStyle !== false && isBestOfNEnabled() ? bestOfNCount() : 1;
   const made =
-    input.useBrandStyle !== false && isBestOfNEnabled()
+    bestOf > 1
       ? await generateBestOfN({
-          n: bestOfNCount(),
+          n: bestOf,
           generate: produceImage,
           styleReference: input.brandContext,
           brief: input.brief,
@@ -370,12 +416,21 @@ export async function generateSocialPostImage(
   const stored = await storeWorkspaceImage(input.tenantId, input.workspaceId, img.bytes, img.mimeType);
   if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };
   const cappedPrompt = imagePrompt.slice(0, 1000);
+  const stamp = settleStamp(learning.made, {
+    lookUsed: learning.lookUsed,
+    refs: styleRefs.length,
+    bestOf,
+    fallbackDrawn: learning.fallbackDrawn,
+    notLearning: learning.notLearning,
+  });
   // Register in the Brand Kit image library (best-effort — a Firestore blip must
   // never fail an already-stored image). Only when the caller supplies its region.
   if (input.region) {
     await recordImageAsset(
       { tenantId: input.tenantId, region: input.region },
       {
+        ...(input.assetId ? { id: input.assetId } : {}),
+        made: stamp,
         workspaceId: input.workspaceId,
         filename: stored.filename,
         mimeType: img.mimeType,
@@ -389,10 +444,14 @@ export async function generateSocialPostImage(
         parentAssetId: null,
         byteSize: img.bytes.length,
       },
-    ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+    ).catch(async (e) => {
+      console.warn("[brandKit] record social image failed:", e);
+      // The image goes on the post anyway, so its stamp is lost with the row (4.1).
+      await countLostStamp(tenantCtx(input.tenantId, input.region!), stamp);
+    });
   }
   // Cap the stored prompt to the ContentNode.imagePrompt schema limit (1000).
-  return { imageAssetRef: stored.filename, imagePrompt: cappedPrompt, source: "agent3" };
+  return { imageAssetRef: stored.filename, imagePrompt: cappedPrompt, source: "agent3", made: stamp };
 }
 
 export interface GenerateEbookImageInput {
@@ -434,6 +493,10 @@ export interface GenerateEbookImageInput {
   imageModel?: string;
   /** The brand's usage: the brief, the image(s) and any best-of-N judging are counted, and the image cap is checked first. */
   usage: AiUsage;
+  /** What learnedFor gave this image, settled into its stamp here (learning loops step 4). */
+  learning: ImageLearning;
+  /** The id minted before learnedFor ran, so the holdback's hash and the library row name the same image. */
+  assetId?: string;
 }
 
 export interface GenerateEbookImageResult {
@@ -443,6 +506,8 @@ export interface GenerateEbookImageResult {
   /** The Brand Kit registry row id created for this image (when input.region is set),
    *  so a caller that later discards the image can delete the dangling row. */
   imageAssetId?: string | null;
+  /** The image's settled stamp, once it is stored, for the route to count. */
+  made?: Made;
   reason?:
     | "image_model_unavailable"
     | "image_limit"
@@ -506,7 +571,9 @@ export async function generateEbookSlotImage(
   // Brand-style loop (L2): on CREATE only (never during an edit — that would confuse the
   // model with the prior image), attach on-brand style references so a fresh illustration
   // matches the learned look. Gated by flag + region + the per-generation override.
-  const styleRefs =
+  // Held back (learning loops step 4): the references from votes stay out, everything else stays.
+  const learning = input.learning;
+  const fetchedStyleRefs =
     !isEdit && input.region && input.useBrandStyle !== false
       ? await retrieveExemplarImages({
           ctx: tenantCtx(input.tenantId, input.region),
@@ -520,6 +587,7 @@ export async function generateEbookSlotImage(
     !isEdit && input.region && input.useBrandStyle !== false
       ? await retrieveBrandAssetRefs({ ctx: tenantCtx(input.tenantId, input.region) })
       : [];
+  const styleRefs = learning.holdback ? [] : fetchedStyleRefs;
   const refs = [...styleRefs, ...assetRefs];
   const refDirective = refDirectiveFor(styleRefs.length, assetRefs.length);
 
@@ -534,10 +602,11 @@ export async function generateEbookSlotImage(
     });
   // Best-of-N (L3) on CREATE + HERO surface only (the eBook cover) — never on an edit, and
   // never on every chapter illustration (that would multiply a long eBook's build cost).
+  const bestOf = !isEdit && input.heroSurface === true && input.useBrandStyle !== false && isBestOfNEnabled() ? bestOfNCount() : 1;
   const img =
-    !isEdit && input.heroSurface === true && input.useBrandStyle !== false && isBestOfNEnabled()
+    bestOf > 1
       ? await generateBestOfN({
-          n: bestOfNCount(),
+          n: bestOf,
           generate: produceImage,
           styleReference: input.brandContext,
           brief: input.brief,
@@ -557,11 +626,21 @@ export async function generateEbookSlotImage(
   // by filename (not assetId), so lineage (parentAssetId) is only resolvable in the
   // Brand Kit Customise flow — left null here. Return the created row id so the route
   // can delete it if the image is later discarded (not applied to the draft).
+  const stamp = settleStamp(learning.made, {
+    lookUsed: learning.lookUsed && !isEdit,
+    refs: styleRefs.length,
+    bestOf,
+    fallbackDrawn: learning.fallbackDrawn,
+    // An edit feeds the earlier image back with a short instruction: no look reaches it.
+    notLearning: learning.notLearning || isEdit,
+  });
   let recordedAssetId: string | null = null;
   if (input.region) {
     recordedAssetId = await recordImageAsset(
       { tenantId: input.tenantId, region: input.region },
       {
+        ...(input.assetId ? { id: input.assetId } : {}),
+        made: stamp,
         workspaceId: input.workspaceId,
         filename: stored.filename,
         mimeType: img.mimeType,
@@ -576,8 +655,10 @@ export async function generateEbookSlotImage(
       },
     )
       .then((a) => a.id)
-      .catch((e) => {
+      .catch(async (e) => {
         console.warn("[brandKit] record ebook image failed:", e);
+        // The image goes in the chapter anyway, so its stamp is lost with the row (4.1).
+        await countLostStamp(tenantCtx(input.tenantId, input.region!), stamp);
         return null;
       });
   }
@@ -586,6 +667,7 @@ export async function generateEbookSlotImage(
     imagePrompt: cappedPrompt,
     source: "gemini",
     imageAssetId: recordedAssetId,
+    made: stamp,
   };
 }
 
@@ -612,6 +694,8 @@ export interface CustomizeImageInput {
   imageModel?: string;
   /** The brand's usage: the image is counted, and the image cap is checked first. */
   usage: AiUsage;
+  /** Its stamp (learning loops step 4): Customise never learns, so arm none, or why there is none. */
+  made: Made;
 }
 
 export interface CustomizeImageResult {
@@ -670,6 +754,7 @@ export async function customizeImageAsset(
     const asset = await recordImageAsset(
       { tenantId, region },
       {
+        made: input.made,
         workspaceId: source.workspaceId,
         filename: stored.filename,
         mimeType: img.mimeType,

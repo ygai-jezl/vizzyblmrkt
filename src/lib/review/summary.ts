@@ -55,6 +55,8 @@ import { productName } from "@/lib/connectors/messages";
 import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { LoopKind } from "@/lib/loops/registry";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { learnedReviewItems } from "@/lib/loops/cards";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { workReviewItems } from "@/lib/work/review";
 import type { WorkReviewPayload } from "@/lib/work/reviewCards";
@@ -100,6 +102,7 @@ export type ReviewKind =
   | "paste_batch"
   | "business_fact"
   | "translation_check"
+  | "learned"
   | "page_translation";
 
 export interface ReviewItem {
@@ -116,6 +119,8 @@ export interface ReviewItem {
   signal?: { id: string };
   /** The detail as lines, each shown in full (a suggestion's numbers). */
   details?: string[];
+  /** A Go back card for a learned image look: Go back and Keep this look instead of the link (admins only). */
+  goBack?: { cardId: string; scope: string; to: number };
   /** A Work row's buttons (WORK_ENABLED): a check's read or Done and Tomorrow, Start, or a suggestion's Add to Work, Edit then add and Dismiss. */
   work?: WorkReviewPayload;
   /** The weekly strategy check's row: Dismiss beside the link (admins only). */
@@ -258,6 +263,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Translations of your journey emails, one row per journey. Readers of each language get the default until you approve theirs.",
     from: ["translation"],
   },
+  learned: {
+    title: "What YouGrow learned",
+    description: "Looks YouGrow learned that did worse than the look before. Nothing goes back on its own, and a card goes after 14 days.",
+    from: ["loop_learn"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -270,6 +280,7 @@ export const REVIEW_ORDER: ReviewKind[] = [
   "ai_line",
   "work_check",
   "work_ready",
+  "learned",
   "failed_post",
   "connection",
   "data_source",
@@ -1072,6 +1083,8 @@ export async function loadReview(
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
   const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
+  // Go back cards for learned image looks (IMAGE_STYLE_VERSIONS_ENABLED): admins act, members see them.
+  const learned = isImageStyleVersionsOn() ? await soft("learned looks", learnedReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
   // Work (WORK_ENABLED): checks due, tasks ready to start and Vizzy's task suggestions, for members
   // too, as Work's view shows them. One fake database stands for every database in tests.
   const work = isWorkEnabled()
@@ -1089,6 +1102,7 @@ export async function loadReview(
     ...[...failedPosts]
       .sort((a, b) => (b.scheduledAt ?? "").localeCompare(a.scheduledAt ?? ""))
       .map((p) => failedPostItem(p, workspaceNames.get(p.workspaceId))),
+    ...learned,
     ...connections.map(connectionItem),
     ...dataSources,
     ...agentJourneys.map((j) => agentJourneyItem(j, j.audience?.kind === "waitlist" ? launchNames.get(j.audience.campaignId) : undefined)),

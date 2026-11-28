@@ -422,6 +422,11 @@ describe("fromWorkLog", () => {
 
   it("carries the measure's kind and the read on a check, and says when a decision approves a plan", () => {
     expect(fromWorkLog(rows[3]!).properties).toMatchObject({ action: "read", measureKind: "used", which: "first", read: "better", counted: 212 });
+    // A count from the learning loops' counts across brands is for operators, so the event leaves it out.
+    const check = rows[3] as Extract<WorkLogRow, { kind: "check" }>;
+    const across = { ...check, check: { ...check.check, counted: { n: 1800, from: base.at, to: base.at, at: base.at, weeks: { read: 2, shown: 2, orgs: 12, open: 0, older: 0 } } } };
+    expect(WorkLogRowSchema.safeParse(across).success).toBe(true);
+    expect(fromWorkLog(across).properties).toMatchObject({ counted: null });
     expect(fromWorkLog(rows[4]!).properties).toMatchObject({ planApproval: true, agreed: null, chosen: "a", recommendedBy: null });
     expect(fromWorkLog(rows[0]!).properties).toEqual({ workstream: "Onboarding emails", state: "doing", tool: "work_page" });
   });

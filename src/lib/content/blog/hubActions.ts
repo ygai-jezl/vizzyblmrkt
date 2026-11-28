@@ -12,6 +12,9 @@ import { evaluateCitable } from "./citable";
 import { BLOG_WARNINGS, blogWarnings } from "./draft";
 import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
 import { aiUsage } from "@/lib/plans/meter";
+import { countMade } from "@/lib/loops/count";
+import { rootOf } from "@/lib/loops/made";
+import { learnedFor } from "@/lib/loops/read";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
 import { askOfPlan, fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
@@ -87,6 +90,12 @@ export async function researchPlanBlog(
   result.brief = await withRememberedAuthor(ctx, result.brief, deps.db);
   await rememberAuthor(ctx, result.brief, deps.db);
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
+  // A brief research filled is counted made where it is saved, under the purpose it searched for (LOOPS_ENABLED, learning loops step 5).
+  if (result.searched) {
+    const autopilot = args.searchPurpose === "autopilot_research";
+    const { stamp } = autopilot ? await learnedFor(ctx, "autopilot_research", { by: "autopilot" }) : await learnedFor(ctx, "blog_research");
+    await countMade(ctx, autopilot ? "autopilot_research" : "blog_research", stamp, { type: "content_plan", db: deps.db });
+  }
   // Its questions, subject and names are the page's facts on the brand map.
   await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
   const limited = result.searchLimited ? { searchLimited: true as const } : {};
@@ -175,6 +184,14 @@ export async function checkPlanBlogFacts(
   const report = evaluateCitable(result.body, { brief, meta: result.meta, pageUrl: plan.strategy.hubUrl, map });
   const owned = new Set<string>(BLOG_WARNINGS);
   const warnings = [...node.warnings.filter((w) => !owned.has(w)), ...blogWarnings(result.meta, report)];
+  // The checked copy is the check's, grown from the draft it started from (`root`). Words already
+  // stamped (the writer's draft, or an earlier check) were counted made when they were written:
+  // the check revises that made thing, so the node keeps its stamp and the check counts no made,
+  // a rerun included, and the approval answers the writer once (learning loops step 5, decision
+  // 20). Only a check of words with no stamp (a person's own) is a new made thing, the check's.
+  const { stamp: checkStamp } = await learnedFor(ctx, "fact_check", { promptId: "content.blog_fact_check", root: rootOf(node.made) });
+  const revises = Boolean(node.made && !("unstamped" in node.made));
+  const stamp = revises ? node.made! : checkStamp;
   let updated: ContentNode | null;
   try {
     updated = await updateContentPlanNode(
@@ -182,13 +199,14 @@ export async function checkPlanBlogFacts(
       workspace.id,
       plan.id,
       node.id,
-      { body: result.body, blog: result.meta, warnings },
+      { body: result.body, blog: result.meta, warnings, made: stamp },
       deps.db,
     );
   } catch {
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  if (!revises) await countMade(ctx, "fact_check", stamp, { type: "content_plan", db: deps.db });
   // The checked copy is still the AI's draft: it replaces the AI original the check started from.
   await followCheck(ctx, { planId: plan.id, nodeId: node.id, before: node.body, after: updated.body }, { db: deps.db }).catch(() => false);
   // The article is written: its author's details are kept for their next one, the notes it

@@ -547,9 +547,78 @@ export async function setTenantImageStyle(
   });
 }
 
-/** "Reset": remove the image style, so images go back to today's presets. A pending suggestion stays. */
-export async function clearTenantImageStyle(id: string, db: FirestoreLike = getDb() as unknown as FirestoreLike): Promise<void> {
-  await db.collection("tenants").doc(id).update({ imageStyle: FieldValue.delete(), updatedAt: new Date().toISOString() });
+/**
+ * "Reset": remove the image style, so images go back to today's presets. A pending suggestion
+ * stays. With `learnedBrandLook`, the brand look learned before versions is removed as well.
+ */
+export async function clearTenantImageStyle(
+  id: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+  opts: { learnedBrandLook?: boolean } = {},
+): Promise<void> {
+  await db
+    .collection("tenants")
+    .doc(id)
+    .update({
+      imageStyle: FieldValue.delete(),
+      // Reset with image style versions on (learning loops step 4, decision 17): the brand look
+      // learned before versions goes too, in the same write, once the seed has copied it.
+      ...(opts.learnedBrandLook
+        ? {
+            "brandKit.learnedImageStyle": FieldValue.delete(),
+            "brandKit.learnedImageStyleUpdatedAt": FieldValue.delete(),
+            "brandKit.learnedImageStyleSampleCount": FieldValue.delete(),
+          }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    });
+}
+
+/**
+ * Clear looks kept on the brand record from before image style versions, once a person forgot
+ * them (learning loops step 4, 3.5 Forget): the brand look, and the named entries of each style's
+ * look, each only when it was written at or before `writtenBy`, so a look the old learner wrote
+ * afterwards (with versions switched off) is left alone. Returns how many it cleared; the loops
+ * lane calls it again on each visit until the old copy is gone.
+ */
+export async function clearOldLooks(
+  id: string,
+  which: { brand?: boolean; styleKeys?: readonly string[]; writtenBy: string },
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<number> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return 0;
+    const data = snap.data() ?? {};
+    const before = (at: unknown) => typeof at !== "string" || at <= which.writtenBy;
+    const write: Record<string, unknown> = {};
+    let cleared = 0;
+    const kit = (data.brandKit ?? {}) as Record<string, unknown>;
+    if (which.brand && typeof kit.learnedImageStyle === "string" && kit.learnedImageStyle.trim() && before(kit.learnedImageStyleUpdatedAt)) {
+      write["brandKit.learnedImageStyle"] = FieldValue.delete();
+      write["brandKit.learnedImageStyleUpdatedAt"] = FieldValue.delete();
+      write["brandKit.learnedImageStyleSampleCount"] = FieldValue.delete();
+      cleared += 1;
+    }
+    const kept = storedImageStyle(data);
+    if (kept?.learned && which.styleKeys?.length) {
+      const learned = { ...kept.learned } as Record<string, { directive?: string | null; updatedAt?: string } | undefined>;
+      let styles = 0;
+      for (const key of which.styleKeys) {
+        const entry = learned[key];
+        if (entry?.directive && before(entry.updatedAt)) {
+          delete learned[key];
+          styles += 1;
+        }
+      }
+      if (styles > 0) write.imageStyle = JSON.parse(JSON.stringify({ ...kept, learned }));
+      cleared += styles;
+    }
+    if (cleared === 0) return 0;
+    tx.update(ref, { ...write, updatedAt: new Date().toISOString() });
+    return cleared;
+  });
 }
 
 /** Save Vizzy's image style suggestion, replacing any older one. Never touches `imageStyle`. */

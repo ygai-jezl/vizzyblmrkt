@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { learnedFor } from "@/lib/loops/read";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
@@ -66,7 +68,9 @@ export async function POST(req: Request) {
     brandVoice: await activeBrandVoiceText(ctx.tenantId),
     usage: aiUsage(ctx, "email_copy"),
   });
-  return NextResponse.json(result);
+  // Handed to the browser to save later: counted made once; the email's save checks no token yet, so none is signed (learning loops step 5, decision 20).
+  const stampToken = await handBack(ctx, "email_copy", (await learnedFor(ctx, "email_copy")).stamp);
+  return NextResponse.json(withStampToken(result, stampToken));
 }
 
 function summarizePerformance(broadcasts: Broadcast[]): string {

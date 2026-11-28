@@ -1,4 +1,6 @@
 import { generateGroundedJson, isSearchLimited } from "./gemini";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
 import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "./prompts/registry";
 import { embedQuery } from "./embeddings";
@@ -95,6 +97,8 @@ export async function refreshTrendingTopics(
       },
       db,
     );
+    // A set with topics is counted made where it is saved (LOOPS_ENABLED, learning loops step 5).
+    if (topics.length) await countMade(ctx, "trending", (await learnedFor(ctx, "trending", { promptId: "content.trending_topics" })).stamp, { type: "trending_topic", db });
     return topics.length;
   } catch (err) {
     console.warn("[trending] refresh failed:", err instanceof Error ? err.message.slice(0, 200) : "error");

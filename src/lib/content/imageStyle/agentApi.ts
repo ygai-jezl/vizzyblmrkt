@@ -4,12 +4,18 @@ import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasConte
 import { BRAND_KIT_IMAGE_STYLE_ROUTE } from "@/lib/content/brandKit";
 import { IMAGE_STYLE_CHANNELS } from "@/lib/types/imageStyle";
 import { IMAGE_STYLES, imageStyleById, isStyleAvailable } from "./catalogue";
-import { isBlogHeroEnabled, isBrandImageStyleEnabled, isMoreStylesEnabled } from "./flags";
+import { isBlogHeroEnabled, isBrandImageStyleEnabled, isImageStyleVersionsOn, isMoreStylesEnabled } from "./flags";
+import { learnedForVizzy, type LearnedViewDeps } from "@/lib/loops/learnedView";
 
 /**
  * For Vizzy: the brand's image style (saved, pending suggestion, the styles it can pick from), so
  * it can answer "what's my image style?" and suggest one. Brand-wide; no person's data. Auth: the
  * signed canvas capability token; gated by BRAND_IMAGE_STYLE_ENABLED.
+ *
+ * With image style versions on (IMAGE_STYLE_VERSIONS_ENABLED, learning loops step 4, 3.10) it also
+ * returns `learned`: each style's look, who set it, where it came from, how its images did, its
+ * checks and History in words, the reasons given with votes and the newest notes, quoted as data.
+ * Read only: Vizzy never changes a look. With versions off the answer is as before.
  */
 
 export type ApiResult = { status: number; body: unknown };
@@ -24,8 +30,15 @@ export function imageStyleAgentGate(req: Request): { ok: true; ctx: TenantContex
 
 const label = (id: string | null | undefined) => (id ? (imageStyleById(id)?.label ?? id) : null);
 
-export async function agentImageStyle(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
+export async function agentImageStyle(ctx: TenantContext, db?: FirestoreLike, learnedDeps: LearnedViewDeps = {}): Promise<ApiResult> {
   const tenant = await getTenantById(ctx.tenantId, db).catch(() => null);
+  // A read of what was learned that fails leaves it out, never the rest of the answer.
+  const learned = isImageStyleVersionsOn()
+    ? await learnedForVizzy(ctx, { db, ...learnedDeps }).catch((err: unknown) => {
+        console.warn("[image style] Vizzy's read of what was learned failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+        return null;
+      })
+    : undefined;
   if (!tenant) return { status: 404, body: { error: "tenant_not_found" } };
   const saved = tenant.imageStyle;
   const pending = tenant.imageStyleSuggestion;
@@ -58,6 +71,8 @@ export async function agentImageStyle(ctx: TenantContext, db?: FirestoreLike): P
       blogHero: isBlogHeroEnabled(),
       canSuggest: ctx.role === "admin",
       url: BRAND_KIT_IMAGE_STYLE_ROUTE,
+      // learned[]: one entry per style shown on What it learned; null when its read failed.
+      ...(learned === undefined ? {} : learned === null ? { learned: null } : { learned: learned.looks, learningPaused: learned.paused, learningSetUp: !learned.notSetUp }),
     },
   };
 }

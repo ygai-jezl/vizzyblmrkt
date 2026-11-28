@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { learnedFor } from "@/lib/loops/read";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, isRateLimited } from "@/lib/tenant";
@@ -28,5 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
   if (await isRateLimited(`tenant:${ctx.tenantId}`, SUGGEST_ANGLE_LIMIT)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   const r = await suggestAngle(ctx, { id: ws.id, name: ws.name }, parsed.data);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
-  return NextResponse.json({ spark: r.spark, basis: r.basis });
+  // Handed to the wizard to use: counted made once; no save checks a token for it yet, so none is signed (learning loops step 5, decision 20).
+  const stampToken = await handBack(ctx, "content_angle", (await learnedFor(ctx, "content_angle")).stamp);
+  return NextResponse.json(withStampToken({ spark: r.spark, basis: r.basis }, stampToken));
 }

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { keptFromTokens } from "@/lib/loops/handBack";
+import { tokensFromRequest } from "@/lib/loops/stampHeader";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
@@ -31,5 +33,9 @@ export async function PUT(req: Request) {
   const existing = await getTenantById(ctx.tenantId);
   const merged = withPreservedLearnedStyle(parsed.data, existing?.brandKit);
   await updateTenantConfig(ctx.tenantId, { brandKit: merged });
+  // The stamps of the colours kept from a source, if the person saved any: checked here and
+  // counted kept, a refused token counted (learning loops step 5, decision 20). An extracted kit
+  // was counted kept where its route stored it. Off, nothing is read.
+  await keptFromTokens(ctx, ["brand_kit"], tokensFromRequest(req));
   return NextResponse.json({ brandKit: merged });
 }

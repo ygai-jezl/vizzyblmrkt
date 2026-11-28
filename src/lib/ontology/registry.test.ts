@@ -16,12 +16,6 @@ const ROOT = process.cwd();
  * once a type claims it with the tool that returns it.
  */
 const NOT_SERVED_YET: Record<string, string> = {
-  editShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  keptShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  declineShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  likedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  unusedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  remadeShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
   conversions: "Nothing counts it yet; a Work measure shows it in the brand's own word.",
 };
 

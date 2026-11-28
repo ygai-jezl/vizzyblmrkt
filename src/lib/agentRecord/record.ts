@@ -5,9 +5,10 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import type { AgentTarget, EventActor } from "@/lib/ontology/events";
 import { AgentActionSchema, agentDedupeKey, type AgentAction, type DeclineReason } from "@/lib/types/agentAction";
+import type { LoopStamp, Made } from "@/lib/types/loopStamp";
 import { isAgentRecordEnabled } from "./flags";
 import { hash16, stableJson } from "./fingerprints";
-import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction } from "./sources";
+import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction, type SourceLine } from "./sources";
 
 /**
  * Agent record (ADR-0026): recording an agent's draft beside its own save, and closing the record
@@ -24,6 +25,10 @@ import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction } from "./sou
  * - Superseded, stale and expired are the system's, never a person's no. Every record asks 0e to
  *   clear its proposal when it closes (clearDetailsOnClose), so a decline, 0e's own expiry sweep
  *   included, keeps nothing of the draft (decision 25). Acted keeps the label, moved to `result`.
+ * - The loops (learning loops step 5): a line whose outcome is counted here (`countsAt:
+ *   "transition"`) keeps the stamp of what made the draft, so transitionAgentAction counts the
+ *   person's answer once against it (kept, edited by the fingerprint, or dismissed). A line
+ *   counted at its own path keeps none, so its answer is never counted twice.
  */
 
 /** A draft as the record names it: its kind (a store) and its id there. */
@@ -63,9 +68,25 @@ export interface RecordDraftInput {
   keyPart?: string;
   /** Who asked: the member in the chat or on the page by default; the system for the autopilot. */
   requestedBy?: EventActor;
+  /** What made the draft (learning loops step 5): kept only for a line counted here (stampOf). */
+  made?: Made;
 }
 
 export type RecordOutcome = "recorded" | "same" | "off" | "failed";
+
+/** A draft recorded, and whether its save left a draft already counted (learning loops step 5). */
+export interface RecordResult {
+  outcome: RecordOutcome;
+  /**
+   * True when the save left a draft already counted made and not yet answered: the record open
+   * for it before kept a stamp (Vizzy's new words, or a save of another kind, on its own draft),
+   * or nothing changed. False when nothing was open, the open record kept no stamp (a person's
+   * draft, or one saved with LOOPS_ENABLED off) or it had expired, so the save is a new made thing.
+   * Null with the record off or failed before it could tell: no record keeps the answer then, so
+   * the caller's own rule decides.
+   */
+  counted: boolean | null;
+}
 
 export type DraftOutcome =
   | {
@@ -143,6 +164,25 @@ function proposalOf(input: RecordDraftInput): Record<string, unknown> {
   };
 }
 
+/** A stamp, leaving out a save with none. */
+const stampIn = (m: Made | null | undefined): LoopStamp | undefined => (m && !("unstamped" in m) ? m : undefined);
+
+/**
+ * The stamp a record keeps (learning loops step 5): none for a line the loops count at its own
+ * path (invite waves, content plans, the autopilot, brand map runs), so an answer counts once
+ * there. Otherwise the newest save's stamp, as Vizzy's new words take the newest stamp; but a save
+ * of another kind on a draft already recorded (a style on a journey Vizzy drafted) keeps the
+ * draft's own stamp, as the record keeps its first action and target, so the answer counts under
+ * the kind that made the draft. Pure.
+ */
+export function stampOf(line: Pick<SourceLine, "countsAt">, made: Made | null | undefined, open: AgentAction | undefined): LoopStamp | undefined {
+  if (line.countsAt !== "transition") return undefined;
+  const now = stampIn(made);
+  const was = stampIn(open?.made);
+  if (was && now && was.kind !== now.kind) return was;
+  return now ?? was;
+}
+
 /** The same draft as the open record holds: nothing to write. */
 function sameAs(open: AgentAction, proposal: Record<string, unknown>): boolean {
   return stableJson(open.proposal ?? {}) === stableJson(proposal);
@@ -164,13 +204,21 @@ async function declineAsSystem(ctx: TenantContext, a: AgentAction, reason: Decli
  * a record open for this draft as superseded (closing runs whatever the switch says). Never throws.
  */
 export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, deps: RecordDeps = {}): Promise<RecordOutcome> {
+  return (await recordDraftCounted(ctx, input, deps)).outcome;
+}
+
+/**
+ * recordDraft, saying too whether the draft was already counted (RecordResult.counted), so a
+ * canvas kind counts made once for each record an answer can close (decision 20). Never throws.
+ */
+export async function recordDraftCounted(ctx: TenantContext, input: RecordDraftInput, deps: RecordDeps = {}): Promise<RecordResult> {
   try {
     const nowMs = deps.nowMs ?? Date.now();
     const at = new Date(nowMs).toISOString();
     const open = await openRecordsFor(ctx, input.draft, deps.db);
     if (!isAgentRecordEnabled()) {
       for (const a of open) await declineAsSystem(ctx, a, "superseded", at, deps.db);
-      return "off";
+      return { outcome: "off", counted: null };
     }
     const proposal = proposalOf(input);
     const [first, ...older] = open;
@@ -187,9 +235,12 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
       : agentDedupeKey(line.action, refPart(input.draft.ref), randomUUID().replace(/-/g, ""));
     // Nothing changed, and the open record is still the one its page will name: a style suggested
     // again unchanged gets a new suggestedAt, so its record moves to the new key.
-    if (newest && sameAs(newest, proposal) && (!input.keyPart || newest.dedupeKey === dedupeKey)) return "same";
+    if (newest && sameAs(newest, proposal) && (!input.keyPart || newest.dedupeKey === dedupeKey)) return { outcome: "same", counted: true };
+    // The open record's stamp was counted made when it was saved, and its answer moves to the new record.
+    const counted = Boolean(stampIn(newest?.made));
     if (newest) await declineAsSystem(ctx, newest, "superseded", at, deps.db);
     const target: AgentTarget = newest ? newest.target : input.launchId ? { type: "idea", id: input.launchId } : { type: "brand", id: ctx.tenantId };
+    const made = stampOf(line, input.made, newest);
     const saved = await proposeAgentAction(
       ctx,
       {
@@ -207,14 +258,16 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
         expiresAt: new Date(nowMs + line.expiryDays * DAY_MS).toISOString(),
         // Whoever closes it, 0e's expiry sweep too, the proposal goes with the decision (decision 25).
         clearDetailsOnClose: true,
+        // Kept only with LOOPS_ENABLED on (keptMade, in proposeAgentAction).
+        ...(made ? { made } : {}),
         at,
       },
       { db: deps.db },
     );
-    return saved.outcome === "created" ? "recorded" : "same";
+    return saved.outcome === "created" ? { outcome: "recorded", counted } : { outcome: "same", counted: true };
   } catch (err) {
     failed(`record ${input.action}`, err);
-    return "failed";
+    return { outcome: "failed", counted: null };
   }
 }
 

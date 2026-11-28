@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LoopStamp } from "@/lib/types/loopStamp";
 
 // The social post image: with the image style off, exactly today's inputs; on, the post's own
 // pick, then the brand's channel style, then its default, saved with the post.
@@ -35,8 +36,27 @@ vi.mock("@/lib/content/imageStyle/formatScene", () => scene);
 vi.mock("@/lib/content/imageStyle/render/styleImage", () => render);
 const store = vi.hoisted(() => ({ storeWorkspaceImage: vi.fn(async () => ({ ok: true, filename: "drawn.png" })) }));
 vi.mock("@/lib/workspace/assetStore", () => store);
-const kit = vi.hoisted(() => ({ recordImageAsset: vi.fn(async (_s: unknown, _row: Record<string, unknown>) => ({})) }));
+const kit = vi.hoisted(() => ({
+  recordImageAsset: vi.fn(async (_s: unknown, _row: Record<string, unknown>) => ({})),
+  newImageAssetId: vi.fn(() => crypto.randomUUID()),
+}));
 vi.mock("@/lib/admin/brandKit", () => kit);
+// The learning loops' reader, remakes and counts, watched; each does what it does unless a test says.
+vi.mock("@/lib/loops/read", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/loops/read")>();
+  return { ...real, learnedFor: vi.fn(real.learnedFor) };
+});
+vi.mock("@/lib/loops/remake", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/loops/remake")>();
+  return { ...real, readRemake: vi.fn(real.readRemake), recordRemake: vi.fn(async () => true), remakeUsage: vi.fn(real.remakeUsage) };
+});
+vi.mock("@/lib/loops/count", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/loops/count")>();
+  return { ...real, countMade: vi.fn(async () => undefined) };
+});
+const loopsRead = await import("@/lib/loops/read");
+const loopsRemake = await import("@/lib/loops/remake");
+const loopsCount = await import("@/lib/loops/count");
 
 const { POST } = await import("./route");
 
@@ -308,5 +328,76 @@ describe("POST post-image", () => {
       expect(render.renderStyleImage).not.toHaveBeenCalledWith(expect.objectContaining({ template: "partner" }));
       expect(creative.generateSocialPostImage).toHaveBeenCalled();
     });
+  });
+});
+
+describe("POST post-image with image style versions on (learning loops step 4)", () => {
+  const held: LoopStamp = {
+    made: "m1.image_style.natural_photo.2.h",
+    kind: "post_image",
+    scope: "image_style.natural_photo",
+    v: 2,
+    arm: "holdback",
+    items: [],
+    prompt: null,
+    tokens: { rules: 0, examples: 0 },
+    at: "2027-01-15T10:00:00.000Z",
+  };
+  beforeEach(() => {
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    content.getContentPlan.mockResolvedValue({ graph: { nodes: [{ ...plan.graph.nodes[0], imageAssetRef: "earlier.png" }] } });
+  });
+
+  it("reads the look for the image's style with the id minted first, makes it with the holdback, and counts it where saved", async () => {
+    const remake = { kind: "post_image" as const, earlier: { id: "img-earlier" } as never, counts: true, purpose: "loop_learn" as const };
+    vi.mocked(loopsRemake.readRemake).mockResolvedValueOnce(remake);
+    vi.mocked(loopsRead.learnedFor).mockResolvedValueOnce({ block: { look: null, holdback: true }, stamp: held });
+    creative.generateSocialPostImage.mockResolvedValueOnce({ imageAssetRef: "img.png", imagePrompt: "p", source: "agent3", made: held } as never);
+
+    const res = await POST(req({ brief: "Loaves cooling", aspect: "1:1", styleId: "natural_photo" }), params);
+    expect(res.status).toBe(200);
+    expect(loopsRemake.readRemake).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_A" }), "post_image", "earlier.png");
+    expect(loopsRemake.remakeUsage).toHaveBeenCalledWith(expect.anything(), remake, expect.anything());
+    const [, kind, opts] = vi.mocked(loopsRead.learnedFor).mock.calls.at(-1)!;
+    expect(kind).toBe("post_image");
+    expect(opts).toMatchObject({ scope: "image_style.natural_photo", useBrandStyle: true, promptId: "content.social_image_brief" });
+    const call = lastCall() as { assetId: string; learning: unknown; brandContext: string };
+    expect(opts!.outputId).toBe(call.assetId);
+    expect(call.learning).toEqual({ made: held, lookUsed: false, holdback: true, fallbackDrawn: false, notLearning: false });
+    expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "post_image", held, { type: "image_asset" });
+    expect(loopsRemake.recordRemake).toHaveBeenCalledWith(expect.anything(), remake, call.assetId);
+  });
+
+  it("a drawn style stamps its row arm none in its own scope, and counts it", async () => {
+    tenantMod.getTenantById.mockResolvedValueOnce({ imageStyle: { defaultStyleId: "headline_card" } });
+    const res = await POST(req({ aspect: "4:5", styleId: "brand" }), params);
+    expect(res.status).toBe(200);
+    const row = kit.recordImageAsset.mock.calls.at(-1)![1] as { id: string; made: Record<string, unknown> };
+    expect(row.made).toMatchObject({ kind: "post_image", scope: "image_style.headline_card", v: 0, arm: "none" });
+    expect(row.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "post_image", row.made, { type: "image_asset" });
+    expect(loopsRemake.recordRemake).toHaveBeenCalledWith(expect.anything(), expect.anything(), row.id);
+  });
+
+  it("with Use learned brand style unticked, the look stays out and the stamp says person_off", async () => {
+    vi.mocked(loopsRead.learnedFor).mockImplementationOnce(async (_c, _k, o) => ({
+      block: { look: null, holdback: false },
+      stamp: { ...held, made: "m1.image_style.natural_photo.0.n", v: 0, arm: "none", sources: ["person_off"], useBrandStyle: o?.useBrandStyle } as never,
+    }));
+    await POST(req({ brief: "Loaves cooling", aspect: "1:1", styleId: "natural_photo", useBrandStyle: false }), params);
+    expect(vi.mocked(loopsRead.learnedFor).mock.calls.at(-1)![2]).toMatchObject({ useBrandStyle: false, legacy: null });
+    expect((lastCall() as { useBrandStyle: boolean }).useBrandStyle).toBe(false);
+  });
+});
+
+describe("POST post-image with image style versions off (decision 22)", () => {
+  it("reads no loops, counts nothing and meters post_image as before", async () => {
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    await POST(req({ brief: "A desk", aspect: "1:1", styleId: "soft_3d" }), params);
+    expect(loopsRemake.remakeUsage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ purpose: "post_image", earlier: null }), expect.anything());
+    expect((lastCall() as { learning: unknown }).learning).toMatchObject({ made: { unstamped: "image_versions_off" } });
+    expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "post_image", { unstamped: "image_versions_off" }, { type: "image_asset" });
   });
 });

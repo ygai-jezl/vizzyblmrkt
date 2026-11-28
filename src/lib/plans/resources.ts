@@ -73,6 +73,7 @@ export const RESOURCES = {
       "judge",
       "post_feedback",
       "images",
+      "loop_learn",
       "vizzy_chat",
       "product_map",
       "onboarding",
@@ -87,7 +88,9 @@ export const RESOURCES = {
     unit: "images",
     capped: true,
     shownAs: null,
-    purposes: ["blog_hero", "post_image", "email_block_image", "email_hero", "ebook_image", "customize_image", "carousel"],
+    // loop_learn: the first remake of a held back image (learning loops step 4), counted here but
+    // never toward the cap (UNCAPPED_PURPOSES in src/lib/plans/meter.ts).
+    purposes: ["blog_hero", "post_image", "email_block_image", "email_hero", "ebook_image", "customize_image", "carousel", "loop_learn"],
   },
   /** Google results looked up through DataForSEO: shown, and capped, on the Next up row. */
   google_lookups: {
@@ -174,6 +177,7 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   judge: "Sorting what buyers ask",
   post_feedback: "Learning from posts",
   images: "Images",
+  loop_learn: "Learning and checking it helps",
   vizzy_chat: "Vizzy chat",
   product_map: "Learning your product",
   onboarding: "Getting to know you",

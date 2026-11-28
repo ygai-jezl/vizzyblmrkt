@@ -26,6 +26,7 @@ from root_agent_pkg.tools.next_up import get_next_up  # noqa: E402
 from root_agent_pkg.tools.brand_strategy import get_brand_strategy  # noqa: E402
 from root_agent_pkg.tools.content_strategy import get_content_strategy  # noqa: E402
 from root_agent_pkg.tools.usage import get_usage  # noqa: E402
+from root_agent_pkg.tools.learning import get_learning  # noqa: E402
 from root_agent_pkg.tools.settings_history import get_settings_history  # noqa: E402
 from root_agent_pkg.tools.drafts import get_drafts  # noqa: E402
 from root_agent_pkg.tools.articles_due import list_articles_due  # noqa: E402
@@ -72,6 +73,7 @@ TOOLS = [
     get_brand_strategy,
     get_content_strategy,
     get_usage,
+    get_learning,
     get_settings_history,
     get_drafts,
     list_articles_due,
@@ -241,6 +243,19 @@ def test_lifecycle_ops_can_read_and_suggest_a_persons_fields():
     props, required = _params(FunctionTool(person_fields_propose)._get_declaration())
     assert set(props) == {"changes", "why", "person_id"}
     assert sorted(required) == ["changes", "why"]
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_root_agent_reads_its_own_learning_and_never_names_a_brand():
+    from root_agent_pkg.agent import root_agent
+
+    assert get_learning in root_agent.tools
+    props, required = _params(FunctionTool(get_learning)._get_declaration())
+    # Kinds, all kinds and days only: the brand comes from the session token.
+    assert set(props) == {"kinds", "all_kinds", "days"} and not required
+    doc = " ".join((get_learning.__doc__ or "").split())
+    assert "last 90 days" in doc and "learning kinds first" in doc
+    assert "never another brand's" in doc and "call get_image_style" in doc
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")

@@ -24,7 +24,8 @@ function Box({ title, tone, children }: { title: string; tone: "plain" | "accent
       : "border-neutral-200 dark:border-neutral-800";
   return (
     <div className={`rounded-lg border px-4 py-3 ${cls}`}>
-      <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{title}</p>
+      {/* On the accent box's sky, neutral-500 reads 4.45:1, under AA for small text: neutral-600 does. */}
+      <p className={`text-xs font-semibold uppercase tracking-wider ${tone === "accent" ? "text-neutral-600" : "text-neutral-500"} dark:text-neutral-400`}>{title}</p>
       <UL>{children}</UL>
     </div>
   );

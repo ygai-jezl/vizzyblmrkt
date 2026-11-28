@@ -16,7 +16,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
   return { ...real, listAllTenants: (...a: Parameters<typeof real.listAllTenants>) => ((allTenantsRead.n += 1), real.listAllTenants(...a)) };
 });
 import type { TenantContext } from "@/lib/tenant/types";
-import { OPERATOR_COUNT_LINE } from "./words";
+import { IMAGES_OFF_LINE, OPERATOR_COUNT_LINE } from "./words";
 import type { WorkLogRow, WorkLogRowOf, WorkTask } from "./types";
 
 // Checks and the one tap read. Lumen Notes is in New York time (08:00 is 13:00 UTC in winter).
@@ -378,5 +378,42 @@ describe("a count of this copy's own purposes (operators only)", () => {
     const day = value(await logDay(samScope, null, w.deps));
     expect(JSON.stringify(day)).not.toMatch(/"units"/);
     expect(JSON.stringify(value(await logDay(await nina(), null, w.deps)))).toMatch(/"units":2468/);
+  });
+
+  it("with the learning loops on, comes from the weekly counts across brands, never every brand's meter, and stays the operators' own", async () => {
+    const t = await duePurposeTask();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    // Done on 20 Nov (2026-W47), due 27 Nov (W48): W47 is closed, W48 isn't over.
+    w.control.seed("fleet_cells", "fh:_calls:2026-W47", { n: { orgs: { content_angle: 12 }, calls: { content_angle: 340 } } });
+    allTenantsRead.n = 0;
+    const page = value(await taskPage(await nina(), t.ref, w.deps));
+    expect(allTenantsRead.n).toBe(0);
+    expect(page.task.check?.counted).toMatchObject({ n: 340, weeks: { read: 1, shown: 1, orgs: 12, open: 1, older: 0, beforeDone: true } });
+    expect(page.checkLine).toMatch(/^Work counted about 340 AI calls for suggesting angles across brands in the week of 16 Nov, from 12 organisations\. /);
+    expect(page.checkLine).toContain("The week of 23 Nov isn't over yet, so it isn't counted.");
+    const samScope = await w.scope(PEOPLE.sam);
+    const sam = value(await taskPage(samScope, t.ref, w.deps));
+    expect(sam.task.check?.counted).toBeNull();
+    expect(sam.checkLine).toBe(OPERATOR_COUNT_LINE);
+    // The read's row and the count's change row keep it; the Log gives it only to operators.
+    value(await act({ ref: t.ref, action: "read", read: "better" }));
+    const samDay = JSON.stringify(value(await logDay(samScope, null, w.deps)));
+    // The count itself, never a bare 340, which a random row id can hold.
+    expect(samDay).not.toMatch(/"weeks"|"n":340\b|about 340\b/);
+    expect(JSON.stringify(value(await logDay(await nina(), null, w.deps)))).toMatch(/"weeks":\{"read":1/);
+  });
+
+  it("with only the learning loops on, keeps an image kind's check uncounted and says images aren't counted on this copy", async () => {
+    vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const images: MeasureInput = { kind: "used", counts: { loopKind: "post_image" }, look: { days: 7 } };
+    const t = await add({ title: "Brighter post images", brandId: LUMEN_US, measure: images, status: "done" });
+    w.at("2026-11-27T14:00:00.000Z");
+    w.control.seed("fleet_cells", "fh:image_style:2026-W47", { n: { orgs: 12, week: { orgs: 12 }, made: { orgs: 12 }, out: { learned: { made: 90 } } } });
+    const page = value(await taskPage(await nina(), t.task.task.ref, w.deps));
+    // Nothing is kept on the check, so it is counted once image style versions are on.
+    expect(page.task.check?.counted ?? null).toBeNull();
+    expect(page.checkLine).toBe(IMAGES_OFF_LINE);
+    expect(w.control.collectionCalls("fleet_cells")).toBe(0);
   });
 });

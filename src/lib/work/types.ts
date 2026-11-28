@@ -332,12 +332,42 @@ export type WorkSource = z.infer<typeof WorkSourceSchema>;
 
 // --- Checks ------------------------------------------------------------------------------------
 
+/** The most closed weeks one count from the learning loops reads: USED_WEEKS_MAX in src/lib/loops/used.ts, which a test holds this to. */
+export const COUNTED_WEEKS_MAX = 13;
+
+/**
+ * A count from the learning loops' weekly counts across brands (LOOPS_ENABLED on, for a purpose, a
+ * type or a LOOPS kind), never a walk over brands. `read`: the closed ISO weeks read, the newest
+ * 13 at most, with `from` the first one's Monday and `to` the last one's end; `shown`: those with
+ * counts from 10 organisations or more, which `n` adds up; `orgs`: the fewest organisations in a
+ * week shown; `open` from `openFrom`: weeks the check covers that weren't over when it was
+ * counted, left out; `older`: closed weeks before the 13 read, left out; `beforeDone`: the first
+ * week read starts before Done; `row`: the row a LOOPS kind counts under when that isn't the kind
+ * itself, as the image kinds count together.
+ */
+export const CountedWeeksSchema = z
+  .object({
+    read: z.number().int().min(0).max(COUNTED_WEEKS_MAX),
+    shown: z.number().int().min(0).max(COUNTED_WEEKS_MAX),
+    orgs: z.number().int().min(0).optional(),
+    open: z.number().int().min(0),
+    openFrom: Canonical.optional(),
+    older: z.number().int().min(0),
+    beforeDone: z.boolean().optional(),
+    row: z.string().max(60).optional(),
+  })
+  .strict();
+export type CountedWeeks = z.infer<typeof CountedWeeksSchema>;
+
 /**
  * What a measure's check counted, read once when the check first shows and kept on it: a count
  * (`n`), units a purpose spent, how many brands used it (or `hidden` below the cell size), and
  * `capped` with `backTo` when only the newest rows could be read. `backTo` alone: a product
  * event's count starts after `from`, where the events still kept (90 days) began when it was
  * counted. `gone`, with no `n`: none of the time from `from` to `to` was still kept by then.
+ * `weeks`: the count came from the learning loops' weekly counts (CountedWeeksSchema), with `n`
+ * the weeks shown added up, or `hidden` when none showed. Every field but the times is optional,
+ * so a check counted before any of them still reads.
  */
 export const CountedSchema = z.object({
   n: z.number().int().min(0).optional(),
@@ -347,11 +377,20 @@ export const CountedSchema = z.object({
   capped: z.boolean().optional(),
   backTo: Canonical.optional(),
   gone: z.boolean().optional(),
+  weeks: CountedWeeksSchema.optional(),
   from: Canonical,
   to: Canonical,
   at: Canonical,
 });
 export type Counted = z.infer<typeof CountedSchema>;
+
+/**
+ * A count only the people who run this copy's own learning loop see (decision 14): a purpose's
+ * units from every brand's meter, or a count from the loops' weekly counts across brands.
+ */
+export function isOperatorCounted(c: { units?: unknown; weeks?: unknown } | null | undefined): boolean {
+  return !!c && (c.units !== undefined || c.weeks !== undefined);
+}
 
 export const CHECK_KINDS = ["date", "after_task"] as const;
 export const MEASURE_WHICH = ["first", "then"] as const;

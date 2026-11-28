@@ -93,7 +93,7 @@ describe("is the article live?", () => {
     type Stored = { graph: { nodes: Array<{ body: string; blog: { metaTitle: string; live?: { at: string } } }> } };
     const hub = () => (db.raw(PLANS, "plan_1") as Stored).graph.nodes[0]!;
     // A fact check or a rewrite writes the node's meta afresh: the mark stays.
-    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }) }, db);
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }), made: { unstamped: "nothing_made" } }, db);
     expect(hub()).toMatchObject({ blog: { metaTitle: "New title", live: { at: "2026-01-10T00:00:00.000Z" } } });
     // A canvas save sends the whole graph, its own copy of the meta without the mark: the mark stays.
     const stale = samplePlan({}, sampleHub({ status: "approved", body: "edited" }));
@@ -187,7 +187,7 @@ describe("true dates with the live mark (BLOG_DATES_ENABLED)", () => {
     await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark", day: "2026-10-03" }, { db, now });
     const want = { published: { at: "2026-10-03", source: "person" as const } };
     // A fact check or a rewrite writes the meta afresh.
-    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }) }, db);
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }), made: { unstamped: "nothing_made" } }, db);
     expect(hub(db)).toMatchObject({ blog: { metaTitle: "New title", dates: want } });
     // A canvas save sends its own copy of the meta, without them.
     await updateContentPlan(ctx, "ws1", "plan_1", { graph: samplePlan({}, sampleHub({ status: "approved", body: "edited" })).graph }, db);

@@ -79,7 +79,7 @@ describe("a draft's question rows close once it is done with", () => {
 
   it("closes them on the hourly look when the article was approved some other way", async () => {
     const { db, runId } = await setup("As autopilot wrote it");
-    await updateContentPlanNode(A, "ws1", "ap_1", "hub", { status: "approved" }, db);
+    await updateContentPlanNode(A, "ws1", "ap_1", "hub", { status: "approved", made: { unstamped: "records_where" } }, db);
     await takeAnswers(A, { db, now: quiet });
     expect((await getRun(A, runId, { db }))!.askedIds).toEqual(["note_1", "note_2"]);
     await takeAnswers(A, { db, now: sweep });
@@ -102,7 +102,7 @@ describe("a draft's question rows close once it is done with", () => {
 
   it("answers for an approved article don't raise 'answers are in': the row just closes", async () => {
     const { db, runId } = await setup("Edited by a person");
-    await updateContentPlanNode(A, "ws1", "ap_1", "hub", { status: "approved" }, db);
+    await updateContentPlanNode(A, "ws1", "ap_1", "hub", { status: "approved", made: { unstamped: "records_where" } }, db);
     for (const id of ["note_1", "note_2"]) await forTenant(A, db).brandNotes.update(id, { status: "kept", text: "An answer." } as never);
     expect(await takeAnswers(A, { db, now: quiet })).toBe(1);
     expect(await getRun(A, runId, { db })).toMatchObject({ step: "done", askedIds: [], answersIn: false });

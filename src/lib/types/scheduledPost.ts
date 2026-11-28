@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MadeSchema } from "./loopStamp";
 
 /**
  * A scheduled distribution post — the unit of work drained by the Distribute
@@ -143,6 +144,10 @@ export const ScheduledPostSchema = z.object({
    *  what the person changed and Vizzy can learn from it. Null when none was kept. A
    *  performance_fetch job carries its parent's, for post_performance. */
   aiBody: z.string().max(MAX_BODY_CHARS).nullable().optional(),
+  /** What made the post's words (LOOPS_ENABLED, learning loops step 5): its node's stamp, copied
+   *  when scheduled, or for an auto plug job the `auto_plug` stamp rooted at its post. Its image's
+   *  stamp stays on the node and the image's row, and a carousel's is counted when attached. */
+  made: MadeSchema.optional().catch(undefined),
   /** The user id of the person who scheduled the post: whose drafts learn from their changes. */
   scheduledBy: z.string().max(128).nullable().optional(),
   /** Set once at publish; the retry guard (mirrors EmailJob.emailSentAt). */

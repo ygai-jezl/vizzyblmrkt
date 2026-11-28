@@ -5,6 +5,7 @@ import { getPrompt } from "@/lib/agents/prompts/registry";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import type { BrandSignal } from "@/lib/types/brandSignal";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { candidatesOf, judgeSignal, readVerdicts } from "./judge";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -94,6 +95,20 @@ describe("the judge", () => {
     const generate = vi.fn();
     expect(await judgeSignal(A, sig({ results: { top: [], paa: [], alsoSearched: [], related: [], aiOverview: null } }), { db, configured: () => true, generate })).toMatchObject({ items: [] });
     expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("counts each judgement it hands back as made, with LOOPS_ENABLED on, and none that failed", async () => {
+    const at = () => new Date("2027-01-15T10:00:00.000Z");
+    const verdicts = async () => JSON.stringify({ items: [1, 2, 3, 4].map((n) => ({ n, verdict: "use", reason: "r" })) });
+    const off = new FakeFirestore();
+    await judgeSignal(A, sig(), { db: off, configured: () => true, generate: verdicts, now: at });
+    expect(sumWeek(off, A.tenantId, "2027-W02")).toEqual({});
+
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await judgeSignal(A, sig(), { db, configured: () => true, generate: verdicts, now: at });
+    await judgeSignal(A, sig(), { db, configured: () => true, generate: async () => null, now: at });
+    expect(sumWeek(db, A.tenantId, "2027-W02")).toEqual({ c: { judge: { judge: { v0: { none: { made: 1 } } } } }, t: { brand_signal: { made: 1 } } });
   });
 
   it("tells the model to treat Google's text as data, and to judge by meaning", () => {

@@ -37,6 +37,15 @@ export const ROUTED_CALLS: Readonly<Record<string, { why: string; reaches: Parti
     why: "A Google lookup spends under the purpose its asker names: get_from_google for a person, autopilot for the autopilot, content_strategy for Make the plan.",
     reaches: { get_from_google: [], autopilot: ["src/lib/autopilot/find.ts"], content_strategy: ["src/lib/contentStrategy/make.ts"] },
   },
+  "src/lib/loops/remake.ts": {
+    why: "remakeUsage meters a new image under its own kind, or under loop_learn for the first remake of a held back image, so the holdback costs a brand nothing.",
+    reaches: {
+      post_image: ["src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/post-image/route.ts"],
+      blog_hero: ["src/lib/content/blog/hero.ts"],
+      ebook_image: ["src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/ebook/images/route.ts"],
+      loop_learn: [],
+    },
+  },
   "src/lib/competitors/steps.ts": {
     why: "usageFor wraps the meter for the competitor steps, and each step names competitor_site or competitor_analysis.",
     reaches: { competitor_site: [], competitor_analysis: [] },

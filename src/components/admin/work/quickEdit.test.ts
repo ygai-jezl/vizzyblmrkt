@@ -9,13 +9,21 @@ import { DUE, MEMBER, PLAIN, ROWS } from "@/lib/work/testing/screens";
 // Work's list with quick edit (WORK_QUICK_EDIT_ENABLED), as it draws. The repo has no browser test
 // kit, so clicks and keys are proven through src/lib/work/quickEdit.ts's pure rules; this holds the
 // markup: the closed rows, the Ref buttons, the open row and what it holds. Made-up tasks from
-// src/lib/work/testing/screens.ts.
+// src/lib/work/testing/screens.ts. How we'll know it worked is the page's own section: each one
+// drawn is kept in `handed` with what it was handed, so the row can be held to what the page hands it.
+const handed = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("./MeasureSection", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./MeasureSection")>();
+  const MeasureSection = (p: Parameters<typeof real.MeasureSection>[0]) => (handed.push(p), createElement(real.MeasureSection, p));
+  return { ...real, MeasureSection };
+});
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }), usePathname: () => "/admin/work" }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
 const { WorkQuickTable } = await import("./WorkQuickTable");
 const { WorkTable } = await import("./WorkTable");
+const { TaskPage } = await import("./TaskPage");
 
 const FILTERS: WorkFilters = { brand: null, stage: null, status: "open", mustHave: false, due: false, kind: null };
 const draw = (open: OpenRow | null, o: { multiBrand?: boolean; rows?: typeof ROWS } = {}) =>
@@ -138,6 +146,18 @@ describe("the open row", () => {
     expect(panel).toContain(WORK_COPY.showAll);
     // No drafts in the row: Vizzy's drafted decisions still open the full page.
     expect(panel).not.toContain("Leave it");
+  });
+
+  it("hands How we'll know it worked what the task page does, so the picker words an operator's loop kinds as the page's", () => {
+    const counting = { loops: true, images: false, meter: true };
+    const screen = { ...DUE, options: { ...DUE.options, operator: true, counting } };
+    handed.length = 0;
+    renderToStaticMarkup(createElement(TaskPage, { screen }));
+    draw(openDue({ screen }));
+    expect(handed).toHaveLength(2);
+    const [page, row] = handed.map(({ onSave: _, ...rest }) => rest);
+    expect(row).toEqual(page);
+    expect(row).toMatchObject({ operator: true, counting });
   });
 
   it("repeats no id, so one open row keeps them unique", () => {

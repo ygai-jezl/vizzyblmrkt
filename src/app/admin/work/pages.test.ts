@@ -5,6 +5,8 @@ import { makeWorld, PEOPLE, type World } from "@/lib/work/testing/world";
 import { LUMEN_EU, LUMEN_US } from "@/lib/work/testing/fixtures";
 import { addTask, editTask } from "@/lib/work/service";
 import { addSuggestion, proposeWorkSuggestion } from "@/lib/work/suggestions";
+import { WORK_COPY } from "@/lib/work/screenWords";
+import { IMAGES_OFF_LINE } from "@/lib/work/words";
 
 // Work's four screens (WORK_ENABLED): the list, one task, the add page and the Log. Lumen [made up]
 // has Lumen Notes (United States, a repo selected) and Lumen Europe; Nina owns it and Sam is a
@@ -171,6 +173,33 @@ describe("the Tasks tab with quick edit", WHOLE_PAGE, () => {
     // The other row stays closed, and the order line is today's.
     expect(page).toContain('aria-expanded="false" data-ref-button="2"');
     expect(page).toContain("Checks due first, then Must have, then last changed.");
+  });
+
+  it("on, words an operator's loop kind measure and its due check in the row as its page does, with the learning loops on", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+    const t = await add(PEOPLE.nina, { title: "Brighter post images", brandId: LUMEN_US, status: "done", measure: { kind: "used", counts: { loopKind: "post_image" }, look: { days: 7 } } });
+    // How we'll know it worked, as the page draws it, less where a click in the row lands.
+    const measureOf = (html: string) => {
+      const from = html.indexOf('<section aria-labelledby="wk-ms-h"');
+      expect(from).toBeGreaterThan(-1);
+      return html.slice(from, html.indexOf("</section>", from)).replace(/ data-qe="[^"]*"/g, "");
+    };
+    // Eight days after Done its check is due, and with image learning off an image kind isn't counted.
+    const due = `<strong>${WORK_COPY.measureDueTitle}</strong> Used: the post_image loop, 7 days after it&#x27;s done. ${IMAGES_OFF_LINE.replace(/'/g, "&#x27;")}`;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 8 * 86_400_000);
+      const page = await task(String(t.ref));
+      const row = await list({ open: String(t.ref) });
+      expect(page).toContain(due);
+      expect(row).toContain(due);
+      expect(measureOf(row)).toBe(measureOf(page));
+      expect(measureOf(row)).toContain("the post_image loop");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says there's no task with that number for one that isn't there, or one the person can't see", async () => {

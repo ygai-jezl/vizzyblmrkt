@@ -61,6 +61,7 @@ const options = (over: Partial<FormOptions> = {}): FormOptions => ({
   meanings: ["conversions", "openRate"],
   operator: false,
   loopsRepo: null,
+  counting: null,
   ...over,
 });
 

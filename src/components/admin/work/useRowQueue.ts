@@ -162,7 +162,6 @@ export function useRowQueue(taskRef: number, serverView: WorkTaskView) {
         const { [change.field]: _gone, ...rest } = e;
         return rest;
       });
-      setStatus({ kind: "saving" });
       bump();
       void pump();
       return done;

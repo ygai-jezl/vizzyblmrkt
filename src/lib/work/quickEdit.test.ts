@@ -12,7 +12,14 @@ import { aStoredTask, LUMEN_EU, LUMEN_US } from "./testing/fixtures";
 import {
   answered,
   applyListEdit,
+  cellFocus,
   checkChange,
+  clickIntent,
+  focusAfterClose,
+  holdOrder,
+  openHref,
+  rowCellOf,
+  wouldMove,
   editorChange,
   enqueue,
   fromServer,
@@ -287,5 +294,70 @@ describe("the line of changes", () => {
     // A tap on a check that is gone has nothing to answer.
     const gone = enqueue(startQueue(view()), checkChange(4, { action: "checked" }, { stamp: "", epoch: 0 })).queue;
     expect(send(gone).next).toMatchObject({ skip: true });
+  });
+});
+
+// --- The list around the open row (pure) ---------------------------------------------------------
+
+describe("the list around the open row", () => {
+  it("keeps the open task in the address beside the filters, and drops it on close", () => {
+    const f = filtersOf(new URLSearchParams(""));
+    expect(openHref(f, 21)).toBe("/admin/work?open=21");
+    expect(openHref(f, null)).toBe("/admin/work");
+    const must = filtersOf(new URLSearchParams(`brand=${LUMEN_US}&must=1&status=all`));
+    expect(openHref(must, 7)).toBe(`/admin/work?brand=${LUMEN_US}&status=all&must=1&open=7`);
+    expect(openHref(must, null)).toBe(`/admin/work?brand=${LUMEN_US}&status=all&must=1`);
+  });
+
+  it("holds the order for the whole visit: changed rows stay put, new ones go on top, and Sort again shows when anything would move", () => {
+    expect(holdOrder(null, ["a", "b", "c"])).toEqual(["a", "b", "c"]);
+    // b changed, so the server puts it first: it stays where it was.
+    const held = holdOrder(["a", "b", "c"], ["b", "a", "c"]);
+    expect(held).toEqual(["a", "b", "c"]);
+    expect(wouldMove(held, ["b", "a", "c"])).toBe(true);
+    // A task just added goes on top; one gone from the server's list goes from the list.
+    expect(holdOrder(["a", "b", "c"], ["n", "b", "a"])).toEqual(["n", "a", "b"]);
+    expect(wouldMove(["a", "b"], ["a", "b"])).toBe(false);
+    // A kept row the server no longer lists doesn't count as moving.
+    expect(wouldMove(["k", "a", "b"], ["a", "b"])).toBe(false);
+  });
+
+  it("sends focus back to the row's Ref button, or to the next row, the one before, or the list when the task left it", () => {
+    expect(focusAfterClose([1, 2, 3], [1, 2, 3], 2)).toEqual({ ref: 2, left: false });
+    expect(focusAfterClose([1, 2, 3], [1, 3], 2)).toEqual({ ref: 3, left: true });
+    expect(focusAfterClose([1, 2, 3], [1, 2], 3)).toEqual({ ref: 2, left: true });
+    expect(focusAfterClose([3], [], 3)).toEqual({ ref: null, left: true });
+  });
+
+  it("puts focus on the field of the cell clicked, never a text box", () => {
+    expect(cellFocus("ref", { multiBrand: true, due: false })).toEqual({ mark: "heading" });
+    expect(cellFocus("title", { multiBrand: true, due: false })).toEqual({ mark: "heading" });
+    expect(cellFocus("status", { multiBrand: true, due: false })).toEqual({ mark: "status" });
+    expect(cellFocus("stage", { multiBrand: true, due: false })).toEqual({ mark: "stage" });
+    expect(cellFocus("brand", { multiBrand: true, due: false })).toEqual({ mark: "brand" });
+    expect(cellFocus("brand", { multiBrand: false, due: false })).toEqual({ mark: "heading" });
+    expect(cellFocus("must", { multiBrand: true, due: false })).toEqual({ mark: "must" });
+    expect(cellFocus("vizzy", { multiBrand: true, due: false })).toEqual({ mark: "vizzy" });
+    expect(cellFocus("pr", { multiBrand: true, due: false })).toEqual({ mark: "links" });
+    expect(cellFocus("idea", { multiBrand: true, due: false })).toEqual({ mark: "idea" });
+    expect(cellFocus("block", { multiBrand: true, due: false })).toEqual({ mark: "block", start: "block" });
+    expect(cellFocus("check", { multiBrand: true, due: false })).toEqual({ mark: "check", start: "check" });
+    expect(cellFocus("check", { multiBrand: true, due: true })).toEqual({ mark: "check-due" });
+    expect(rowCellOf("status")).toBe("status");
+    expect(rowCellOf(undefined)).toBe("title");
+    expect(rowCellOf("nonsense")).toBe("title");
+  });
+
+  it("opens on a plain click, leaves Cmd, Ctrl, shift and middle clicks on a link to the browser, and ignores a click while selecting", () => {
+    const click = { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false };
+    expect(clickIntent(click, "", false)).toBe("open");
+    expect(clickIntent(click, "", true)).toBe("open");
+    expect(clickIntent({ ...click, metaKey: true }, "", true)).toBe("page");
+    expect(clickIntent({ ...click, ctrlKey: true }, "", true)).toBe("page");
+    expect(clickIntent({ ...click, shiftKey: true }, "", true)).toBe("page");
+    expect(clickIntent({ ...click, button: 1 }, "", true)).toBe("page");
+    expect(clickIntent(click, "Templates", false)).toBe("ignore");
+    expect(clickIntent({ ...click, metaKey: true }, "", false)).toBe("ignore");
+    expect(clickIntent({ ...click, button: 2 }, "", false)).toBe("ignore");
   });
 });

@@ -6,6 +6,7 @@ import { CalendarClock } from "lucide-react";
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { anyFilter, KIND_CHOICES, STATUS_CHOICES, withFilter } from "@/lib/work/list";
 import type { WorkFilters as Filters } from "@/lib/work/inputs";
+import { useQuickGuard } from "./quickGuard";
 
 const SELECT = "rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950";
 const PILL = (on: boolean) =>
@@ -16,11 +17,17 @@ const PILL = (on: boolean) =>
 /**
  * The list's filters, kept in the address: brand (when the person sees more than one), stage,
  * status, the kind of win, Must have and checks due. Changing one opens the list with it; the
- * server filters and orders (src/lib/work/service.ts listTasks).
+ * server filters and orders (src/lib/work/service.ts listTasks). With quick edit on, a change waits
+ * for the open row's saves and asks about its unsaved edits first.
  */
 export function WorkFilters({ filters, brands, multiBrand, counts }: { filters: Filters; brands: Array<{ id: string; name: string }>; multiBrand: boolean; counts: { mustHave: number; due: number } }) {
   const router = useRouter();
-  const go = (patch: Partial<Filters>) => router.push(withFilter(filters, patch));
+  const guard = useQuickGuard();
+  const go = (patch: Partial<Filters>) => {
+    const href = withFilter(filters, patch);
+    if (guard) guard.leave(() => router.push(href));
+    else router.push(href);
+  };
   return (
     <div role="group" aria-label="Filters" className="flex flex-wrap items-center gap-2">
       {multiBrand ? (
@@ -78,7 +85,19 @@ export function WorkFilters({ filters, brands, multiBrand, counts }: { filters: 
         Checks due <span className="tabular-nums opacity-70">{counts.due}</span>
       </button>
       {anyFilter(filters) ? (
-        <Link href="/admin/work" className="text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200">
+        <Link
+          href="/admin/work"
+          onClick={
+            guard
+              ? (e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+                  e.preventDefault();
+                  guard.leave(() => router.push("/admin/work"));
+                }
+              : undefined
+          }
+          className="text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+        >
           Clear filters
         </Link>
       ) : null}

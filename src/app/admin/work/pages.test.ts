@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeWorld, PEOPLE, type World } from "@/lib/work/testing/world";
 import { LUMEN_EU, LUMEN_US } from "@/lib/work/testing/fixtures";
-import { addTask } from "@/lib/work/service";
+import { addTask, editTask } from "@/lib/work/service";
 import { addSuggestion, proposeWorkSuggestion } from "@/lib/work/suggestions";
 
 // Work's four screens (WORK_ENABLED): the list, one task, the add page and the Log. Lumen [made up]
@@ -119,6 +119,69 @@ describe("the Tasks tab", () => {
     expect(must).not.toContain("Cookie notice in German");
     expect(must).toContain("Clear filters");
     expect(await list({ stage: "support" })).toContain("No tasks match these filters.");
+  });
+});
+
+describe("the Tasks tab with quick edit", () => {
+  const reads = () => ["(default)", "signups-eu", "signups-asia"].reduce((n, id) => n + (dbs.map[id] as { collectionCalls: (c: string) => number }).collectionCalls("work_tasks"), 0);
+
+  it("off, draws today's list exactly, ignoring ?open and reading nothing more", async () => {
+    await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US, mustHave: true });
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "false");
+    let n = reads();
+    const plain = await list();
+    const plainReads = reads() - n;
+    n = reads();
+    const opened = await list({ open: "1" });
+    expect(reads() - n).toBe(plainReads);
+    expect(opened).toBe(plain);
+    expect(opened).not.toContain("wk-row-panel");
+    expect(opened).not.toContain("data-ref-button");
+    expect(opened).toContain('href="/admin/work/1"');
+  });
+
+  it("on, draws the task opened with ?open in place under its row, with everything its page has", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US, mustHave: true, description: "Prices for the Team plan." });
+    await add(PEOPLE.nina, { title: "Cookie notice in German", brandId: LUMEN_EU });
+    const closed = await list();
+    expect(closed).toContain('aria-expanded="false" data-ref-button="1"');
+    expect(closed).not.toContain('id="wk-row-panel"');
+    const page = await list({ open: "1" });
+    expect(page).toContain('aria-expanded="true" aria-controls="wk-row-panel" data-ref-button="1"');
+    expect(page).toContain('<section id="wk-row-panel"');
+    expect(page).toContain("Task #1 ");
+    expect(page).toContain("Prices for the Team plan.");
+    expect(page).toContain("Open the full page");
+    expect(page).toContain('aria-label="Quick fields"');
+    expect(page).toContain("Delete task");
+    // The other row stays closed, and the order line is today's.
+    expect(page).toContain('aria-expanded="false" data-ref-button="2"');
+    expect(page).toContain("Checks due first, then Must have, then last changed.");
+  });
+
+  it("says there's no task with that number for one that isn't there, or one the person can't see", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    await add(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US });
+    const eu = await add(PEOPLE.nina, { title: "Cookie notice in German", brandId: LUMEN_EU });
+    expect(await list({ open: "999" })).toContain("There&#x27;s no task with that number that you can see.");
+    as(PEOPLE.sam);
+    const sam = await list({ open: String(eu.ref) });
+    expect(sam).toContain("There&#x27;s no task with that number that you can see.");
+    expect(sam).not.toContain("Cookie notice in German");
+  });
+
+  it("keeps the only task, set Done under Open, as a kept row, never No tasks match", async () => {
+    vi.stubEnv("WORK_QUICK_EDIT_ENABLED", "true");
+    const t = await add(PEOPLE.nina, { title: "Register the business name", brandId: LUMEN_US });
+    const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };
+    const r = await editTask(await w.scope(PEOPLE.nina), t.ref, { status: "done" }, deps);
+    if (!r.ok) throw new Error(r.error);
+    expect(await list()).toContain("No tasks match these filters.");
+    const kept = await list({ open: String(t.ref) });
+    expect(kept).not.toContain("No tasks match these filters.");
+    expect(kept).toContain(`data-row="${t.ref}"`);
+    expect(kept).toContain("This task no longer matches your filters. It leaves the list when you close it.");
   });
 });
 

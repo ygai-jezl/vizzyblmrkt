@@ -1,4 +1,5 @@
-import type { EditTaskBody } from "./inputs";
+import type { EditTaskBody, WorkFilters } from "./inputs";
+import { filtersHref } from "./list";
 import type { TypedLink, WorkLink, WorkRead, WorkTask } from "./types";
 
 /**
@@ -247,4 +248,92 @@ export function linksChange(id: number, field: "typedLinks" | "links", before: r
       return linkKey(next) === linkKey(cur) ? null : ({ [field]: next } as RowPatch);
     },
   };
+}
+
+// --- The list around the open row ----------------------------------------------------------------
+
+/** The list's address with this task open in place, or with none open: the filters kept, as the list has them. */
+export function openHref(filters: WorkFilters, ref: number | null): string {
+  const base = filtersHref(filters);
+  return ref === null ? base : `${base}${base.includes("?") ? "&" : "?"}open=${ref}`;
+}
+
+/**
+ * The order the list holds for the whole visit (decision 2): rows already shown keep their place
+ * whatever changed, and rows new to it (a task just added, one opened from elsewhere) go on top.
+ * With nothing held yet, or after Sort again, it is the server's order.
+ */
+export function holdOrder(held: readonly string[] | null, now: readonly string[]): string[] {
+  if (!held) return [...now];
+  const there = new Set(now);
+  const seen = new Set(held);
+  return [...now.filter((id) => !seen.has(id)), ...held.filter((id) => there.has(id))];
+}
+
+/** Sorting again would move a row: Sort again shows beside the order line. */
+export function wouldMove(shown: readonly string[], server: readonly string[]): boolean {
+  const there = new Set(server);
+  const mine = shown.filter((id) => there.has(id));
+  return mine.length !== server.length || mine.some((id, i) => id !== server[i]);
+}
+
+/**
+ * Where focus goes when a row closes: back to its Ref button, or, when the task left the list, to
+ * the next row's, the one before, or the list itself (null), saying it left.
+ */
+export function focusAfterClose(before: readonly number[], after: readonly number[], ref: number): { ref: number | null; left: boolean } {
+  if (after.includes(ref)) return { ref, left: false };
+  const at = before.indexOf(ref);
+  const next = before.slice(at + 1).find((r) => after.includes(r)) ?? [...before.slice(0, Math.max(0, at))].reverse().find((r) => after.includes(r)) ?? null;
+  return { ref: next, left: true };
+}
+
+/** The cells of a row a click can land on, as WorkRowCells marks them. */
+export const ROW_CELLS = ["ref", "title", "must", "vizzy", "pr", "status", "stage", "brand", "idea", "block", "wait", "check"] as const;
+export type RowCell = (typeof ROW_CELLS)[number];
+
+export function rowCellOf(v: string | undefined): RowCell {
+  return (ROW_CELLS as readonly string[]).includes(v ?? "") ? (v as RowCell) : "title";
+}
+
+/**
+ * Which field the open row puts focus on for a clicked cell: its heading for the ref and the
+ * title, never a text box; the field the cell shows; or an editor opened there (the blocked by
+ * search, or the check's picker, or Move its date). A due check focuses its buttons.
+ */
+export function cellFocus(cell: RowCell, o: { multiBrand: boolean; due: boolean }): { mark: string; start?: "block" | "check" } {
+  switch (cell) {
+    case "must":
+      return { mark: "must" };
+    case "vizzy":
+      return { mark: "vizzy" };
+    case "pr":
+      return { mark: "links" };
+    case "status":
+      return { mark: "status" };
+    case "stage":
+      return { mark: "stage" };
+    case "brand":
+      return o.multiBrand ? { mark: "brand" } : { mark: "heading" };
+    case "idea":
+      return { mark: "idea" };
+    case "block":
+      return { mark: "block", start: "block" };
+    case "check":
+      return o.due ? { mark: "check-due" } : { mark: "check", start: "check" };
+    default:
+      return { mark: "heading" };
+  }
+}
+
+/**
+ * What a click on a row does: opens the row; leaves a link to the browser (Cmd or Ctrl click, a
+ * shift click or a middle click, which open the task's full page elsewhere); or nothing, while
+ * text is being selected or for another button.
+ */
+export function clickIntent(e: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }, selection: string, onLink: boolean): "open" | "page" | "ignore" {
+  if (onLink && (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1)) return "page";
+  if (selection.length > 0) return "ignore";
+  if (e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return "ignore";
+  return "open";
 }

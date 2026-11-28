@@ -158,6 +158,7 @@ export function BlogExport({
   hero = null,
   approved = false,
   datesTimeZone,
+  inLanguage,
 }: {
   markdown: string;
   meta: BlogArticleMeta | null | undefined;
@@ -176,13 +177,15 @@ export function BlogExport({
   approved?: boolean;
   /** True dates (BLOG_DATES_ENABLED): the brand's time zone; the copy and markup carry Published and Updated. */
   datesTimeZone?: string;
+  /** The article's language in its markup (PAGE_LANGUAGES_ENABLED); absent = as before. */
+  inLanguage?: string;
 }) {
   const id = useId();
   // Worked out once, so the date line in the copy and the markup's dates always match.
   const dateline = useMemo(() => (datesTimeZone ? articleDateline(meta, datesTimeZone, new Date()) : null), [meta, datesTimeZone]);
   const schema = useMemo(
-    () => suggestBlogSchema({ markdown, meta, brief, pageUrl, brandName, logoUrl, map, dateline }),
-    [markdown, meta, brief, pageUrl, brandName, logoUrl, map, dateline],
+    () => suggestBlogSchema({ markdown, meta, brief, pageUrl, brandName, logoUrl, map, dateline, inLanguage }),
+    [markdown, meta, brief, pageUrl, brandName, logoUrl, map, dateline, inLanguage],
   );
   const [copied, setCopied] = useState<{ kind: CopyKind; ok: boolean } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

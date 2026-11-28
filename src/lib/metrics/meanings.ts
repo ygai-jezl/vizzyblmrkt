@@ -828,6 +828,39 @@ export const MEANINGS = {
     unit: "count",
     source: "the strategy's decisions",
   },
+  // ----- The Raise kit's number blocks (src/lib/raise/docs/metrics.ts) -----
+  waitlistSignups: {
+    name: "Waitlist sign-ups",
+    definition: "Sign-ups to the brand's launches in the period, counted as Insights counts them.",
+    grain: "one sign up",
+    unit: "count",
+    source: "the app's own sign-up records",
+    caveat: "Someone who joins two launches counts twice. At most the last 12 weeks.",
+  },
+  launchSignups: {
+    name: "People on a launch",
+    definition: "Different people on one launch's list now, one per email address.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People list",
+    caveat: "Only the launch named, never everyone in People, which can include investors and partners.",
+  },
+  signupGrowth: {
+    name: "Sign-up growth",
+    definition: "Sign-ups in the second half of the period against the first half, as a percent change.",
+    grain: "a period of whole weeks",
+    unit: "percent",
+    source: "the app's own sign-up records",
+    caveat: "A small first half makes a big percent: read it beside the counts.",
+  },
+  talkSeconds: {
+    name: "Talk time",
+    definition: "How long the speaker notes take to say, at about 150 words a minute.",
+    grain: "one slide or one deck",
+    unit: "count",
+    source: "the words in the speaker notes",
+    caveat: "YouGrow's estimate: people speak faster or slower.",
+  },
   // One suggestion a month (STRATEGY_SUGGEST_ENABLED): the numbers a suggestion was worked out from.
   roadmapBehind: {
     name: "Roadmap entries behind",

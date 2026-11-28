@@ -214,6 +214,10 @@ export const LogEntryBodySchema = z
   .strict();
 export type LogEntryBody = z.infer<typeof LogEntryBodySchema>;
 
+/** Carry over on Today: the day the page showed, so a page left open past midnight carries nothing. */
+export const CarryBodySchema = z.object({ day: DaySchema }).strict();
+export type CarryBody = z.infer<typeof CarryBodySchema>;
+
 export const DecisionBodySchema = z
   .object({
     ref: RefSchema,

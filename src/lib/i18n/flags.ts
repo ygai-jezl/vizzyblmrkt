@@ -29,3 +29,14 @@ export function isLanguageReadersEnabled(): boolean {
 export function isAssetTranslationsEnabled(): boolean {
   return process.env.ASSET_TRANSLATIONS_ENABLED === "true" && isLanguageReadersEnabled();
 }
+
+/**
+ * Pages people find by search in each language, Google's way (PAGE_LANGUAGES_ENABLED): articles get
+ * a version per language at its own address with the full set of language tags, and launch pages get
+ * one address per language with their own words translated. Needs the translations. Making new
+ * translations still needs each brand's `translations` feature; copying and showing them don't.
+ * Off: articles, launch pages and Settings are as before.
+ */
+export function isPageLanguagesEnabled(): boolean {
+  return process.env.PAGE_LANGUAGES_ENABLED === "true" && isAssetTranslationsEnabled();
+}

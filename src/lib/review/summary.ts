@@ -66,7 +66,7 @@ import { reasonLine } from "@/lib/brandStrategy/checkRules";
 import { isReviewSuggestion, sourcesLine, SUGGEST_WORDS, suggestionAction, suggestionLines } from "@/lib/brandStrategy/suggestRules";
 import type { BrandStrategyDoc, StrategyCheck, StrategySuggestion } from "@/lib/types/brandStrategy";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
-import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
+import { isAssetTranslationsEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
@@ -102,7 +102,8 @@ export type ReviewKind =
   | "paste_batch"
   | "business_fact"
   | "translation_check"
-  | "learned";
+  | "learned"
+  | "page_translation";
 
 export interface ReviewItem {
   id: string;
@@ -129,7 +130,7 @@ export interface ReviewItem {
   /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
   followUp?: { id: string; rev: number; quiet: boolean };
   /** A journey's translations to check (ASSET_TRANSLATIONS_ENABLED): Approve all languages beside the link (admins only). */
-  approveLanguages?: { journeyId: string; revs: Record<string, number> };
+  approveLanguages?: { endpoint: string; revs: Record<string, number> };
 }
 
 /**
@@ -252,6 +253,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Lists your team pasted on People, waiting for an admin to add them. Nobody is added until then.",
     from: ["paste_columns"],
   },
+  page_translation: {
+    title: "Pages in other languages",
+    description: "Articles and sign-up pages in other languages, one row each. Each stays out of sight until you approve it.",
+    from: ["translation"],
+  },
   translation_check: {
     title: "Emails in other languages",
     description: "Translations of your journey emails, one row per journey. Readers of each language get the default until you approve theirs.",
@@ -284,6 +290,7 @@ export const REVIEW_ORDER: ReviewKind[] = [
   "work_suggestion",
   "agent_draft",
   "translation_check",
+  "page_translation",
   "person_suggestion",
   "raise_followup",
   "paste_batch",
@@ -1050,6 +1057,14 @@ export async function loadReview(
         [] as ReviewItem[],
       )
     : [];
+  // Articles and sign-up pages in other languages waiting to be checked (PAGE_LANGUAGES_ENABLED).
+  const pageTranslations = isPageLanguagesEnabled()
+    ? await soft(
+        "page translations",
+        import("@/lib/i18n/pageReview").then((m) => m.pageTranslationReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // Journey emails in other languages waiting to be checked (ASSET_TRANSLATIONS_ENABLED): one row a journey.
   const translationChecks = isAssetTranslationsEnabled()
     ? await soft(
@@ -1097,6 +1112,7 @@ export async function loadReview(
     ...work,
     ...raiseFollowUps,
     ...translationChecks,
+    ...pageTranslations,
     ...businessFacts,
     ...pastedLists,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),

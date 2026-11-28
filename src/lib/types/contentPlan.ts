@@ -473,6 +473,11 @@ export const BlogArticleLiveSchema = z.object({
   auto: z.boolean().optional(),
   /** Being found live approved the article (a canvas left open keeps that approval on its next save). */
   approvedOnLive: z.boolean().optional(),
+  /**
+   * A hash of the article's words when this mark was written (foundLive.ts articleBodyHash). Once the
+   * words change (a refresh, an edit), the mark no longer approves them: a person does.
+   */
+  bodyHash: z.string().max(40).optional(),
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 
@@ -753,6 +758,11 @@ export const ContentTopologySchema = z.object({
   hubChannel: z.enum(["newsletter", "blog", "ebook"]).default("newsletter"),
   /** Social/channel ids to generate spokes for. */
   spokeChannels: z.array(z.string().max(40)).max(8).default([]),
+  /**
+   * The article's other languages, as chosen in Create (PAGE_LANGUAGES_ENABLED). Absent: decided by
+   * readers and site folders when it is approved. `[]`: none.
+   */
+  languages: z.array(z.string().max(10)).max(24).optional(),
 });
 export type ContentTopology = z.infer<typeof ContentTopologySchema>;
 

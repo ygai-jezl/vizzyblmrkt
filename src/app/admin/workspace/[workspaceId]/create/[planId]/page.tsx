@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant, getTenantById } from "@/lib/tenant";
@@ -120,6 +121,7 @@ export default async function ContentPlanPage({
         brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
         pagesOn={isBrandMapPagesEnabled()}
         liveWatchOn={isBlogLiveWatchEnabled()}
+        pageLanguages={isPageLanguagesEnabled() ? { canAct: ctx.role === "admin" } : null}
         {...(datesTimeZone ? { datesTimeZone } : {})}
         {...(isBlogFreshnessEnabled() ? { freshnessOn: true, openHub: (await searchParams)?.freshness === "1" } : {})}
         refreshOn={isBlogRefreshEnabled()}

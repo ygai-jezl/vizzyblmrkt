@@ -1925,17 +1925,41 @@ accepted those departures on 26 Nov):
     `work_measure_kind` (gaps, revisit 2027-05-01), `vizzy_chat` moved from none to a gap, and the
     events `work.task_added`, `work.task_changed`, `work.logged`, `work.checked` and
     `work.decided` through the pure `fromWorkLog`, not stored.
-14. **The Log carries workstreams over by itself (a departure).** A workstream stays in flight
-    until someone logs it Done (decision 4), never retyped, so plan section 8.3's "Carry over 4
-    open from yesterday" button on Today, and the canvas's Nothing logged yet state that holds it,
-    are not built here: the owner chose a follow up pull request for them (26 Nov). To find what is in flight the Log reads a year back through the
+14. **The Log carries workstreams over by itself, and Today offers Carry over.** A workstream
+    stays in flight until someone logs it Done (decision 4), never retyped. Plan section 8.3's
+    "Carry over 4 open from yesterday" and the canvas's Nothing logged yet state came in a follow
+    up on the owner's choice of 26 Nov. Before anyone the person sees has logged today, when
+    something from yesterday can be carried, Today says "Nothing logged today yet. Type what
+    you're on, or carry over what was still open yesterday." with the button; after the tap it
+    says how many it carried over, and focus moves to that line. One tap
+    (`POST /api/admin/work/log/carry`, `carryOver` in `src/lib/work/log.ts`) logs an ordinary
+    entry for each workstream in flight at the end of yesterday that has no entry today and that
+    the person can log: yesterday's state, task and links, the note "Carried over from
+    yesterday.", by the person who tapped, with the tool `work_carry`. Yesterday's entry stays as
+    it was, so the Log keeps both. Each entry's id is worked out from the organisation and the
+    entry it carries, the newest in flight (`carriedEntryId`), and `appendWorkLogOnce` reads every
+    id in one transaction per region and creates only those not kept, so a second tap or two
+    people at once log each once. The id leaves the day out: each person's day is their brand's,
+    so a carry made early in the day in one time zone would otherwise block the carry of a brand
+    further west the next morning there. Anyone who sees the carried entry sees it as newer, today
+    (so it is left out) or yesterday (so the next carry is of it, under a new id). A whole business
+    workstream is kept in the region of its newest entry, so every carrier writes the same row.
+    The count on the button is the day's `carry`, worked out by the same rule, so it is what the
+    tap logs. It carries only into today: the body names the day the page showed, a past day stays
+    read only, and a page left open past midnight is refused. While a region doesn't answer it
+    carries nothing and offers nothing, since an entry kept there may say the workstream is done.
+    Unlike the canvas, In flight stays below the button: it is worked out from the rows, so hiding
+    it would hide work still going. `get_work` lists carried entries like any other, with
+    `carried`, and says what Carry over would log. No collection, index or switch: it is part of
+    Work, behind `WORK_ENABLED`. To find what is in flight the Log reads a year back through the
     (organisationId, at desc) index, within the 2,000 rows one read takes in each region; reading
     entries alone would need an index of their own. So one nobody has logged for a year drops off
     (a departure: plan decision 5 names no window), and a read that hits 2,000 rows says the
     oldest workstreams may be missing. The day rail always ends on today, whichever day is shown.
 
 Enforced where: `src/lib/tenant/work.test.ts` (regions, a region down, append only, no `ttlAt`,
-erase and repoint), `src/lib/work/indexes.test.ts` (every query shape uses an index in
+erase and repoint, and entries appended once under worked out ids), `src/lib/work/carry.test.ts`
+(Carry over), `src/lib/work/indexes.test.ts` (every query shape uses an index in
 `firestore.indexes.json`: the exact count's shape is served by the third index, listed once, and
 the fallback's by the existing one), `src/lib/work/*.test.ts` for the rules above, the route
 tests and `src/lib/work/routesGate.test.ts` (origin, switch, sign in, then scope on every route),

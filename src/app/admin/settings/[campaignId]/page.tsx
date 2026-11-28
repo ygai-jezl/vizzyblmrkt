@@ -7,6 +7,7 @@ import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
 import { isLanguageReadersEnabled } from "@/lib/i18n/flags";
 import { brandLanguages } from "@/lib/i18n/languageReaders";
+import { isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export default async function CampaignSettingsPage({
         initial={toCampaignSettings(campaign)}
         senderConfig={senderConfig}
         brandLanguages={isLanguageReadersEnabled() ? brandLanguages(await getTenantById(ctx.tenantId)) : undefined}
+        pageLanguages={isPageLanguagesEnabled() ? { canAct: ctx.role === "admin" } : undefined}
       />
     </div>
   );

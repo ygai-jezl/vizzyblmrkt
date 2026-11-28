@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Translation } from "@/lib/types/translation";
+import type { JourneyEmailTranslation as Translation } from "@/lib/types/translation";
 import { emailLanguageFor, emailVersionFor, versionLanguage, withApprovedWords } from "./emailVersion";
 
 /** Which version of a journey email a reader gets (ASSET_TRANSLATIONS_ENABLED). */

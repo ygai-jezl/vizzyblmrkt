@@ -141,7 +141,7 @@ export function stampLastUpdated(markdown: string, date: string, language = "en"
 }
 
 /** The brief's author and role, as plain words for a line of Markdown ("" when not given). */
-function authorOf(brief: BlogBrief): { name: string; role: string } {
+export function authorOf(brief: BlogBrief): { name: string; role: string } {
   const clean = (v: string | undefined) => (v ?? "").replace(/[*_`#<>[\]|]/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
   return { name: clean(brief.author), role: clean(brief.authorRole) };
 }

@@ -103,6 +103,11 @@ export function contextEnvelope(
      */
     personId?: string | null;
     /**
+     * The deck in view on Content › Raise kit (VIZZY_RAISE_ENABLED), by its `rd_` id.
+     * "" = no deck in view any more.
+     */
+    raiseDocId?: string | null;
+    /**
      * The brand profile's rev (ONBOARDING_ENABLED): digits only, so it stays brace-free. Vizzy
      * reads the profile again when it changes (callbacks/business_profile.py); "" = no profile.
      */
@@ -126,6 +131,8 @@ export function contextEnvelope(
   if (extras?.planId) payload.planId = extras.planId;
   // Kept when empty, like the journey: "" clears the person an earlier page named.
   if (typeof extras?.personId === "string") payload.personId = extras.personId;
+  // Kept when empty too ("" clears the deck an earlier page named); only an id the envelope can carry.
+  if (typeof extras?.raiseDocId === "string" && /^[A-Za-z0-9_-]{0,64}$/.test(extras.raiseDocId)) payload.raiseDocId = extras.raiseDocId;
   // Kept when empty too ("" = no profile any more); anything but digits is never sent.
   if (typeof extras?.profileRev === "string" && /^\d{0,12}$/.test(extras.profileRev)) payload.profileRev = extras.profileRev;
   // Operator content language for the root agent. Omitted for English so the

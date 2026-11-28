@@ -12,11 +12,17 @@ export function LanguageSwitcher({
   locales,
   current,
   label,
+  links,
 }: {
   locales: string[];
   current: string;
   /** Localized accessible name for the picker (resolved by the server page). */
   label: string;
+  /**
+   * Each language's own page (PAGE_LANGUAGES_ENABLED, hosted page only): picking one goes there,
+   * with no cookie, so each address always shows its own language. Absent: today's ?lng= reload.
+   */
+  links?: Record<string, string>;
 }) {
   if (locales.length < 2) return null;
   const options = locales
@@ -31,6 +37,10 @@ export function LanguageSwitcher({
         aria-label={label}
         onChange={(e) => {
           const lng = e.target.value;
+          if (links?.[lng]) {
+            window.location.href = links[lng];
+            return;
+          }
           // Persist the choice. NOTE: inside the cross-site /embed iframe this is a
           // third-party cookie and may be blocked (Safari ITP / Chrome phase-out),
           // so cross-load persistence isn't guaranteed there — but the `?lng=` below

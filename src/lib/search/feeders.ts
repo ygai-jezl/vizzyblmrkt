@@ -17,6 +17,9 @@ import { isAutopilotLearningEnabled } from "@/lib/autopilot/flags";
 import { learnedLine, listLearned } from "@/lib/autopilot/learned";
 import { listLifecycleJourneys } from "@/lib/lifecycle/service";
 import { listRepoAnalyses } from "@/lib/connect/repoAnalysis";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
+import { raiseDocStub } from "@/lib/raise/docs/search";
+import { listDecksForSearch } from "@/lib/raise/docs/store";
 import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 import { rolledId, searchTextRef, siteName } from "@/lib/connectors/keys";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
@@ -482,6 +485,8 @@ export async function readBrandStubs(ctx: TenantContext, opts: StubsOptions = {}
   });
   await read(["image"], async () => (await repo.imageAssets.find({ limit: 1000 })).map(imageSource).filter((x): x is SearchSource => x !== null).map(stubOf));
   await read(["knowledge"], async () => (await repo.ingestionTickets.find({ limit: 500 })).filter(isReadTicket).map((t) => knowledgeStub(ctx, t)));
+  // Decks through a projection (never their versions). Off, none are listed, so the sweep removes them.
+  await read(["raise_doc"], async () => (isRaiseKitEnabled() ? (await listDecksForSearch(ctx)).map(raiseDocStub) : []));
   const complete = new Set([...readOk].filter((k) => !failed.has(k)));
   return { stubs, complete, failed: new Set([...failed].filter(wanted)) };
 }

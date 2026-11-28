@@ -21,6 +21,7 @@ import { normalizeLocale } from "@/lib/i18n/locale";
 import { isPersonInContextEnabled } from "@/lib/audience/peopleFlags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { profileRevFor } from "@/lib/onboarding/profileRev";
+import { isVizzyRaiseEnabled } from "@/lib/raise/docs/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +58,9 @@ const Body = z.object({
   // The person whose page is in view, by our id for them (LIFECYCLE_PERSON_BRIEF, or
   // AUDIENCE_VIZZY_FIELDS_ENABLED). An empty one tells Vizzy there's no person in view any more.
   personId: z.string().max(128).regex(/^[A-Za-z0-9_-]*$/).nullish(),
+  // The deck in view on Content › Raise kit (VIZZY_RAISE_ENABLED). An empty one tells Vizzy
+  // there's no deck in view any more.
+  raiseDocId: z.string().max(64).regex(/^[A-Za-z0-9_-]*$/).nullish(),
   // The admin page in view, as its breadcrumb. Brace- and bracket-free because it
   // rides inside the `[ctx:{...}]` envelope, which the agent parses non-greedily.
   page: z.string().max(160).regex(/^[^{}[\]\\"]*$/).nullish(),
@@ -81,6 +85,8 @@ export async function POST(req: Request) {
   const { message, sessionId, mode, campaignId, connectionId, journeyId, workspaceId, planId, page } = parsed.data;
   // Only while Vizzy may read a person's situation or their fields: otherwise the id never leaves the app.
   const personId = isPersonInContextEnabled() ? parsed.data.personId : undefined;
+  // Only while Vizzy can work on decks: otherwise the envelope is as before.
+  const raiseDocId = isVizzyRaiseEnabled() ? parsed.data.raiseDocId : undefined;
 
   if (!isAgentRuntimeConfigured()) {
     return new Response(unconfiguredStream(), { headers: SSE_HEADERS });
@@ -101,7 +107,7 @@ export async function POST(req: Request) {
   // changes. Off, the envelope is as before.
   const profileRev = isOnboardingEnabled() ? profileRevFor(tenant?.businessProfile, ctx.role) : undefined;
   const text =
-    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, workspaceId, planId, page, personId, profileRev }) + message;
+    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, workspaceId, planId, page, personId, raiseDocId, profileRev }) + message;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

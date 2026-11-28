@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BlogArticleDates, BlogArticleLive, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
@@ -9,6 +10,7 @@ import { keepApprovedSeen } from "./hubActions";
 import { syncPlanPageSoftly } from "./pageActions";
 import { recordApproval } from "@/lib/content/create/aiOriginals";
 import { keepApprovedExample } from "@/lib/content/create/approvedExamples";
+import { queuePlanArticles } from "@/lib/i18n/articleTranslations";
 
 /**
  * Found live (BLOG_LIVE_WATCH_ENABLED): an article up on the brand's site was accepted by the
@@ -17,9 +19,25 @@ import { keepApprovedExample } from "@/lib/content/create/approvedExamples";
  * row, an autopilot draft's notes counted as used, brand search, and its rows in Review closed.
  */
 
-/** May being found live approve this article? Only one written and waiting, never one autopilot is writing. */
-export function mayApproveOnLive(plan: Pick<ContentPlan, "status" | "autopilot">, node: Pick<ContentNode, "type" | "status" | "body">): boolean {
-  return plan.status !== "archived" && !autopilotHolds(plan) && node.type === "hub" && node.status === "generated" && Boolean(node.body.trim());
+/** A short hash of an article's words, kept on its live mark. */
+export function articleBodyHash(body: string): string {
+  return createHash("sha256").update(body).digest("hex").slice(0, 16);
+}
+
+/**
+ * May being found live approve this article? Only one written and waiting, never one autopilot is
+ * writing, and never words that changed since an earlier live mark (a refresh, an edit): a page
+ * check can't tell a refreshed article from the one already up, so a person approves those. A
+ * person pressing It's live (`person`) is that person.
+ */
+export function mayApproveOnLive(
+  plan: Pick<ContentPlan, "status" | "autopilot">,
+  node: Pick<ContentNode, "type" | "status" | "body"> & { blog?: { live?: Pick<BlogArticleLive, "bodyHash"> | null } | null },
+  opts: { person?: boolean } = {},
+): boolean {
+  if (plan.status === "archived" || autopilotHolds(plan) || node.type !== "hub" || node.status !== "generated" || !node.body.trim()) return false;
+  const earlier = node.blog?.live;
+  return Boolean(opts.person) || !earlier || earlier.bodyHash === articleBodyHash(node.body);
 }
 
 export interface LiveMarkDeps {
@@ -40,6 +58,8 @@ export async function writeLiveMark(
     nodeId: string;
     mark: (stored: BlogArticleLive | null) => BlogArticleLive | null;
     approve: boolean;
+    /** A person said it's live (It's live), so changed words may be approved too. */
+    person?: boolean;
     dates?: (stored: BlogArticleDates | undefined, live: BlogArticleLive | null) => BlogArticleDates | undefined;
   },
   deps: LiveMarkDeps = {},
@@ -48,12 +68,20 @@ export async function writeLiveMark(
   let approved = false;
   const node = await updateContentPlanNode(ctx, workspaceId, plan.id, nodeId, { made: { unstamped: "records_where" } }, deps.db, {
     patchFor: (stored, storedNode) => {
-      approved = args.approve && mayApproveOnLive(stored, storedNode);
+      approved = args.approve && mayApproveOnLive(stored, storedNode, { person: args.person });
       return approved ? { status: "approved" } : {};
     },
-    setLive: (stored) => {
+    setLive: (stored, change) => {
       const next = args.mark(stored);
-      return next && approved ? { ...next, approvedOnLive: true } : next;
+      if (!next) return next;
+      // The hash says which words were last accepted as live. A check that couldn't approve changed
+      // words keeps the earlier hash, so a later check can't approve them either: only a person can.
+      const now = articleBodyHash(change.after.body);
+      const accepted = approved || args.person || !stored || stored.bodyHash === now;
+      const bodyHash = accepted ? now : stored?.bodyHash;
+      const hashed = { ...next, ...(bodyHash ? { bodyHash } : {}) };
+      if (!bodyHash) delete (hashed as { bodyHash?: string }).bodyHash;
+      return approved ? { ...hashed, approvedOnLive: true } : hashed;
     },
     ...(args.dates ? { setDates: args.dates } : {}),
   });
@@ -69,6 +97,8 @@ export async function writeLiveMark(
   const after = await getContentPlan(ctx, workspaceId, plan.id, deps.db).catch(() => null);
   await syncPlanPageSoftly(ctx, { workspaceId, planId: plan.id, ...(after ? { plan: after } : {}) }, { db: deps.db });
   if (after) {
+    // Approved by being found live: its versions in other languages are made (PAGE_LANGUAGES_ENABLED).
+    await queuePlanArticles(ctx, { workspaceId, plan: after }, deps.db);
     await keepApprovedSeen(ctx, { workspaceId, before: plan, after }, { db: deps.db });
     indexPlanAfterSave(ctx, after);
     await closeDraftRows(ctx, after, { db: deps.db });

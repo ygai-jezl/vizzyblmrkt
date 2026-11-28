@@ -6,7 +6,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import type { PoolItem } from "@/lib/types/lifecycle";
 import type { Tenant } from "@/lib/types/tenant";
-import { EmailWordsSchema, translationIdOf, type Translation } from "@/lib/types/translation";
+import { EmailWordsSchema, isJourneyEmailTranslation, translationIdOf, type JourneyEmailTranslation } from "@/lib/types/translation";
 import { languagesFor } from "./assetLanguages";
 import { isTranslatable, wordsHash, wordsOf } from "./emailWords";
 import { isAssetTranslationsEnabled } from "./flags";
@@ -56,8 +56,8 @@ export interface TabView {
   state: TabState;
   id: string;
   rev: number | null;
-  draft: Translation["draft"];
-  approved: Translation["approved"];
+  draft: JourneyEmailTranslation["draft"];
+  approved: JourneyEmailTranslation["approved"];
   failReason: string | null;
 }
 
@@ -66,7 +66,7 @@ export function translationsFeature(tenant: Tenant | null): boolean {
   return isAssetTranslationsEnabled() && brandLanguages(tenant).length > 1 && tenantMayUse(tenant, "translations");
 }
 
-function stateOf(t: Translation | undefined, words: { published: string | null; draft: string }, ready: boolean, published: boolean): TabState {
+function stateOf(t: JourneyEmailTranslation | undefined, words: { published: string | null; draft: string }, ready: boolean, published: boolean): TabState {
   if (!t) return ready && published ? "waiting" : "not_made";
   if (t.state === "queued") return "translating";
   if (t.state === "failed") return "failed";
@@ -89,7 +89,7 @@ export async function translationsView(ctx: TenantContext, journeyId: string, db
   const plan = languagesFor({ kind: "journey_email", base, list: brandLanguages(tenant), minReaders: minReadersOf(tenant), readers: counted?.readers ?? null });
   const ready = new Set(plan.extras.map((e) => e.code));
   const others = [...plan.extras, ...plan.skipped].map((l) => l.code);
-  const docs = new Map((await repo.translations.find({ where: [["journeyId", "==", journeyId]] })).map((t) => [t.id, t]));
+  const docs = new Map((await repo.translations.find({ where: [["journeyId", "==", journeyId]] })).filter(isJourneyEmailTranslation).map((t) => [t.id, t]));
   const publishedHash = (poolId: string, itemId: string) => {
     const item = source?.version.pools.find((p) => p.id === poolId)?.items.find((i) => i.id === itemId);
     return item ? wordsHash(wordsOf(item)) : null;
@@ -142,7 +142,7 @@ async function approveOne(ctx: TenantContext, id: string, rev: number, published
   let outcome: "approved" | "moved" | "out_of_date" | "missing" = "missing";
   const at = new Date().toISOString();
   await repo.translations.claim(id, (cur) => {
-    if (cur.rev !== rev || cur.state !== "to_check" || !cur.draft) {
+    if (!isJourneyEmailTranslation(cur) || cur.rev !== rev || cur.state !== "to_check" || !cur.draft) {
       outcome = "moved";
       return null;
     }
@@ -171,7 +171,7 @@ export async function translationsAction(ctx: TenantContext, journeyId: string, 
 
   if (a.action === "approve") {
     const doc = await repo.translations.getById(a.id);
-    if (!doc || doc.journeyId !== journeyId) return fail(404, "not_found");
+    if (!doc || !isJourneyEmailTranslation(doc) || doc.journeyId !== journeyId) return fail(404, "not_found");
     const r = await approveOne(ctx, a.id, a.rev, published, db);
     if (r === "approved") return ok({ approved: 1 });
     return fail(409, r === "out_of_date" ? "out_of_date" : "changed");
@@ -182,7 +182,7 @@ export async function translationsAction(ctx: TenantContext, journeyId: string, 
     let skipped = 0;
     for (const [id, rev] of Object.entries(a.revs)) {
       const doc = await repo.translations.getById(id);
-      if (!doc || doc.journeyId !== journeyId) {
+      if (!doc || !isJourneyEmailTranslation(doc) || doc.journeyId !== journeyId) {
         skipped += 1;
         continue;
       }
@@ -194,7 +194,7 @@ export async function translationsAction(ctx: TenantContext, journeyId: string, 
 
   if (a.action === "save") {
     const doc = await repo.translations.getById(a.id);
-    if (!doc || doc.journeyId !== journeyId) return fail(404, "not_found");
+    if (!doc || !isJourneyEmailTranslation(doc) || doc.journeyId !== journeyId) return fail(404, "not_found");
     const hash = published.get(`${doc.poolId}/${doc.itemId}`);
     if (!hash) return fail(409, "out_of_date");
     // A person's own words may change a link, but never a merge token: a lost one would empty it.
@@ -206,7 +206,7 @@ export async function translationsAction(ctx: TenantContext, journeyId: string, 
     const at = new Date().toISOString();
     let moved = false;
     await repo.translations.claim(a.id, (cur) => {
-      if (cur.rev !== a.rev || cur.state === "queued") {
+      if (!isJourneyEmailTranslation(cur) || cur.rev !== a.rev || cur.state === "queued") {
         moved = true;
         return null;
       }
@@ -228,7 +228,7 @@ export async function translationsAction(ctx: TenantContext, journeyId: string, 
 /** For Review: each journey with translations to check, and the revs its Approve all names. */
 export async function translationsToCheck(ctx: TenantContext, db?: FirestoreLike): Promise<Array<{ journeyId: string; langs: string[]; revs: Record<string, number> }>> {
   if (!isAssetTranslationsEnabled()) return [];
-  const rows = await forTenant(ctx, db).translations.find({ where: [["state", "==", "to_check"]], limit: 200 });
+  const rows = (await forTenant(ctx, db).translations.find({ where: [["state", "==", "to_check"]], limit: 200 })).filter(isJourneyEmailTranslation);
   const byJourney = new Map<string, { langs: Set<string>; revs: Record<string, number> }>();
   for (const t of rows) {
     const j = byJourney.get(t.journeyId) ?? { langs: new Set<string>(), revs: {} };
@@ -258,7 +258,7 @@ export async function translationReviewItems(ctx: TenantContext, db?: FirestoreL
         detail: `${names.join(", ")} to check, ${count === 1 ? "1 email" : `${count} emails`}`,
         href: `/admin/lifecycle/${r.journeyId}`,
         action: "Open",
-        ...(ctx.role === "admin" ? { approveLanguages: { journeyId: r.journeyId, revs: r.revs } } : {}),
+        ...(ctx.role === "admin" ? { approveLanguages: { endpoint: `/api/admin/lifecycle/journeys/${r.journeyId}/translations`, revs: r.revs } } : {}),
       },
     ];
   });

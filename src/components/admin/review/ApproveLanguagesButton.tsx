@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { api, errorText } from "@/components/admin/connect/api";
 
 /**
- * Review: approve every translation of one journey waiting to be checked (ASSET_TRANSLATIONS_ENABLED),
- * each at the rev the row showed. One that changed since is left to check in the journey.
+ * Review: approve every translation of one journey, article or sign-up page waiting to be checked
+ * (ASSET_TRANSLATIONS_ENABLED, PAGE_LANGUAGES_ENABLED), each at the rev the row showed, through its own
+ * translations route (`endpoint`). One that changed since is left to check where it lives.
  */
-export function ApproveLanguagesButton({ journeyId, revs }: { journeyId: string; revs: Record<string, number> }) {
+export function ApproveLanguagesButton({ endpoint, revs }: { endpoint: string; revs: Record<string, number> }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -20,13 +21,13 @@ export function ApproveLanguagesButton({ journeyId, revs }: { journeyId: string;
         onClick={async () => {
           setBusy(true);
           setNote(null);
-          const r = await api<{ approved?: number; skipped?: number }>(`/api/admin/lifecycle/journeys/${journeyId}/translations`, {
+          const r = await api<{ approved?: number; skipped?: number }>(endpoint, {
             method: "POST",
             body: JSON.stringify({ action: "approve_all", revs }),
           });
           setBusy(false);
           if (!r.ok) return setNote(errorText(r.data));
-          if (r.data.skipped) setNote(`${r.data.skipped} changed since. Open the journey to check them.`);
+          if (r.data.skipped) setNote(`${r.data.skipped} changed since. Open it to check them.`);
           router.refresh();
         }}
         className="rounded-md px-3 py-1.5 text-sm text-shell-muted hover:bg-shell-hover hover:text-shell-ink disabled:opacity-50"

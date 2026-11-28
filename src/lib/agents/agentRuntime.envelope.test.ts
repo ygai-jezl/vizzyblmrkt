@@ -82,6 +82,23 @@ describe("contextEnvelope journey in view (journey styles)", () => {
   });
 });
 
+describe("contextEnvelope deck in view (VIZZY_RAISE_ENABLED)", () => {
+  it("names the deck in view, keeps an empty one, and leaves out none or anything the envelope can't carry", () => {
+    const opts = { phase4: false, raiseInContext: true };
+    expect(parse(contextEnvelope(ctx, "t1", undefined, shellChatContext("/admin/raise/rd_abcdefghij12", "Content › Raise kit › Deck", opts)))).toMatchObject({
+      raiseDocId: "rd_abcdefghij12",
+      page: "Content › Raise kit › Deck",
+    });
+    // Moving off the deck clears it agent-side.
+    expect(parse(contextEnvelope(ctx, "t2", undefined, shellChatContext("/admin/raise", "Content › Raise kit", opts)))).toHaveProperty("raiseDocId", "");
+    // Off: exactly as before.
+    expect(parse(contextEnvelope(ctx, "t3", undefined, shellChatContext("/admin/raise/rd_abcdefghij12", "Page", { phase4: false })))).not.toHaveProperty("raiseDocId");
+    expect(parse(contextEnvelope(ctx, "t4", undefined, { raiseDocId: undefined }))).not.toHaveProperty("raiseDocId");
+    expect(parse(contextEnvelope(ctx, "t5", undefined, { raiseDocId: null }))).not.toHaveProperty("raiseDocId");
+    expect(parse(contextEnvelope(ctx, "t6", undefined, { raiseDocId: "rd_1}]" }))).not.toHaveProperty("raiseDocId");
+  });
+});
+
 describe("contextEnvelope brand profile rev (ONBOARDING_ENABLED)", () => {
   it("carries the rev as digits, keeps an empty one, and leaves out none or anything else", () => {
     expect(parse(contextEnvelope(ctx, "t1", undefined, { profileRev: "12" }))).toMatchObject({ profileRev: "12" });

@@ -15,6 +15,9 @@ import type { EntryState, WorkLink, WorkLogRow, WorkLogRowOf, WorkWho } from "./
  *   counting is not a move.
  * - Decisions: the decisions recorded that day, plan approvals among them.
  * - The day rail: for each of the last 14 days, how many entries, tasks moved and decisions.
+ * - Carry over, on Today: what was in flight at the end of yesterday and has no entry today, so one
+ *   tap logs today's entry for each (src/lib/work/log.ts). It is the same rule as In flight, so the
+ *   count on the button is what the tap logs.
  *
  * Days are the viewer's brand's days. Pure.
  */
@@ -69,7 +72,7 @@ export interface LogDay {
 /** Work's own writes that aren't a person's or Vizzy's move: the count kept on a check. */
 const NOT_A_MOVE = new Set(["work_count"]);
 
-const keyOf = (r: WorkLogRowOf<"entry">) => `${r.brandId ?? ""}|${r.workstream.trim().toLowerCase().replace(/\s+/g, " ")}`;
+const keyOf = (r: Pick<WorkLogRowOf<"entry">, "brandId" | "workstream">) => `${r.brandId ?? ""}|${r.workstream.trim().toLowerCase().replace(/\s+/g, " ")}`;
 
 function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
@@ -110,6 +113,25 @@ export function inFlightOn(rows: readonly WorkLogRow[], day: string, timeZone: s
     });
   }
   return out.sort((a, b) => b.at.localeCompare(a.at) || a.workstream.localeCompare(b.workstream));
+}
+
+/**
+ * What Carry over logs on `day`: each workstream still in flight when the day before it ended, with
+ * no entry on `day` itself, whoever wrote that entry. Before anyone has logged, that is all of
+ * yesterday's In flight.
+ */
+export function carryOverOn(rows: readonly WorkLogRow[], day: string, timeZone: string, readFrom: string): InFlight[] {
+  const logged = new Set(rows.flatMap((r) => (r.kind === "entry" && dayIn(r.at, timeZone) === day ? [keyOf(r)] : [])));
+  return inFlightOn(rows, addDaysToKey(day, -1), timeZone, readFrom).filter((f) => !logged.has(keyOf(f)));
+}
+
+/**
+ * Today before anyone has logged (the canvas's Nothing logged yet): how many workstreams still open
+ * from yesterday Carry over offers to log, from the day's `carry` count, or 0 when it offers
+ * nothing. Never on a past day. The Log screen and get_work both read it.
+ */
+export function carryOffer(day: Pick<LogDay, "entries"> & { today: boolean; carry: number }): number {
+  return day.today && day.entries.length === 0 ? day.carry : 0;
 }
 
 /** The Log for one day, from the rows read (newest first or any order), and the rail's days. */

@@ -32,6 +32,12 @@ export const PLAN_STATE_LABEL: Record<PlanState, string> = {
   not_approved_yet: "Not approved yet",
 };
 
+/** The note on an entry Carry over logs on Today, as the approved canvas draws it. */
+export const CARRIED_NOTE = "Carried over from yesterday.";
+
+/** The tool an entry Carry over logs names in its source, so the Log and get_work can say so. */
+export const CARRY_TOOL = "work_carry";
+
 /** What each refusal says: what happened, and what to do next. */
 export const WORK_MESSAGES = {
   invalid_input: "Something in that isn't one Work can keep. Check the fields and try again.",
@@ -81,6 +87,8 @@ export const WORK_MESSAGES = {
   regions_down: "Work couldn't read every region just now, so it can't be sure your refs are free. Try again in a minute.",
   import_busy: "Task numbers changed while Work read this sheet: another import or a new task took some. Nothing was imported, so import it again.",
   day_bad: "That isn't a day Work can show.",
+  carry_day_over: "That day is over, so nothing was carried over. Open Today to carry over what is still open.",
+  carry_regions_down: "Work couldn't read every region just now, so nothing was carried over. Try again in a minute.",
   suggestion_missing: "That suggestion isn't there any more, or it's for a brand you can't see.",
   suggestion_decided: "That suggestion was added or dismissed already. Refresh Review to see what's waiting.",
   suggestion_changed: "That suggestion changed while you were looking at it. Refresh Review, then try again.",

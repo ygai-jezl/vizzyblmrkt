@@ -26,7 +26,7 @@ MAX_QUERY_CHARS = 500
 KINDS = (
     "article", "newsletter", "ebook", "post", "idea_board", "template", "journey_email", "broadcast",
     "brand_kit", "subject", "situation", "question", "note", "research", "knowledge", "competitor",
-    "repo_map", "image", "learned",
+    "repo_map", "image", "learned", "raise_doc",
     "idea",
 )
 

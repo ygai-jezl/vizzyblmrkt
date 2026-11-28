@@ -1617,6 +1617,31 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["onboarding", "vizzy_chat"],
   },
   {
+    id: "raise_doc",
+    name: "Raise document",
+    description:
+      "A deck for investors or a pack for lenders, one record per deck: its slides, speaker notes (the talk track), number blocks each with its source and date, what it still needs, every kept version with its change note, and Vizzy's own draft of each slide. Numbers are frozen in each version. A draft only: nothing is sent or shared.",
+    place: "company",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [regional("raise_docs", "one document per deck, at most 20 per brand, version 1 and the newest 11 kept whole; `createdBy`, `updatedBy` and each version's `by` hold user ids; under 700 KB")],
+    links: [
+      { to: "brand_map", via: "the identity, audiences and situations a draft read", many: false },
+      { to: "brand_strategy", via: "the claims and competitor groups a draft read", many: false },
+      { to: "idea", via: "launchId on a People on a launch block (a launch is an idea's waitlist)", many: true },
+    ],
+    events: [],
+    erase: {
+      paths: [brandPath("deleteRaiseDoc", "src/lib/raise/docs/store.ts", "an admin deletes the deck on Content › Raise kit")],
+      gaps: ["no path deletes a whole brand and everything it holds", "a team member's erase does not find a team slide that names them: it is free text"],
+    },
+    export: { paths: [{ fn: "exportRaiseDoc", file: "src/lib/raise/docs/store.ts", trigger: "member", when: "an admin downloads the deck's data on its page" }] },
+    search: { kinds: ["raise_doc"] },
+    numbers: { meanings: ["waitlistSignups", "launchSignups", "signupGrowth", "talkSeconds"], tool: "get_raise_doc" },
+    madeBy: ["raise_write", "deck_outline", "canvas.raise_deck"],
+  },
+  {
     id: "next_action_card",
     name: "Your next action",
     description:

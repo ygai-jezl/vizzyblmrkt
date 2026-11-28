@@ -50,6 +50,7 @@ import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isAssetTranslationsEnabled, isLanguageReadersEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isRaiseKitEnabled, isVizzyRaiseEnabled } from "@/lib/raise/docs/flags";
 import { isPasteEnabled, isVizzyPasteEnabled } from "@/lib/crm/paste/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
@@ -221,6 +222,7 @@ export default async function AdminLayout({
             names={crumbNames}
             journeyInContext={isEmailStyleEnabled() && isEmailJourneyStyleEnabled() && ctx.role === "admin"}
             personInContext={isPersonInContextEnabled()}
+            raiseInContext={isVizzyRaiseEnabled()}
             personBrief={isPersonBriefEnabled()}
             people={people}
             fields={isFieldsEnabled()}
@@ -253,6 +255,7 @@ export default async function AdminLayout({
             agentRecord={isAgentRecordEnabled()}
             languageReaders={isLanguageReadersEnabled()}
             raiseFollowUps={isRaiseFollowupsEnabled()}
+            raiseKit={isRaiseKitEnabled()}
             paste={isPasteEnabled()}
             vizzyPaste={isVizzyPasteEnabled()}
             assetTranslations={isAssetTranslationsEnabled()}

@@ -3,6 +3,7 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { isAssetTranslationsEnabled, isLanguageReadersEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { ideaWord } from "@/lib/nav/terms";
 
 /**
@@ -10,13 +11,14 @@ import { ideaWord } from "@/lib/nav/terms";
  * `languageReaders` (LANGUAGE_READERS_ENABLED) it also covers readers per language, the threshold
  * and the one list launches use. With `assetTranslations` (ASSET_TRANSLATIONS_ENABLED) it covers
  * journey emails in each reader's language. With ideas in the words (`ideaWords`) a launch is called
- * an idea.
+ * an idea. With the Raise kit on (`raiseKit`) it says decks stay in English for now.
  */
 export default function LanguagesHelp({
   languageReaders = isLanguageReadersEnabled(),
   assetTranslations = isAssetTranslationsEnabled(),
   pageLanguages = isPageLanguagesEnabled(),
   ideaWords = isIdeaWordsEnabled(),
+  raiseKit = isRaiseKitEnabled(),
 }: HelpBodyProps = {}) {
   const w = ideaWord(ideaWords);
   const translations = languageReaders && assetTranslations;
@@ -34,7 +36,10 @@ export default function LanguagesHelp({
         before={<li>A brand set up in YouGrow</li>}
         unlocks={
           <>
-            <li>Everything Vizzy writes for you is in your language, with no translating afterwards</li>
+            <li>
+              {raiseKit ? "Everything Vizzy writes for you, except Raise kit decks and lender packs for now," : "Everything Vizzy writes for you"} is in your
+              language, with no translating afterwards
+            </li>
             <li>Checks on articles and emails that suit your language, with no false warnings</li>
             {languageReaders ? <li>How many of your people read each language, so you know which ones need their own version</li> : null}
             {translations ? <li>Journey emails in each reader&apos;s language, once you approve each translation</li> : null}
@@ -67,6 +72,12 @@ export default function LanguagesHelp({
         Names of brands, products and people stay as they are. A short quote from a source can stay in its own language.
         Anything given its own language in its Strategy settings keeps that one.
       </P>
+      {raiseKit ? (
+        <P>
+          Decks and lender packs from the <Open href="/help/raise-kit">Raise kit</Open> are in English for now, whatever your
+          language.
+        </P>
+      ) : null}
 
       <H2 id="labels">An article&apos;s box and section names</H2>
       <P>

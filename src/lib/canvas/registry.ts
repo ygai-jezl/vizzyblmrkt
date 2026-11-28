@@ -11,6 +11,7 @@ import { brandMapCanvasKind } from "./kinds/brandMap";
 import { imageStyleCanvasKind } from "./kinds/imageStyle";
 import { personFieldsCanvasKind } from "./kinds/personFields";
 import { newPersonCanvasKind } from "./kinds/newPerson";
+import { raiseDeckCanvasKind } from "./kinds/raiseDeck";
 
 /**
  * The registry of agent-authorable canvas kinds. To add another canvas: put its name in
@@ -30,6 +31,7 @@ const KINDS = {
   image_style: imageStyleCanvasKind,
   person_fields: personFieldsCanvasKind,
   new_person: newPersonCanvasKind,
+  raise_deck: raiseDeckCanvasKind,
 } as const satisfies { readonly [K in CanvasKindName]: CanvasKind<K> };
 
 export function getCanvasKind(kind: string): CanvasKind | null {

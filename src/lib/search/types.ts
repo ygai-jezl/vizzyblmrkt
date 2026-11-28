@@ -29,6 +29,7 @@ export const SEARCH_KINDS = [
   "repo_map",
   "image",
   "learned",
+  "raise_doc",
 ] as const;
 export type SearchKind = (typeof SEARCH_KINDS)[number];
 

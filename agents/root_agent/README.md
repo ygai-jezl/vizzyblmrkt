@@ -44,7 +44,8 @@ writes is a draft or a suggestion that a person accepts in the app.
   Review, draft a Log note or a decision that a person saves).
 - **Sub-agents:** `campaign_ops` (launch journeys and invite waves),
   `lifecycle_ops` (product lifecycle journeys, learning a product from its repo,
-  one person's plan) and `content_ops` (content plans).
+  one person's plan), `content_ops` (content plans) and `raise_ops` (decks for
+  investors and packs for lenders).
 
 Each tool keeps its request logic in a pure `*_client.py` module with a thin ADK
 wrapper beside it. If the app has the matching feature switched off, the tool
@@ -60,7 +61,7 @@ callbacks/            [ctx:] envelope, [mode:] directive, business profile block
 context/              dynamic instruction, language, Memory Bank scoping, business profile block
 prompts/              base system instruction
 tools/                root FunctionTools (pure *_client.py + ADK wrappers)
-sub_agents/           campaign_ops, lifecycle_ops, content_ops (each with prompts/ and tools/)
+sub_agents/           campaign_ops, lifecycle_ops, content_ops, raise_ops (each with prompts/ and tools/)
 agent_logging/        structured logging
 tests/                unit tests (pure clients; the tool declaration tests need ADK)
 deploy.sh             renders .agent_engine_config.json (not committed), then runs `adk deploy agent_engine`

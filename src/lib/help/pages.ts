@@ -10,6 +10,7 @@ import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { isPasteEnabled } from "@/lib/crm/paste/flags";
 
 /**
@@ -33,7 +34,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work" | "raise_pipeline" | "paste";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work" | "raise_pipeline" | "raise_kit" | "paste";
 }
 
 /**
@@ -108,6 +109,8 @@ export interface HelpBodyProps {
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
   raiseFollowUps?: boolean;
+  /** The Raise kit's decks are in brand search (isRaiseKitEnabled(), a server switch: the drawer gets it from the admin shell). */
+  raiseKit?: boolean;
   /** Admins paste a list on People (isPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
   paste?: boolean;
   /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
@@ -192,6 +195,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("programmes-and-knowledge", "Programmes and knowledge", "grow", "Start a content programme and give it your website and documents to write from."),
   page("brand-map", "Brand map", "grow", "Set the names and subjects every blog article is written from."),
   page("write-and-schedule", "Write and schedule", "grow", "Write posts, articles and newsletters with Vizzy, then schedule and send them."),
+  page(
+    "raise-kit",
+    "Raise kit",
+    "grow",
+    "Draft a deck for investors or a pack for lenders from what YouGrow knows, rehearse its talk track, present it and save it as a PDF.",
+    "raise_kit",
+  ),
   page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
   page(
@@ -260,6 +270,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
   if (p.onlyWhen === "work") return isWorkEnabled();
   if (p.onlyWhen === "raise_pipeline") return isRaisePipelineEnabled();
+  if (p.onlyWhen === "raise_kit") return isRaiseKitEnabled();
   if (p.onlyWhen === "paste") return isPasteEnabled();
   return true;
 }

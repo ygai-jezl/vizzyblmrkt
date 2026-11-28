@@ -61,6 +61,7 @@ export const RULE_DECISIONS = {
   work_ready: { label: "Ready to start", file: "src/lib/work/service.ts" },
   work_measure_kind: { label: "Suggested kind of win", file: "src/lib/work/measureKind.ts" },
   investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
+  deck_outline: { label: "Deck sections by kind and stage", file: "src/lib/raise/docs/outlines.ts" },
   paste_columns: { label: "Pasted columns read as fields", file: "src/lib/crm/paste/columns.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
@@ -234,6 +235,7 @@ export const LOOPS = {
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
   next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
+  raise_write: gap("Vizzy keeps its own draft of each slide beside the version a person saves, but the next deck learns nothing from those changes yet.", LATER),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
   blog_hero: own("brand_kit", "Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it."),
   post_image: own("brand_kit", "Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it."),
@@ -258,6 +260,7 @@ export const LOOPS = {
   "canvas.image_style": gap("Vizzy suggests an image style without reading the thumbs on the brand's images, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.", IMAGES_BY),
   "canvas.person_fields": none("Each suggestion is a fact about one person that a teammate confirms or dismisses, so it is right or wrong rather than a taste."),
   "canvas.new_person": none("Vizzy copies details from the chat into the New person form, and a person checks the facts and records consent, so no taste is involved."),
+  "canvas.raise_deck": none("The deck only gathers slides, and the words on each slide learn under Writing decks."),
 
   // ----- Connector rules (src/lib/types/dataSignal.ts) -----
   rising_search: gap("A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.", LATER),
@@ -300,6 +303,7 @@ export const LOOPS = {
   work_ready: gap("Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.", LATER),
   work_measure_kind: gap("The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.", LATER),
   investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
+  deck_outline: gap("Every new deck starts from YouGrow's shipped outline for its kind and stage, and which outlines led to meetings is not counted yet.", LATER),
   paste_columns: none("Each column is read by its header the same way for every brand, and the list shows how every column was read before an admin adds a row."),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----

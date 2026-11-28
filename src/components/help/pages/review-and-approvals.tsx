@@ -5,6 +5,7 @@ import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/pe
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { isAssetTranslationsEnabled, isPageLanguagesEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
@@ -27,7 +28,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * the business in a chat. While the agent record is on (AGENT_RECORD_ENABLED), Drafts from Vizzy
  * also lists, for admins, the email and image style and the notes Vizzy suggested, and Vizzy can
  * say what happened to the drafts it made; with Vizzy's Work tools on too, the page says Work's
- * suggestions and drafts aren't in that record, as Vizzy's get_drafts line does.
+ * suggestions and drafts aren't in that record, as Vizzy's get_drafts line does, and with the Raise
+ * kit on (`raiseKit`) that decks aren't either.
  * While the investor and funding board's follow-ups are on (RAISE_FOLLOWUPS_ENABLED), the team
  * sees Follow-ups from your board.
  * While Paste a list is on (RAISE_PASTE_ENABLED), admins also see pasted lists waiting to be added.
@@ -43,6 +45,7 @@ export default function ReviewAndApprovalsHelp({
   onboarding = isOnboardingEnabled(),
   agentRecord = isAgentRecordEnabled(),
   raiseFollowUps = isRaiseFollowupsEnabled(),
+  raiseKit = isRaiseKitEnabled(),
   paste = isPasteEnabled(),
   assetTranslations = isAssetTranslationsEnabled(),
   pageLanguages = isPageLanguagesEnabled(),
@@ -238,6 +241,13 @@ export default function ReviewAndApprovalsHelp({
                 Tasks Vizzy suggests, and the Log notes and decisions it drafts for Work, aren&apos;t in that record: Vizzy answers
                 about them from Work, where a draft nobody saves is set aside after 7 days (
                 <Open href="/help/work#vizzy">Work in Review, and Vizzy</Open>).
+              </>
+            ) : null}
+            {raiseKit ? (
+              <>
+                {" "}
+                Decks and lender packs from the <Open href="/help/raise-kit">Raise kit</Open> aren&apos;t in it either: each deck
+                keeps its own versions on its page.
               </>
             ) : null}
           </P>

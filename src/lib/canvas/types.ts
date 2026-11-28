@@ -24,7 +24,10 @@ import type { CanvasKindName } from "./names";
  *  - `person_fields`: suggested changes to one person's fields (scope: the person, by
  *    our `ct_` id for them), which an admin confirms on their page or from Review;
  *  - `new_person`: the New person form filled in from the chat (scope: the whole brand),
- *    which an admin opens, checks and confirms, recording consent themselves.
+ *    which an admin opens, checks and confirms, recording consent themselves;
+ *  - `raise_deck`: a deck for investors or a pack for lenders, drafted or changed from the
+ *    chat (scope: the deck, by its `rd_` id, or a new one), each change a new draft version a
+ *    person opens on Content › Raise kit. Nothing is sent or shared.
  * Each kind owns its request shape, scope loading, content fill, validation,
  * persistence and the words it says back, behind one `authorDraft`, so the
  * agent endpoint stays generic.
@@ -45,7 +48,8 @@ export type CanvasScope =
   | { kind: "brand_map" }
   | { kind: "image_style" }
   | { kind: "person_fields"; personId: string }
-  | { kind: "new_person" };
+  | { kind: "new_person" }
+  | { kind: "raise_deck"; docId?: string | null };
 
 /** What the chat shows for a saved draft (a card with an "Open canvas" link). */
 export interface CanvasCard {

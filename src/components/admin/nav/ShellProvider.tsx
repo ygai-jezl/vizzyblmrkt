@@ -90,6 +90,8 @@ interface Shell {
   languageReaders: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server), for the How to drawer. */
   raiseFollowUps: boolean;
+  /** The Raise kit is on, so brand search finds decks (isRaiseKitEnabled(), from the server), for the How to drawer. */
+  raiseKit: boolean;
   /** Admins paste a list on People (isPasteEnabled(), from the server), for the How to drawer. */
   paste: boolean;
   /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), from the server), for the How to drawer. */
@@ -100,8 +102,8 @@ interface Shell {
   pageLanguages: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
-   * data isn't the server's render (the journey editor, a person's page) can reload it. Null
-   * unless the layout passes `journeyInContext` or `personInContext`.
+   * data isn't the server's render (the journey editor, a person's page, a deck) can reload it.
+   * Null unless the layout passes `journeyInContext`, `personInContext` or `raiseInContext`.
    */
   onCanvasSaved: ((listener: (card: CanvasCardData) => void) => () => void) | null;
 }
@@ -134,6 +136,7 @@ export function ShellProvider({
   names,
   journeyInContext = false,
   personInContext = false,
+  raiseInContext = false,
   personBrief = false,
   people = false,
   fields = false,
@@ -166,6 +169,7 @@ export function ShellProvider({
   agentRecord = false,
   languageReaders = false,
   raiseFollowUps = false,
+  raiseKit = false,
   paste = false,
   vizzyPaste = false,
   assetTranslations = false,
@@ -179,6 +183,8 @@ export function ShellProvider({
    * (AUDIENCE_VIZZY_FIELDS_ENABLED), from the server: the chat names the person in view.
    */
   personInContext?: boolean;
+  /** Vizzy can work on decks (isVizzyRaiseEnabled(), from the server): the chat names the deck in view. */
+  raiseInContext?: boolean;
   /** The brief is on (isPersonBriefEnabled(), from the server): the panel offers the situation's starters. */
   personBrief?: boolean;
   /** Audience is called People (isPeopleNameEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
@@ -243,6 +249,8 @@ export function ShellProvider({
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server): the How to drawer says so. */
   raiseFollowUps?: boolean;
+  /** The Raise kit is on, so brand search finds decks (isRaiseKitEnabled(), from the server): the How to drawer says so. */
+  raiseKit?: boolean;
   /** Admins paste a list on People (isPasteEnabled(), from the server): the How to drawer says so. */
   paste?: boolean;
   /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), from the server): the How to drawer says so. */
@@ -269,11 +277,11 @@ export function ShellProvider({
   const chat = useDashboardChat({
     // The page, the launch in view, the programme / plan (nav v2 phase 4) and, with
     // journeyInContext, the lifecycle journey in view, for Vizzy's tools.
-    context: shellChatContext(pathname, page, { phase4: isNavV2Phase4Enabled(), journeyInContext, personInContext }),
+    context: shellChatContext(pathname, page, { phase4: isNavV2Phase4Enabled(), journeyInContext, personInContext, raiseInContext }),
     // When Vizzy saves a draft of the page you're on, show its version.
     onCanvasSaved: (card) => {
       if (card.url.split("?")[0] === pathname) router.refresh();
-      if (journeyInContext || personInContext) saved.emit(card);
+      if (journeyInContext || personInContext || raiseInContext) saved.emit(card);
     },
   });
   const [vizzyOpen, setVizzyOpen] = useState(false);
@@ -353,13 +361,14 @@ export function ShellProvider({
       agentRecord,
       languageReaders,
       raiseFollowUps,
+      raiseKit,
       paste,
       vizzyPaste,
       assetTranslations,
       pageLanguages,
-      onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
+      onCanvasSaved: journeyInContext || personInContext || raiseInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, paste, vizzyPaste, assetTranslations, pageLanguages, saved, work, workVizzy],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, raiseKit, paste, vizzyPaste, assetTranslations, pageLanguages, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

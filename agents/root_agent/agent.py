@@ -6,8 +6,8 @@ invokes it via `:streamQuery`, passing tenant/user context as a `[ctx:{...}]`
 message prefix (see callbacks/context_envelope.py) and the reasoning mode as a
 `[mode:fast|thinking]` prefix (see callbacks/chat_mode.py).
 
-It has root FunctionTools and three sub-agents (campaign_ops, lifecycle_ops,
-content_ops). Every tool calls back to the app's /api/agent/* routes with the
+It has root FunctionTools and four sub-agents (campaign_ops, lifecycle_ops,
+content_ops, raise_ops). Every tool calls back to the app's /api/agent/* routes with the
 signed `ctxToken` from the envelope; see README.md.
 
 Sessions + Memory Bank are provided by Agent Runtime. The engine runs as a
@@ -29,6 +29,7 @@ from .model_config import DEFAULT_MODEL
 from .sub_agents.campaign_ops.agent import campaign_ops_agent
 from .sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
 from .sub_agents.content_ops.agent import content_ops_agent
+from .sub_agents.raise_ops.agent import raise_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
 from .tools.insights_summary import get_insights_summary
 from .tools.audience_counts import get_audience_counts
@@ -154,6 +155,7 @@ root_agent = LlmAgent(
         draft_work_decision,
     ],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
-    # connected-product lifecycle journeys. Both save drafts only.
-    sub_agents=[campaign_ops_agent, lifecycle_ops_agent, content_ops_agent],
+    # connected-product lifecycle journeys; content_ops drafts content plans; raise_ops
+    # drafts and revises decks for investors and packs for lenders. All save drafts only.
+    sub_agents=[campaign_ops_agent, lifecycle_ops_agent, content_ops_agent, raise_ops_agent],
 )

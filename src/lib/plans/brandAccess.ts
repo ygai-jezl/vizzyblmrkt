@@ -24,7 +24,7 @@ import { isPlansEnabled } from "./flags";
  * `onboarding_voice` (Talk with Vizzy) is in every plan: no plan holds it back, so access needs no
  * read, but a copy can still keep it for granted brands with GRANTED_ONLY_FEATURES.
  */
-export const METERED_FEATURES = ["edit_vizzy", "edit_vizzy_learning", "competitors", "competitor_articles", "competitor_finder", "brand_search", "next_up", "article_autopilot", "article_refresh", "onboarding_voice", "translations"] as const;
+export const METERED_FEATURES = ["edit_vizzy", "edit_vizzy_learning", "competitors", "competitor_articles", "competitor_finder", "brand_search", "next_up", "article_autopilot", "article_refresh", "onboarding_voice", "raise_kit", "translations"] as const;
 export type MeteredFeature = (typeof METERED_FEATURES)[number];
 
 /** The features this deployment keeps for granted brands. */

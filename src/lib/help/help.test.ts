@@ -135,6 +135,8 @@ vi.hoisted(() => {
   process.env.RAISE_PASTE_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
+  // Content › Raise kit, with its help page.
+  process.env.RAISE_KIT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -1061,6 +1063,28 @@ describe("Search", () => {
     expect(md(true)).toContain("A note ticked as naming a customer goes into an article only when it is linked to the article's subject");
     expect(md(false)).not.toContain("A note ticked as naming a customer");
     vi.unstubAllEnvs();
+  });
+
+  it("says on Languages that decks stay in English for now, only while the Raise kit is on", () => {
+    const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.languages!({ raiseKit }), "https://app.example.com");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) are in English for now, whatever your language.");
+    expect(md(false)).not.toContain("Raise kit");
+    expect(md(true)).toContain("Everything Vizzy writes for you, except Raise kit decks and lender packs for now, is in your language");
+    expect(md(false)).toContain("Everything Vizzy writes for you is in your language");
+  });
+
+  it("says on Review and approvals that decks aren't in the agent record, only while the Raise kit is on", () => {
+    const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ agentRecord: true, raiseKit }), "https://app.example.com");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md) aren't in it either: each deck keeps its own versions on its page.");
+    expect(md(false)).not.toContain("Decks and lender packs");
+  });
+
+  it("lists the Raise kit's decks in what search covers only while the Raise kit is on, as the drawer is told", () => {
+    const md = (raiseKit: boolean) => docToMarkdown(HELP_BODIES.search!({ raiseKit }), "https://app.example.com");
+    expect(md(true)).toContain("Decks and lender packs from the [Raise kit](https://app.example.com/help/raise-kit.md), slide by slide");
+    expect(md(false)).not.toContain("Decks and lender packs");
+    expect(drawerBodyProps({ raiseKit: true } as never).raiseKit).toBe(true);
+    expect(drawerBodyProps(null as never).raiseKit).toBe(false);
   });
 
   it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0025)", () => {

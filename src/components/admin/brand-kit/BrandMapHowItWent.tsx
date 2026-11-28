@@ -176,6 +176,7 @@ export function BrandMapHowItWent() {
             {site ? <p>{W.site(site.visits, site.connector)}</p> : null}
             {month.roadmap && month.roadmap.due ? <p>{W.roadmap(month.roadmap.done, month.roadmap.due)}</p> : null}
             <p>{W.did(month.did)}</p>
+            {view.working && month.month === view.months[0]?.month ? <p className="text-green-700 dark:text-green-400">{view.working}</p> : null}
             {more.length ? <p className="text-amber-700 dark:text-amber-400">{W.more(more)}</p> : null}
           </div>
         </>

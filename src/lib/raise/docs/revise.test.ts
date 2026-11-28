@@ -428,7 +428,9 @@ describe("helpers", () => {
     expect(numbersIn("we have 40 B2B customers")).toEqual([40]);
     expect(numbersIn("a 120 m² office")).toEqual([120]);
     expect(numbersIn("40 M&A deals")).toEqual([40]);
-    expect(numbersIn("we launched on 2025-11-27 with 300 users")).toEqual([2025, 300]);
+    // A date is never a figure: none of its parts is read.
+    expect(numbersIn("we launched on 2025-11-27 with 300 users")).toEqual([300]);
+    expect(numbersIn("we launched on 27/11/2026 with 300 users")).toEqual([300]);
     expect(quoteHas(1200, "in 24h 1,200 people signed up")).toBe(true);
     expect(quoteHas(12500, "En 24h 12 500 inscriptions", "fr")).toBe(true);
     expect(quoteHas(500, "En 24h 12 500 inscriptions", "fr")).toBe(false);
@@ -437,6 +439,56 @@ describe("helpers", () => {
     expect(quoteHas(12, "نمو ١٢،٥٪", "ar")).toBe(false);
     expect(quoteHas(1234.5, "CHF 1´234.50 im Monat", "de")).toBe(true);
     expect(quoteHas(234.5, "CHF 1´234.50 im Monat", "de")).toBe(false);
+  });
+
+  it("never reads a figure that shares a scale word with a list, a hedge or a table header", () => {
+    for (const quote of [
+      "Our revenue was 1.2, 1.8 and 2.6 million in 2023, 2024 and 2025.",
+      "revenue of 1.2, 1.5 million",
+      "$5, $6 or $7 million",
+      "We'll raise 2, maybe 3 million",
+      "we could raise 2 or even 3 million",
+      "ARR was 1.2 versus 1.5 million planned",
+      "budget is $1.2/1.5M (base/stretch)",
+      "we're targeting $5-6,000 a month by June",
+      "MRR ($k): Jan 45, Feb 52, Mar 61",
+      "we have 6 hundred customers",
+      "we have 2½ years of runway",
+      "the global market is $1.2trn",
+      "ARR of 1.2 MEUR",
+      "levantamos 2.5 mdd en nuestra ronda",
+      "月流水6.2w",
+    ]) {
+      const n = numbersIn(quote);
+      for (const v of [1.2, 1.8, 2.6, 1.5, 5, 6, 2, 45, 52, 61, 6.2, 2.5]) expect(n, quote).not.toContain(v);
+    }
+    for (const [quote, locale] of [
+      ["Umsatz 12,3 MEUR im Jahr", "de"],
+      ["CA de 1,2 Mds € en 2025", "fr"],
+      ["faturamento de R$ 2,5 milhoes", "pt"],
+      ["الإيرادات 12 الف جنيه شهريا", "ar"],
+      ["doanh thu 12 ngàn đồng", "vi"],
+      ["Выручка 50к рублей в месяц", "ru"],
+      ["வருவாய் 1.2 கோடி", "ta"],
+      ["सालाना आय ₹2.5 करोड है", "hi"],
+      ["हमारी आय 5 से 6 लाख है", "hi"],
+      ["৫ কোটির বেশি বিনিয়োগ", "bn"],
+    ] as const) {
+      expect(numbersIn(quote, locale).filter((v) => v < 100), quote).toEqual([]);
+    }
+  });
+
+  it("keeps a count beside a short word, a dash or a quarter label", () => {
+    expect(quoteHas(6200, "Em outubro faturamos R$ 6.200 e crescemos 12% no mês", "pt")).toBe(true);
+    expect(quoteHas(1200, "Wir liefern 1.200 Bio-Kisten pro Woche", "de")).toBe(true);
+    expect(quoteHas(500, "we serve 500 e-commerce brands")).toBe(true);
+    expect(quoteHas(300, "we sold 300 T-shirts")).toBe(true);
+    expect(quoteHas(1200, "signups doubled—1,200 this week")).toBe(true);
+    expect(quoteHas(1200, "In Q3'25 1,200 new users")).toBe(true);
+    // The minutes of a time are never a count; the count after them is.
+    expect(numbersIn("Le webinaire de 14 h 30 a réuni 1 200 inscrits", "fr")).toEqual([14, 1200]);
+    expect(quoteHas(30, "오후 2시 30분에 300명이 참석했습니다", "ko")).toBe(false);
+    expect(quoteHas(300, "오후 2시 30분에 300명이 참석했습니다", "ko")).toBe(true);
   });
 
   it("reads Swiss amounts and every kind of space between thousands", () => {

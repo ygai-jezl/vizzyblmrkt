@@ -160,17 +160,42 @@ const SCALE_LOCALES = [
   "en", "en-IN", "de", "fr", "es", "it", "pt", "pt-BR", "nl", "sv", "nb", "da", "fi", "pl", "cs", "ro", "hu", "tr", "ru", "uk", "el",
   "ar", "he", "fa", "hi", "bn", "mr", "ta", "te", "id", "ms", "vi", "th", "ja", "zh", "zh-Hant", "ko",
 ];
-/** Scale words people write that the runtime's compact numbers don't. */
-const MORE_SCALE_WORDS = ["grand", "mill", "bil", "bln", "cr", "crs", "lac", "lacs", "lakhs", "crores", "thousands", "trillions", "mm", "teur", "keur", "tsd", "千", "百", "仟", "佰", "백"];
+/** Scale words people write that the runtime's compact numbers don't, and vulgar fractions ("2½" is never 2). */
+const MORE_SCALE_WORDS = [
+  "grand", "mill", "bil", "bln", "trn", "cr", "crs", "lac", "lacs", "lakhs", "crores", "thousands", "trillions", "hundred", "hundreds", "dozen", "dozens",
+  "mm", "teur", "keur", "tsd", "meur", "musd", "kusd", "msek", "ksek", "mnok", "knok", "mdkk", "kdkk", "mchf", "kchf", "mgbp", "kgbp", "mdd", "mdp", "mds", "milliers", "g$",
+  "к", "w", "ngàn", "tỉ", "লক্ষ", "கோடி", "லட்சம்", "లక్ష", "లక్షలు", "కోటి", "కోట్లు", "કરોડ", "લાખ", "ਕਰੋੜ", "ਲੱਖ", "ಕೋಟಿ", "ಲಕ್ಷ", "കോടി", "ലക്ഷം",
+  "千", "百", "仟", "佰", "백", "¼", "½", "¾", "⅓", "⅔", "⅕", "⅖", "⅗", "⅘", "⅙", "⅚", "⅛", "⅜", "⅝", "⅞",
+];
+/** The one letter scale words kept: in any other language a single letter is too often a word ("e" is "and" in Portuguese). */
+const ONE_LETTER_SCALE = new Set(["k", "m", "b", "t", "l", "w", "к"]);
+/** Scripts that add endings to a scale word ("কোটির"), so the word needs no space after it. */
+const SUFFIXED = /[\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Gujarati}\p{Script=Gurmukhi}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Oriya}]/u;
+
+/** Text without accents, vowel signs or other marks, so "milhoes", "करोड" and "الف" match "milhões", "करोड़" and "ألف". */
+const bare = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "");
 
 let scaleWords: RegExp | null = null;
+let scaleHeader: RegExp | null = null;
 
 /**
  * Whether a word for thousands or millions comes right after a number, after at most a few spaces or
- * a hyphen: "6.2k", "1.2 million", "$1.2-million", "1,2 Mio.", "1,2 миллиона", "₹2.5 करोड़", "1万".
- * Never inside a code or unit: "B2B", "K-12", "k8s", "M&A", "m²".
+ * a hyphen: "6.2k", "1.2 million", "$1.2-million", "1,2 Mio.", "1,2 миллиона", "₹2.5 करोड़", "1万",
+ * "6 and a half million". Never inside a code, a unit or a compound: "B2B", "K-12", "k8s", "M&A",
+ * "m²", "Bio-Kisten", "T-Shirts".
  */
 function scaleAfter(rest: string): boolean {
+  buildScaleWords();
+  return scaleWords!.test(bare(rest));
+}
+
+/** Whether the words name a scale for every figure, as a table header does ("MRR ($k):", "(in millions)", "'000"). */
+function scaleForAll(text: string): boolean {
+  buildScaleWords();
+  return scaleHeader!.test(bare(text));
+}
+
+function buildScaleWords(): void {
   if (!scaleWords) {
     const words = new Set(MORE_SCALE_WORDS);
     for (const l of SCALE_LOCALES) {
@@ -191,22 +216,38 @@ function scaleAfter(rest: string): boolean {
       }
     }
     const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const sorted = [...words].sort((a, b) => b.length - a.length);
-    const spaced = sorted.filter((w) => !UNSPACED.test(w[0]!)).map(esc);
-    const unspaced = sorted.filter((w) => UNSPACED.test(w[0]!)).map(esc);
-    scaleWords = new RegExp(`^[\\s\\p{Pd}]{0,3}(?:(?:${spaced.join("|")})\\.?(?![\\p{L}\\p{M}\\p{N}&]|\\p{Pd}\\p{N})|(?:${unspaced.join("|")}))`, "iu");
+    const plain = new Set<string>();
+    for (const w of words) {
+      const b = bare(w);
+      if ([...b.replace(/[^\p{L}]/gu, "")].length === 1 && !ONE_LETTER_SCALE.has(b.toLowerCase()) && !UNSPACED.test(b) && !/\p{No}/u.test(b)) continue;
+      if (b) plain.add(b);
+    }
+    const sorted = [...plain].sort((a, b) => b.length - a.length);
+    const glued = sorted.filter((w) => UNSPACED.test(w[0]!) || SUFFIXED.test(w[0]!) || /\p{No}/u.test(w)).map(esc);
+    const loose = sorted.filter((w) => !(UNSPACED.test(w[0]!) || SUFFIXED.test(w[0]!) || /\p{No}/u.test(w)));
+    // A short word ("Bio", "T", "K") is a scale only on its own; a long one also before a hyphen ("$1.2-million-dollar").
+    const short = loose.filter((w) => [...w].length <= 3).map(esc);
+    const long = loose.filter((w) => [...w].length > 3).map(esc);
+    const all = [...glued, ...short, ...long];
+    scaleWords = new RegExp(
+      `^[\\s\\p{Pd}]{0,3}(?:and an? (?:half|quarter)\\s+)?(?:(?:${short.join("|")})\\.?(?![\\p{L}\\p{N}&]|\\p{Pd}[\\p{L}\\p{N}])|(?:${long.join("|")})\\.?(?![\\p{L}\\p{N}&]|\\p{Pd}\\p{N})|(?:${glued.join("|")}))`,
+      "iu",
+    );
+    scaleHeader = new RegExp(`[(\\[]\\s*\\p{Sc}?\\s*(?:in\\s+)?(?:${all.join("|")})\\.?\\s*\\p{Sc}?\\s*[)\\]]|['\u2019]000|\\(000s?\\)|\\bin\\s+\\p{Sc}?\\s*(?:thousands|millions|billions|k|m|bn|mn)\\b`, "iu");
   }
-  return scaleWords.test(rest);
 }
 
-/** What sits between the two ends of a range: a dash, a tilde or one short word ("to", "or", "bis", "à", "至"). */
-const RANGE_GAP = /^[\s\p{Sc}]*(?:\p{Pd}|~|\p{L}{1,5})[\s\p{Sc}]*$/u;
+/**
+ * What sits between figures that share one scale word: a dash, a tilde, a slash or a comma and at most two
+ * short words ("1.2, 1.8 and 2.6 million", "2, maybe 3 million", "5 से 6 करोड़", "5至6万"). Never only a space.
+ */
+const SHARED_GAP = /^(?=.*[^\s])[\s\p{Sc}\p{Pd}~,;/]*(?:[\p{L}\p{M}]{1,8}[\s\p{Sc}\p{Pd}~,;/]*){0,2}$/u;
 
 /**
  * Whether what comes right before a run ties its first digits to something that isn't a number of its
- * own: the minutes of "12:30", "14h30" or "14時30", the "11" of "27/11" or "2025-11-27", the "12" of
- * "K-12", the "5" of ".5", the rest of "1万2000", or a label's digits ("Q3", "FY24", "Web3").
- * "Rs.6,200" and "c.500" are numbers, and so is the count in "in 24h 1,200 people".
+ * own: the minutes of "12:30", "14h30", "14 h 30", "14時30" or "2시 30분", the "11" of "27/11" or
+ * "2025-11-27", the "12" of "K-12", the "5" of ".5", the rest of "1万2000", or a label's digits ("Q3",
+ * "FY24", "Q3'25"). "Rs.6,200", "c.500", "doubled—1,200" and "in 24h 1,200 people" hold their numbers.
  */
 function tiedBefore(text: string, at: number): boolean {
   const c = text[at - 1];
@@ -214,9 +255,12 @@ function tiedBefore(text: string, at: number): boolean {
   const c2 = text[at - 2] ?? "";
   if (c === ":" || c === "/") return /\d/.test(c2);
   if (c === "." || c === ",") return !/\p{L}/u.test(c2);
-  if (/\p{Pd}/u.test(c)) return /[\p{L}\d]/u.test(c2);
+  if (/[-\u2010\u2011]/.test(c)) return /[\p{L}\d]/u.test(c2);
   if (/\p{L}/u.test(c) && !UNSPACED.test(c)) return true;
-  return /\d ?[時点시]$|[万萬億亿兆千百만억천조] ?$/.test(text.slice(Math.max(0, at - 3), at));
+  const before = text.slice(Math.max(0, at - 4), at);
+  if (/\d ?[時点시] ?$|[万萬億亿兆千百만억천조] ?$/.test(before)) return true;
+  // "14 h 30": minutes after an hour, never a count ("en 48 h 1 200 inscrits" is 1200).
+  return /\d ?h $/i.test(before) && /^[0-5]\d(?![\d.,'\u2019]| \d{3}(?!\d))/.test(text.slice(at));
 }
 
 type Found = { value: number; start: number; end: number };
@@ -230,9 +274,10 @@ type Found = { value: number; start: number; end: number };
  * in German). Read nothing rather than a number the words don't mean: never a run glued to another
  * by a mark ("27.11.2026", "1,234,5"), a time's minutes, a label's digits ("Q3 250" holds 250, never
  * 3250), a number before a word for thousands or millions in any of SCALE_LOCALES ("$6.2k", "1,2
- * Millionen") or the number before it in a range ("$5-6k" holds neither 5 nor 6), a leading zero
- * ("007") or, in a language that doesn't put a space between thousands, a short group then three
- * digits ("3 250"). A mark then a space ("2025, 1 200"), a line break and a space between numbers that
+ * Millionen") or the figures that share it ("$5-6k", "1.2, 1.8 and 2.6 million"), any figure when
+ * the words name a scale for all of them ("MRR ($k):"), the first end of a range or the day of a date
+ * ("5-6,000", "27/11"), a leading zero ("007") or, in a language that doesn't put a space between
+ * thousands, a short group then three digits ("3 250"). A mark then a space ("2025, 1 200"), a line break and a space between numbers that
  * can't be one ("in 2025 250 brands") all separate numbers. Any script's digits and full-width forms
  * are read. Pure.
  */
@@ -250,9 +295,12 @@ export function numbersIn(quote: string, locale = "en"): number[] {
     const seg = raw.replace(/[.,'’ ]+$/, "");
     if (!seg) return;
     if (tiedBefore(text, at)) {
-      // Leave out the tied digits, and read what follows them after a space as a run of its own.
-      const lead = /^\d+ */.exec(seg)![0];
-      if (lead.endsWith(" ")) segment(at + lead.length, seg.slice(lead.length));
+      // A date, a time or a range ("27/11", "12:30", "5-6,000"): the number before the mark goes too.
+      const last = found[found.length - 1];
+      if (last && last.end === at - 1 && /[:/\-\u2010\u2011]/.test(text[at - 1]!)) found.pop();
+      // Leave out the tied stretch, and read what follows it after a space as a run of its own.
+      const lead = /^\S+ +/.exec(seg)?.[0];
+      if (lead) segment(at + lead.length, seg.slice(lead.length));
       return;
     }
     const pieces = [...seg.matchAll(/[^ ]+/g)].map((p) => ({ raw: p[0], start: at + (p.index ?? 0) }));
@@ -293,20 +341,23 @@ export function numbersIn(quote: string, locale = "en"): number[] {
     segment(start + from, run.slice(from));
     const end = start + run.replace(/[.,'’ ]+$/, "").length;
     if (!scaleAfter(text.slice(end, end + 32))) continue;
-    // Leave out the number before the scale word, and the number before that when the two make a range.
+    // Leave out the number before the scale word.
     const last = found[found.length - 1];
     let numberStart = end - (/\d[\d.,'’]*$/.exec(text.slice(start, end))?.[0].length ?? 0);
     if (last && last.end === end) {
       found.pop();
       numberStart = last.start;
-    } else if (!/[\p{Pd}~]/u.test(text[numberStart - 1] ?? "")) {
+    } else if (!/[\p{Pd}~/]/u.test(text[numberStart - 1] ?? "")) {
       // A label's digits before the word ("B2B", "K8s"): no number of its own, and no range.
       continue;
     }
-    const before = found[found.length - 1];
-    if (before && RANGE_GAP.test(text.slice(before.end, numberStart))) found.pop();
+    // Every figure before it that shares the word ("1.2, 1.8 and 2.6 million") goes too.
+    for (let before = found[found.length - 1]; before && SHARED_GAP.test(text.slice(before.end, numberStart)); before = found[found.length - 1]) {
+      numberStart = before.start;
+      found.pop();
+    }
   }
-  return found.map((f) => f.value);
+  return scaleForAll(text) ? [] : found.map((f) => f.value);
 }
 
 /** One run of digits and marks as a number, or null when it isn't one number. */

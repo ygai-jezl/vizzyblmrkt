@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import { Modal } from "@/components/admin/email/Modal";
+import { COMPANY_REMOVE, companyPastedLine } from "@/lib/crm/paste/words";
 import { FieldsPanel } from "../audience/FieldsPanel";
+import { Banner } from "../connect/ui";
+import { day } from "../people/format";
+import { removeCompany, removeError } from "./pasteApi";
 
 interface DetailResponse {
   company: Company;
@@ -20,20 +24,33 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
+/** Where a company added from a pasted list came from, or null for any other company. */
+export function pastedLine(company: Pick<Company, "addedBy">): string | null {
+  return company.addedBy?.via === "paste" ? companyPastedLine(day(company.addedBy.at), company.addedBy.source ?? null) : null;
+}
+
 export function CompanyDetail({
   companyId,
   isAdmin,
   onClose,
   fields = false,
+  canRemove = false,
+  onRemoved,
 }: {
   companyId: string;
   isAdmin: boolean;
   onClose: () => void;
   /** Company fields are on (AUDIENCE_FIELDS_ENABLED): the brand's own company fields. */
   fields?: boolean;
+  /** An admin with Paste a list on (RAISE_PASTE_ENABLED): Remove company, while it has no people. */
+  canRemove?: boolean;
+  /** The company was removed: the list drops its row. */
+  onRemoved?: (id: string) => void;
 }) {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeFailed, setRemoveFailed] = useState<string | null>(null);
 
   const reload = () =>
     fetch(`/api/admin/crm/companies/${companyId}`)
@@ -65,8 +82,20 @@ export function CompanyDetail({
     await reload();
   }
 
+  async function remove() {
+    if (!window.confirm(COMPANY_REMOVE.confirm)) return;
+    setRemoving(true);
+    setRemoveFailed(null);
+    const r = await removeCompany(companyId);
+    setRemoving(false);
+    if (!r.ok) return setRemoveFailed(removeError(r));
+    onRemoved?.(companyId);
+    onClose();
+  }
+
   const company = data?.company;
   const p = company?.profile;
+  const pasted = company ? pastedLine(company) : null;
 
   return (
     <Modal open onClose={onClose} title={company?.name ?? company?.domain ?? "Company"} wide>
@@ -79,16 +108,29 @@ export function CompanyDetail({
               <div className="text-base font-semibold">{company.name ?? company.domain}</div>
               <div className="text-xs text-neutral-500">{company.domain}</div>
             </div>
-            {isAdmin ? (
-              <button
-                disabled={busy}
-                onClick={reEnrich}
-                className="rounded-md border border-neutral-300 px-3 py-1 text-xs hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900"
-              >
-                {busy ? "Queuing…" : "Re-enrich"}
-              </button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {canRemove && isAdmin && data.contacts.length === 0 ? (
+                <button
+                  disabled={removing}
+                  onClick={() => void remove()}
+                  className="rounded-md border border-red-300 px-3 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                >
+                  {COMPANY_REMOVE.button}
+                </button>
+              ) : null}
+              {isAdmin ? (
+                <button
+                  disabled={busy}
+                  onClick={reEnrich}
+                  className="rounded-md border border-neutral-300 px-3 py-1 text-xs hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900"
+                >
+                  {busy ? "Queuing…" : "Re-enrich"}
+                </button>
+              ) : null}
+            </div>
           </div>
+          {pasted ? <p className="text-xs text-neutral-500">{pasted}</p> : null}
+          {removeFailed ? <Banner tone="err">{removeFailed}</Banner> : null}
 
           {p ? (
             <>

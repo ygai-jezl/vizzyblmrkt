@@ -7,6 +7,7 @@ import type { WholePerson } from "@/lib/audience/wholePerson";
 import { CONSENT_WAYS, NEW_PERSON_AS_IDEAS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, type ConsentWay } from "@/lib/audience/newPerson";
 import { ideaWord } from "@/lib/nav/terms";
 import { INVITE_STAGE_LABEL } from "@/lib/invites/inviteStage";
+import { personPastedLine } from "@/lib/crm/paste/words";
 import { api, errorText } from "../connect/api";
 import { Banner, Button, inputClass, Section } from "../connect/ui";
 import { Chip } from "../people/Chip";
@@ -296,7 +297,9 @@ export function WholePersonView({
               {p.email ? " with the same email" : ""}.
             </p>
           ) : null}
-          {p.added ? (
+          {p.added?.via === "paste" ? (
+            <p className="text-xs text-neutral-500">{personPastedLine(p.added.by, day(p.added.at), p.added.source)}</p>
+          ) : p.added ? (
             <p className="text-xs text-neutral-500">
               Added by hand by {p.added.by} on {day(p.added.at)}
               {p.added.via === "palette" ? ", from ⌘K" : ""}.

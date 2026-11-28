@@ -92,6 +92,10 @@ interface Shell {
   raiseFollowUps: boolean;
   /** The Raise kit is on, so brand search finds decks (isRaiseKitEnabled(), from the server), for the How to drawer. */
   raiseKit: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), from the server), for the How to drawer. */
+  paste: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), from the server), for the How to drawer. */
+  vizzyPaste: boolean;
   /** Journey emails in each reader's language (isAssetTranslationsEnabled(), from the server), for the How to drawer. */
   assetTranslations: boolean;
   /**
@@ -164,6 +168,8 @@ export function ShellProvider({
   languageReaders = false,
   raiseFollowUps = false,
   raiseKit = false,
+  paste = false,
+  vizzyPaste = false,
   assetTranslations = false,
   children,
 }: {
@@ -242,6 +248,10 @@ export function ShellProvider({
   raiseFollowUps?: boolean;
   /** The Raise kit is on, so brand search finds decks (isRaiseKitEnabled(), from the server): the How to drawer says so. */
   raiseKit?: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), from the server): the How to drawer says so. */
+  paste?: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), from the server): the How to drawer says so. */
+  vizzyPaste?: boolean;
   /** Journey emails in each reader's language (isAssetTranslationsEnabled(), from the server): the How to drawer says so. */
   assetTranslations?: boolean;
   children: ReactNode;
@@ -347,10 +357,12 @@ export function ShellProvider({
       languageReaders,
       raiseFollowUps,
       raiseKit,
+      paste,
+      vizzyPaste,
       assetTranslations,
       onCanvasSaved: journeyInContext || personInContext || raiseInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, raiseKit, assetTranslations, saved, work, workVizzy],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, raiseInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, agentRecord, languageReaders, raiseFollowUps, raiseKit, paste, vizzyPaste, assetTranslations, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

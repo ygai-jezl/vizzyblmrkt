@@ -39,6 +39,7 @@ from root_agent_pkg.tools.journey_style import get_journey_email_style, set_jour
 from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: E402
 from root_agent_pkg.tools.setup_help import get_setup_status, read_help_page  # noqa: E402
 from root_agent_pkg.tools.new_person import new_person_propose  # noqa: E402
+from root_agent_pkg.tools.paste_list import paste_list_propose  # noqa: E402
 from root_agent_pkg.tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact  # noqa: E402
 from root_agent_pkg.tools.next_action import get_next_action  # noqa: E402
 from root_agent_pkg.tools.work import draft_work_decision, draft_work_log, get_work, suggest_work_task  # noqa: E402
@@ -78,6 +79,7 @@ TOOLS = [
     get_setup_status,
     read_help_page,
     new_person_propose,
+    paste_list_propose,
     get_business_profile,
     read_onboarding_conversation,
     suggest_business_fact,
@@ -292,6 +294,20 @@ def test_the_root_agent_fills_in_new_person_with_no_place_for_consent():
     assert new_person_propose in root_agent.tools
     props, required = _params(FunctionTool(new_person_propose)._get_declaration())
     assert set(props) == {"email", "phone", "first_name", "last_name", "fields"} and not required
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_root_agent_reads_a_pasted_list_with_no_place_for_consent_or_a_brand():
+    from root_agent_pkg.agent import root_agent
+
+    assert paste_list_propose in root_agent.tools
+    props, required = _params(FunctionTool(paste_list_propose)._get_declaration())
+    # The rows and where they are from: the brand comes from the session token, consent never.
+    assert set(props) == {"text", "source"} and required == ["text"]
+    doc = " ".join((paste_list_propose.__doc__ or "").split())
+    assert "The app's code reads the rows, not you" in doc
+    assert "you can never record that someone agreed" in doc
+    assert "never retype, reorder, add, complete or invent rows" in doc
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")

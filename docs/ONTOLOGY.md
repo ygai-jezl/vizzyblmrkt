@@ -555,7 +555,7 @@ One human, once per brand: every sign-up, product user and address they came thr
 
 ### Company (`company`)
 
-A business people work at, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there.
+A business people work at, or a firm an admin added from a pasted list, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there. One added from a pasted list keeps who added it and where the list is from (`addedBy`).
 
 - Status: built
 - Home: the brand's region
@@ -563,14 +563,15 @@ A business people work at, by its web address, with how many of the brand's peop
 - Stores:
   - `companies`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `person` through contacts.companyId (many)
-- Events: `record.field_changed`
+- Events: `record.created`, `record.field_changed`
 - Erase:
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (the company, its field values and its history go when its last person is erased)
+  - `removeCompany` in `src/lib/crm/companyRemove.ts`, on removing the record (an admin removes a company with no people from its page, with its field values and its history (RAISE_PASTE_ENABLED))
   - Gap: erasing one person keeps their company's field values while others still work there
 - Export: gap. A person's export leaves out their company's own field values.
 - Search: none. Found on the Companies tab; joins brand search with people once the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `enrichment` (see Learning)
+- Made by: `enrichment`, `paste_columns` (see Learning)
 
 ### Opt out (`email_suppression`)
 
@@ -742,11 +743,13 @@ One row per thing that happened to a person, company, idea or agent action and h
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Gap: an open pasted list holds the rows still to add with no person id, so a person's erase can't find it; its rows clear when an admin adds or dismisses it, or when it expires after 7 days
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on; each row once, in its product's section when it is there)
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export (by the product user, their pu: person, and a removed product-only person)
   - Gap: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
   - Gap: team member ids stay as ids, with no export by team member
+  - Gap: an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days
 - Search: none. Personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. A history of changes, not a brand number.
 
@@ -1642,14 +1645,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action; `work_task` through the target, when it is a Work task suggestion: the id the task takes once a person adds it; `work_log` through the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it; `next_action_card` through the card's step records name it; `launch_journey` through draft, a launch's welcome emails on the original engine (agent record); `lifecycle_journey` through draft, a journey Vizzy drafted or styled (agent record); `invite_wave` through draft, an invite wave Vizzy drafted (agent record); `content_plan` through draft, a plan Vizzy or the autopilot drafted (agent record); `brand_map` through draft, one research run or chat call with hashes of the keys it filed (agent record); `brand_note` through draft, a note Vizzy suggested in a chat (agent record); `repo_map` through draft, learning a product's map from its repo, by product (agent record); `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action, or a pasted list; `work_task` through the target, when it is a Work task suggestion: the id the task takes once a person adds it; `work_log` through the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it; `next_action_card` through the card's step records name it; `launch_journey` through draft, a launch's welcome emails on the original engine (agent record); `lifecycle_journey` through draft, a journey Vizzy drafted or styled (agent record); `invite_wave` through draft, an invite wave Vizzy drafted (agent record); `content_plan` through draft, a plan Vizzy or the autopilot drafted (agent record); `brand_map` through draft, one research run or chat call with hashes of the keys it filed (agent record); `brand_note` through draft, a note Vizzy suggested in a chat (agent record); `repo_map` through draft, learning a product's map from its repo, by product (agent record); `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1662,14 +1665,16 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Gap: an open pasted list holds the rows still to add with no person id, so a person's erase can't find it; its rows clear when an admin adds or dismisses it, or when it expires after 7 days
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on; each row once, in its product's section when it is there)
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export (by the product user, their pu: person, and a removed product-only person)
   - Gap: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
   - Gap: team member ids stay as ids, with no export by team member
+  - Gap: an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot`, `investor_quiet` (see Learning)
+- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot`, `investor_quiet`, `paste_columns` (see Learning)
 
 ## Platform
 
@@ -2023,8 +2028,10 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Event history (`ontology_event`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Erase: an open pasted list holds the rows still to add with no person id, so a person's erase can't find it; its rows clear when an admin adds or dismisses it, or when it expires after 7 days
   - Export: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
   - Export: team member ids stay as ids, with no export by team member
+  - Export: an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days
 - Knowledge (`knowledge`):
   - Erase: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
 - Programme (`workspace`):
@@ -2112,8 +2119,10 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Agent action (`agent_action`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Erase: an open pasted list holds the rows still to add with no person id, so a person's erase can't find it; its rows clear when an admin adds or dismisses it, or when it expires after 7 days
   - Export: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
   - Export: team member ids stay as ids, with no export by team member
+  - Export: an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days
 - Support conversation (`support_conversation`):
   - Erase: planned: support erases and exports conversations with the person, after the data processing agreement
   - Export: planned: support erases and exports conversations with the person, after the data processing agreement
@@ -2148,11 +2157,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-107 kinds: 0 learn, 0 fleet only, 26 own, 38 gap and 43 none.
+108 kinds: 0 learn, 0 fleet only, 26 own, 38 gap and 44 none.
 
-129 call sites: 0 learn, 0 fleet only, 36 own, 45 gap and 48 none.
+130 call sites: 0 learn, 0 fleet only, 36 own, 45 gap and 49 none.
 
-Not learning: 93 of 129 call sites, under gap and none lines.
+Not learning: 94 of 130 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2417,6 +2426,8 @@ No line says this yet.
   - `src/lib/onboarding/sidebarFit.ts`
 - `work_check_due` (rule, Work check due). A person sets the date, the task to wait for or the measure; the rule only shows the check once it is due.
   - `src/lib/work/service.ts`
+- `paste_columns` (rule, Pasted columns read as fields). Each column is read by its header the same way for every brand, and the list shows how every column was read before an admin adds a row.
+  - `src/lib/crm/paste/columns.ts`
 - `waitlist_voice_chat` (model call with no meter, Waitlist voice chat). The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people.
   - `src/lib/hooks/useLiveConversation.ts`
 - `edit_memory` (model call with no meter, Memory Bank memories). This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode changes and the LinkedIn and X drafts those memories shape.

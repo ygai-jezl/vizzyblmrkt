@@ -21,6 +21,7 @@ import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 import { RAISE_FOLLOWUP_ACTION } from "@/lib/raise/pipeline/followups";
 import { QUIET_AFTER_DAYS } from "@/lib/raise/pipeline/due";
 import { TIMELINE_WORDS } from "@/lib/raise/pipeline/words";
+import { PASTE_TIMELINE, timelineDetail } from "@/lib/crm/paste/words";
 
 /**
  * One person's timeline (AUDIENCE_TIMELINE_ENABLED), newest first, a page at a time: what their
@@ -211,6 +212,11 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
   switch (e.kind) {
     case "record.created": {
       const via = String(e.properties.via ?? "");
+      // From a list an admin pasted on People (RAISE_PASTE_ENABLED): who added it and where it is from.
+      if (via === "paste") {
+        const source = typeof e.properties.source === "string" ? e.properties.source : null;
+        return { ...base, kind: "created", text: PASTE_TIMELINE.text, detail: timelineDetail(by, source) };
+      }
       return {
         ...base,
         kind: "created",

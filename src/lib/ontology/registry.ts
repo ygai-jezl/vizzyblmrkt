@@ -108,6 +108,7 @@ const HISTORY_ERASE: PathDecision = {
   gaps: [
     "team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does",
     "rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen",
+    "an open pasted list holds the rows still to add with no person id, so a person's erase can't find it; its rows clear when an admin adds or dismisses it, or when it expires after 7 days",
   ],
 };
 const HISTORY_EXPORT: PathDecision = {
@@ -118,6 +119,7 @@ const HISTORY_EXPORT: PathDecision = {
   gaps: [
     "an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days",
     "team member ids stay as ids, with no export by team member",
+    "an open pasted list has no export path; its rows clear when an admin adds or dismisses it, or within 7 days",
   ],
 };
 const HISTORY_SEARCH = "personal data, kept out of brand search until the data processing agreement covers it";
@@ -658,17 +660,20 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "company",
     name: "Company",
     description:
-      "A business people work at, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there.",
+      "A business people work at, or a firm an admin added from a pasted list, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there. One added from a pasted list keeps who added it and where the list is from (`addedBy`).",
     place: "customers",
     status: "built",
-    madeBy: ["enrichment"],
+    madeBy: ["enrichment", "paste_columns"],
     home: "brand",
     personal: "people",
     stores: [regional("companies")],
     links: [{ to: "person", via: "contacts.companyId", many: true }],
-    events: ["record.field_changed"],
+    events: ["record.created", "record.field_changed"],
     erase: {
-      paths: [{ ...CONTACT_ERASE, when: "the company, its field values and its history go when its last person is erased" }],
+      paths: [
+        { ...CONTACT_ERASE, when: "the company, its field values and its history go when its last person is erased" },
+        brandPath("removeCompany", "src/lib/crm/companyRemove.ts", "an admin removes a company with no people from its page, with its field values and its history (RAISE_PASTE_ENABLED)"),
+      ],
       gaps: ["erasing one person keeps their company's field values while others still work there"],
     },
     export: { gap: "a person's export leaves out their company's own field values" },
@@ -2751,7 +2756,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched), and lists pasted on People, until an admin adds or dismisses them. So is each follow-up YouGrow's rule raises from an investor or funding board on People, from proposed to acted (followed up) or declined (dismissed, set aside or expired). Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.",
     place: "partner_agent",
     status: "built",
     madeBy: [
@@ -2773,6 +2778,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "product_map",
       "autopilot",
       "investor_quiet",
+      "paste_columns",
     ],
     home: "brand",
     personal: "people",
@@ -2785,7 +2791,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "idea", via: "the target, when it is an idea", many: false },
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
-      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action", many: false },
+      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action, or a pasted list", many: false },
       { to: "work_task", via: "the target, when it is a Work task suggestion: the id the task takes once a person adds it", many: false },
       { to: "work_log", via: "the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it", many: false },
       { to: "next_action_card", via: "the card's step records name it", many: false },

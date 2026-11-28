@@ -9,6 +9,7 @@ import { isRaiseKitEnabled } from "@/lib/raise/docs/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
 import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
@@ -30,6 +31,7 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * kit on (`raiseKit`) that decks aren't either.
  * While the investor and funding board's follow-ups are on (RAISE_FOLLOWUPS_ENABLED), the team
  * sees Follow-ups from your board.
+ * While Paste a list is on (RAISE_PASTE_ENABLED), admins also see pasted lists waiting to be added.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -43,6 +45,7 @@ export default function ReviewAndApprovalsHelp({
   agentRecord = isAgentRecordEnabled(),
   raiseFollowUps = isRaiseFollowupsEnabled(),
   raiseKit = isRaiseKitEnabled(),
+  paste = isPasteEnabled(),
   assetTranslations = isAssetTranslationsEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
@@ -151,6 +154,13 @@ export default function ReviewAndApprovalsHelp({
             <strong>{FOLLOW_UP_WORDS.title}</strong>: people on your investor or funding board who have been quiet for 14 days, or whose
             next step date has passed. Everyone on the team sees them; admins press <strong>{FOLLOW_UP_WORDS.followedUp}</strong> or{" "}
             <strong>{FOLLOW_UP_WORDS.dismiss}</strong> (<Open href="/help/investors-and-funding#follow-ups">Follow-ups in Review</Open>).
+          </li>
+        ) : null}
+        {paste ? (
+          <li>
+            <strong>Pasted lists</strong>: lists your team pasted on People, waiting for an admin to add them, listed for admins
+            only. <strong>Open</strong> opens the list on People, where an admin checks it and adds everyone on it, or dismisses it (
+            <Open href="/help/paste-a-list#add">Add them in one go</Open>).
           </li>
         ) : null}
         {onboarding ? (

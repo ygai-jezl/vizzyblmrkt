@@ -7,6 +7,7 @@ import { personIdOf, syncPerson } from "./personSync";
 import { loadWholePerson } from "./wholePerson";
 import { addPerson, withdrawHandConsent } from "./addPerson";
 import { parseNewPerson } from "./newPerson";
+import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 
 /** One whole person, from made-up people at .test. */
 
@@ -120,7 +121,7 @@ describe("loadWholePerson for someone added by hand", () => {
     await addPerson(ctx, sam.value, { db, nowIso: at });
     const lookup = async (uids: string[]) => uids.map((uid) => ({ uid, displayName: "Alex Morgan" }));
     const p = (await loadWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), db, { lookup }))!;
-    expect(p.added).toEqual({ by: "Alex Morgan", at, via: "form", consent: { how: "other", howLabel: "Other", note: "At our stand", by: "Alex Morgan", at }, withdrawn: null });
+    expect(p.added).toEqual({ by: "Alex Morgan", at, via: "form", source: null, consent: { how: "other", howLabel: "Other", note: "At our stand", by: "Alex Morgan", at }, withdrawn: null });
     expect(p.reach).toBe("yes");
 
     // Once they leave the team, the record names nobody.
@@ -131,6 +132,21 @@ describe("loadWholePerson for someone added by hand", () => {
     seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
     await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
     expect((await loadWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), db))!.added).toBeNull();
+  });
+
+  it("says someone came from a pasted list, where it is from, and that they haven't agreed", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    db.seed("tenant_users", "m1", { tenantId: TENANT_ID, userId: "usr_1", role: "admin" });
+    const nia = parseNewPerson({ email: "nia@fernhill-plants.test", firstName: "Nia" });
+    if (!nia.ok) throw new Error(nia.error);
+    const at = new Date(T0).toISOString();
+    const card = deterministicAgentActionId(TENANT_ID, "paste.add_rows|abc123");
+    await addPerson(ctx, { ...nia.value, via: "paste", agreed: null, draftId: null, source: "A local lenders list", agentActionId: card }, { db, nowIso: at });
+    const lookup = async (uids: string[]) => uids.map((uid) => ({ uid, displayName: "Alex Morgan" }));
+    const p = (await loadWholePerson(ctx, personIdOf(TENANT_ID, "nia@fernhill-plants.test"), db, { lookup }))!;
+    expect(p.added).toEqual({ by: "Alex Morgan", at, via: "paste", source: "A local lenders list", consent: null, withdrawn: null });
+    expect(p.reach).toBe("no");
   });
 
   it("says when the team withdrew the agreement, and they can't be emailed", async () => {

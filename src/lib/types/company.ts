@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContactAddedBySchema } from "./contact";
 import { FieldValuesSchema } from "./recordField";
 
 /**
@@ -77,6 +78,11 @@ export const CompanySchema = z.object({
    * src/lib/tenant/recordFieldWrites.ts. They go with the document.
    */
   fields: FieldValuesSchema.optional(),
+  /**
+   * Set only on a company an admin added from a pasted list (RAISE_PASTE_ENABLED): who, when, and
+   * where the list is from (`via: "paste"`, `source`).
+   */
+  addedBy: ContactAddedBySchema.optional(),
   updatedAt: z.string(),
   createdAt: z.string(),
 });

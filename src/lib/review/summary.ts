@@ -43,6 +43,8 @@ import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { BUSINESS_FACT_ACTION, businessFactReviewItem } from "@/lib/onboarding/factSuggestions";
+import { canPaste } from "@/lib/crm/paste/flags";
+import { pasteBatchItems } from "@/lib/crm/paste/review";
 import { readFieldList } from "@/lib/audience/fieldList";
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { signalReviewItems } from "@/lib/connectors/signals/review";
@@ -93,6 +95,7 @@ export type ReviewKind =
   | "work_ready"
   | "work_suggestion"
   | "raise_followup"
+  | "paste_batch"
   | "business_fact"
   | "translation_check";
 
@@ -229,6 +232,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: REVIEW_WORDS.description,
     from: ["investor_quiet"],
   },
+  paste_batch: {
+    title: "Pasted lists",
+    description: "Lists your team pasted on People, waiting for an admin to add them. Nobody is added until then.",
+    from: ["paste_columns"],
+  },
   translation_check: {
     title: "Emails in other languages",
     description: "Translations of your journey emails, one row per journey. Readers of each language get the default until you approve theirs.",
@@ -257,6 +265,7 @@ export const REVIEW_ORDER: ReviewKind[] = [
   "translation_check",
   "person_suggestion",
   "raise_followup",
+  "paste_batch",
   "business_fact",
   "repo_results",
   "brand_map",
@@ -1006,6 +1015,8 @@ export async function loadReview(
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
   const recordItems = isAgentRecordEnabled() && ctx.role === "admin" ? await soft("agent record", agentRecordItems(ctx, db), [] as ReviewItem[]) : [];
+  // Lists pasted on People, waiting for an admin to add them: admins only, who alone add people.
+  const pastedLists = canPaste(ctx.role) ? await soft("pasted lists", pasteBatchItems(ctx, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
@@ -1037,6 +1048,7 @@ export async function loadReview(
     ...raiseFollowUps,
     ...translationChecks,
     ...businessFacts,
+    ...pastedLists,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),

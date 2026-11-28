@@ -86,8 +86,10 @@ export interface RecordCreatedArgs {
   via: string;
   actor: EventActor;
   at: string;
-  /** The agent action that filled it, when one did. */
+  /** The agent action that filled it, when one did (a pasted list's card, too). */
   agentActionId?: AgentActionId | null;
+  /** Where a pasted list came from, at most 80 characters; written only when set. */
+  source?: string | null;
   key?: string;
 }
 
@@ -107,7 +109,7 @@ export function recordCreatedEvent(a: RecordCreatedArgs): EventWrite {
     agentActionId: a.agentActionId ?? null,
     source: { system: a.agentActionId ? "agent" : "app" },
     actor: a.actor,
-    properties: { object: a.subject.type, via: a.via },
+    properties: { object: a.subject.type, via: a.via, ...(a.source ? { source: a.source } : {}) },
   });
 }
 

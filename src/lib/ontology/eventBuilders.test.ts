@@ -98,6 +98,16 @@ describe("recordCreatedEvent", () => {
     expect(e.source).toEqual({ system: "agent" });
     expect(() => recordCreatedEvent({ subject: { type: "agent_action", id: aa }, personId: null, via: "vizzy", actor: MEMBER, at: "2026-11-20T10:00:00.000Z" })).toThrow();
   });
+
+  it("writes where a pasted list came from only when it is set", () => {
+    const aa = deterministicAgentActionId("ten_demo", "paste.add_rows|abc");
+    const pasted = recordCreatedEvent({ subject: { type: "person", id: PERSON }, personId: PERSON, via: "paste", source: "A friend's sheet", actor: MEMBER, at: "2026-11-20T10:00:00.000Z", agentActionId: aa });
+    expect(EventWriteSchema.safeParse(pasted).success).toBe(true);
+    expect(pasted.properties).toEqual({ object: "person", via: "paste", source: "A friend's sheet" });
+    const typed = recordCreatedEvent({ subject: { type: "person", id: PERSON }, personId: PERSON, via: "form", source: null, actor: MEMBER, at: "2026-11-20T10:00:00.000Z" });
+    expect(typed.properties).toEqual({ object: "person", via: "form" });
+    expect(() => recordCreatedEvent({ subject: { type: "person", id: PERSON }, personId: PERSON, via: "paste", source: "x".repeat(81), actor: MEMBER, at: "2026-11-20T10:00:00.000Z" })).toThrow();
+  });
 });
 
 describe("consentRecordedEvent", () => {

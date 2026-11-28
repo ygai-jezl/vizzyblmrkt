@@ -1,5 +1,6 @@
 import { forTenant, writeRecordWithEvents, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import type { AgentActionId } from "@/lib/types/agentAction";
 import type { Contact, ContactAddedBy, ContactConsentEntry } from "@/lib/types/contact";
 import type { EventWrite } from "@/lib/types/ontologyEvent";
 import { checkFieldValue } from "@/lib/types/recordField";
@@ -41,6 +42,20 @@ export type AddPersonResult =
   | { outcome: "existing"; personId: ContactPersonId }
   | { outcome: "rejected"; error: "unknown_field" | "archived_field" | "invalid_value" | "no_user"; fieldId?: string };
 
+/**
+ * Someone from a list an admin pasted on People (RAISE_PASTE_ENABLED): added exactly as New person
+ * adds someone, never with consent (Not yet), with where the list is from on `addedBy.source` and
+ * their record.created row, and the list's card as that row's agent action.
+ */
+export type PastedPerson = Omit<NewPerson, "via" | "agreed" | "draftId"> & {
+  via: "paste";
+  agreed: null;
+  draftId: null;
+  /** The admin's answer to "Where is this list from?", 1 to 80 characters. */
+  source: string;
+  agentActionId: AgentActionId;
+};
+
 /** The person key the form's details give: the address, else the trimmed phone. */
 export function newPersonKey(p: Pick<NewPerson, "email" | "phone">): string | null {
   return (p.email ? normalizeEmail(p.email) : null) || p.phone?.trim() || null;
@@ -72,7 +87,7 @@ async function checkFields(ctx: TenantContext, values: Record<string, unknown>, 
  */
 export async function addPerson(
   ctx: TenantContext,
-  input: NewPerson,
+  input: NewPerson | PastedPerson,
   deps: { db?: FirestoreLike; nowIso?: string; fields?: boolean } = {},
 ): Promise<AddPersonResult> {
   const key = newPersonKey(input);
@@ -92,7 +107,8 @@ export async function addPerson(
   const emailDomain = email ? domainFromEmail(email) : null;
   const isCorporate = !!email && !!emailDomain && !isPublicEmailProvider(email);
   const companyId = isCorporate && emailDomain ? deterministicCompanyId(ctx.tenantId, emailDomain) : null;
-  const addedBy: ContactAddedBy = { kind: "member", id: userId, at: nowIso, via: input.via };
+  const pasted = input.via === "paste" ? input : null;
+  const addedBy: ContactAddedBy = { kind: "member", id: userId, at: nowIso, via: input.via, ...(pasted ? { source: pasted.source } : {}) };
   const consent = input.agreed ? { marketing_email: consentEntry(input.agreed, userId, nowIso) } : undefined;
   // Read before the transaction: an address that unsubscribed keeps them unreachable from the start.
   const optOuts = optOutsOf(await optOutRowsFor(ctx, key, deps.db));
@@ -132,7 +148,14 @@ export async function addPerson(
     createdAt: nowIso,
   };
   const events: EventWrite[] = [
-    recordCreatedEvent({ subject: { type: "person", id: personId }, personId, via: input.via, actor, at: nowIso }),
+    recordCreatedEvent({
+      subject: { type: "person", id: personId },
+      personId,
+      via: input.via,
+      actor,
+      at: nowIso,
+      ...(pasted ? { source: pasted.source, agentActionId: pasted.agentActionId } : {}),
+    }),
     ...(input.agreed
       ? [
           consentRecordedEvent({
@@ -160,7 +183,10 @@ export async function addPerson(
   await syncPersonSafe(ctx, key, { db: deps.db, nowMs: Date.parse(nowIso) });
 
   if (!Object.keys(fieldValues).length) return { outcome: "created", personId, fields: "none" };
-  const set = await setFieldValues(ctx, { object: "person", recordId: personId, changes: fieldValues, by: actor, source: "editor" }, { db: deps.db }).catch(() => null);
+  // A pasted list's values came in with it; a form's were typed.
+  const set = await setFieldValues(ctx, { object: "person", recordId: personId, changes: fieldValues, by: actor, source: pasted ? "import" : "editor" }, { db: deps.db }).catch(
+    () => null,
+  );
   return { outcome: "created", personId, fields: set?.ok ? "saved" : "not_saved" };
 }
 

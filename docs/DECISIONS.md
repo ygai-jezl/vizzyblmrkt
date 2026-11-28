@@ -291,6 +291,18 @@ Where the build follows the code, not the plan (the plan's intent kept):
   (`unansweredWhy`), with no unused and no shares, and Vizzy's notes count no made. The Loops
   section says what happened to Go back cards in plain words (suggested, went back, kept the
   look, closed without an answer), an ignored card as one of those closed.
+- After merging Paste a list (#271), translations (#279) and the strategy's month (#278, #280):
+  a list pasted on People is one card made by the code that reads its columns, so `readPaste`
+  (`src/lib/crm/paste/batch.ts`) stamps it `paste_columns`, by Vizzy from the chat and by `paste`
+  from the People box, and counts it made once where it is saved; Add and Dismiss count kept and
+  declined against it through `transitionAgentAction`, and expiry counts nothing. Vizzy's paste
+  route sits in `UNRESOLVED`, read in `batch.ts`. A journey email's translation counts made once its
+  draft is kept (`translateOne` in `src/lib/i18n/translationsTick.ts`), with no stamp on the record
+  and no type, as a translation is part of its journey; a person's approval isn't counted yet, so
+  `translation` sits in `UNANSWERED`, and `src/lib/i18n/translate.ts`, the model call, sits in
+  `UNRESOLVED`. How it went (`strategy_month`) and the month's suggestion (`strategy_suggest`) are
+  rules that count made nowhere. Tested in `src/lib/crm/paste/loops.test.ts` and
+  `src/lib/i18n/translationsTick.test.ts`.
 
 Enforced where:
 

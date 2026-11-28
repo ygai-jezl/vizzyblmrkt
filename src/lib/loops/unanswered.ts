@@ -31,6 +31,7 @@ export const UNANSWERED: Partial<Record<LoopKind, string>> = {
   judge: "The questions your team moves between trays are kept on the Learned list, and aren't counted against the sorting.",
   enrichment: "A person corrects a wrong company detail where it is shown, and that isn't counted.",
   journeys: "A journey draft is saved over by your team's edits, so no answer is kept to count.",
+  translation: "A person approves each translation as it is or with changes, but that approval isn't counted as an answer yet.",
   trending: "It reports what your industry is talking about, and nothing a person does answers it.",
   seen_notes: "A note your team takes out of an article is kept on its brief, but isn't counted as an answer.",
   competitor_site: "It finds a competitor's sitemap, and nothing a person does answers it.",

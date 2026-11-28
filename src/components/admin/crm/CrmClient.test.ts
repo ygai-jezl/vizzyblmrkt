@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { PASTE_WORDS } from "@/lib/crm/paste/words";
 import { BOARD_WORDS } from "@/lib/raise/pipeline/words";
 
 let search = "";
@@ -14,7 +15,7 @@ vi.mock("next/link", () => ({
 }));
 const { CrmClient } = await import("./CrmClient");
 
-const page = (tab: string, investors: { tab: string } | null) => {
+const page = (tab: string, investors: { tab: string } | null, canPaste = false) => {
   search = tab ? `tab=${tab}` : "";
   return renderToStaticMarkup(
     createElement(CrmClient, {
@@ -25,6 +26,7 @@ const page = (tab: string, investors: { tab: string } | null) => {
       companiesCursor: null,
       audience: { productUsers: true, personView: true, oneView: true },
       investors,
+      canPaste,
     }),
   );
 };
@@ -43,5 +45,22 @@ describe("the board's tab on People", () => {
     expect(html).not.toContain(BOARD_WORDS.loading);
     // People is the pill that is picked.
     expect(html).toMatch(/border-neutral-900 bg-neutral-900[^"]*">People</);
+  });
+});
+
+// Paste a list (RAISE_PASTE_ENABLED): one button on every tab, the board's own on the board's tab.
+describe("Paste a list on People", () => {
+  const count = (html: string) => html.split(PASTE_WORDS.button).length - 1;
+
+  it("shows one button for an admin on People and on the board's tab, even while the board loads", () => {
+    expect(count(page("", { tab: "Investors" }, true))).toBe(1);
+    const board = page("investors", { tab: "Investors" }, true);
+    expect(count(board)).toBe(1);
+    expect(board).toContain(BOARD_WORDS.loading);
+  });
+
+  it("shows none while it is off", () => {
+    expect(count(page("", { tab: "Investors" }))).toBe(0);
+    expect(count(page("investors", { tab: "Investors" }))).toBe(0);
   });
 });

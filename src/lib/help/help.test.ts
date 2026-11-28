@@ -18,7 +18,7 @@ import { SUGGESTION_BUSY } from "@/lib/connectors/signals/review";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, otherAccountKeyMessage, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
-import { HELP_PAGES, helpGroups, helpPage, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
+import { HELP_PAGES, helpGroups, helpPage, isHelpPageShown, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
 import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
@@ -43,7 +43,12 @@ import { BOARD_WORDS, PASS_WORDS, REVIEW_WORDS as FOLLOW_UP_WORDS, SETUP_WORDS }
 import { RAISE_REASONS } from "@/lib/raise/reasons";
 import { BOARD_HREF } from "@/lib/raise/pipeline/setup";
 import { FOLLOWUP_EXPIRY_DAYS } from "@/lib/raise/pipeline/followups";
+import { PERSON_ONLY_HEADERS } from "@/lib/crm/paste/columns";
+import { PUBLIC_LIST } from "@/lib/crm/paste/publicLists";
+import { boardStageHint, COMPANY_REMOVE, PASTE_MESSAGES, ROW_REASONS } from "@/lib/crm/paste/words";
 import { REVIEW_ORDER, REVIEW_SECTIONS } from "@/lib/review/summary";
+import { HOW_IT_WENT_WORDS } from "@/components/admin/brand-kit/strategyMessages";
+import { SUGGEST_WORDS, basedOnLine, cantSeeLine } from "@/lib/brandStrategy/suggestRules";
 
 
 /**
@@ -87,6 +92,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
   process.env.CONTENT_LANGUAGE_ENABLED = "true";
   process.env.LANGUAGE_READERS_ENABLED = "true";
+  process.env.ASSET_TRANSLATIONS_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
@@ -129,6 +135,8 @@ vi.hoisted(() => {
   process.env.SETTINGS_HISTORY_ENABLED = "true";
   // Your next action as Vizzy's card, so its section and the messages it quotes are checked too.
   process.env.NEXT_ACTION_CARD_ENABLED = "true";
+  // Paste a list on People (S2b), with its help page and the lines that point to it.
+  process.env.RAISE_PASTE_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -1146,6 +1154,33 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     }
   });
 
+  it("explains How it went on the Strategy tab with the words the tab says", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("**How it went** shows each month from the 2nd of the next");
+    expect(text).toContain(`**${HOW_IT_WENT_WORDS.tooEarly}**`);
+    expect(text).toContain("**Rest of your map**");
+    expect(text).toContain('"Connect Google Analytics 4 to see which focus situations bring sign-ups."');
+    expect(text).toContain('"Share Google Search Console with your team and Vizzy to see which focus situations people find you for in search."');
+    expect(text).toContain("**What we can measure:**");
+    expect(text).toContain("approve on 20 November and December comes first, added up on 2 January");
+    expect(text).toContain("In **Rest of your map**, a question on two of your situations counts in each.");
+    expect(text).toContain("the month waits a day and tries again, twice at most");
+  });
+
+  it("explains the month's suggestion with the words Review and the tab say", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain(`**${SUGGEST_WORDS.title}**`);
+    expect(text).toContain(`**${SUGGEST_WORDS.onTab}**`);
+    expect(text).toContain("**Write or move these 3**");
+    expect(text).toContain("Not a priority, Already doing it, The numbers are wrong or Other");
+    expect(text).toContain("stays away 60 days, or 90 for connecting a tool");
+    expect(text).toContain("The next suggestion comes when the next month is added up, early next month");
+    expect(text).toContain(`"${basedOnLine({ basedOn: { builtIn: ["articles"], measured: [{ kind: "search", connector: "Google Search Console" }] } })} ${cantSeeLine({ keyWord: null, cantSee: [{ kind: "key_actions", why: "not_connected", connector: "Google Analytics 4", href: null }] })}"`);
+    const review = helpPageMarkdown("review-and-approvals", "https://app.example.com")!;
+    expect(review).toContain(`**${REVIEW_SECTIONS.strategy_suggest.title}**`);
+    expect(review).toContain(`**${SUGGEST_WORDS.notNow}**`);
+  });
+
   it("explains the Content plan while its switch is on, and leaves it out while it is off", () => {
     const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
     expect(text).toContain("## Plan the quarter's content");
@@ -1603,5 +1638,150 @@ describe("Review and approvals with Work and the board's follow-ups", () => {
     expect([told.work, told.workVizzy, told.raiseFollowUps]).toEqual([true, true, true]);
     const none = drawerBodyProps(null as never);
     expect([none.work, none.workVizzy, none.raiseFollowUps]).toEqual([false, false, false]);
+  });
+});
+
+describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const page = () => HELP_PAGES.find((p) => p.slug === "paste-a-list")!;
+  const md = (slug: string, props: HelpBodyProps = {}) => docToMarkdown(HELP_BODIES[slug]!(props), "https://app.example.com");
+  const ids = (props: HelpBodyProps) =>
+    elements(HELP_BODIES["paste-a-list"]!(props))
+      .filter((e) => e.type === H2)
+      .map((e) => String(e.props.id));
+
+  it("is listed after the People pages (Your audience, then Investors and funding), and only while the switch is on", () => {
+    const slugs = HELP_PAGES.map((p) => p.slug);
+    expect(slugs.indexOf("paste-a-list")).toBe(slugs.indexOf("investors-and-funding") + 1);
+    expect(isHelpPageShown(page())).toBe(true);
+    expect(shownHelpPages().map((p) => p.slug)).toContain("paste-a-list");
+    vi.stubEnv("RAISE_PASTE_ENABLED", "");
+    expect(isHelpPageShown(page())).toBe(false);
+    expect(shownHelpPages().map((p) => p.slug)).not.toContain("paste-a-list");
+    // It needs New person too.
+    vi.stubEnv("RAISE_PASTE_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "");
+    expect(isHelpPageShown(page())).toBe(false);
+  });
+
+  it("quotes the kit's credit, the three guidance lines and why a row is left out", () => {
+    const text = md("paste-a-list", { vizzyPaste: false });
+    expect(text).toContain(PUBLIC_LIST.credit);
+    expect(text).toContain(`[${PUBLIC_LIST.kit.label}](${PUBLIC_LIST.kit.url})`);
+    for (const o of PUBLIC_LIST.others) expect(text).toContain(`[${o.label}](${o.url})`);
+    for (const g of PUBLIC_LIST.guidance) expect(text).toContain(g);
+    expect(text).toContain(PUBLIC_LIST.footnote);
+    expect(text).toContain("Needs an email, a phone or a web address");
+    expect(text).toContain("Pasted on People, no AI reads your rows: the app's own code does");
+    expect(text).toContain("Fernhill Plants, a plant shop raising a loan");
+    // The kit's rows have no email or phone, so only the firm columns are kept from them.
+    expect(text).toContain("From The AI Fundraising Kit: Company Name and Website are kept. First Name and Last Name are kept only on a row where you added an email or a phone yourself");
+    expect(text).toContain("A short link, or a page on a site many firms share");
+  });
+
+  it("lists every message the sheet shows, word for word", () => {
+    const text = md("paste-a-list");
+    for (const m of [
+      ...Object.values(ROW_REASONS),
+      PASTE_MESSAGES.source_needed,
+      PASTE_MESSAGES.no_header,
+      PASTE_MESSAGES.too_many_rows,
+      PASTE_MESSAGES.too_many_columns,
+      PASTE_MESSAGES.too_long,
+      PASTE_MESSAGES.too_large,
+      PASTE_MESSAGES.nothing_to_add,
+      PASTE_MESSAGES.paste_gone,
+      PASTE_MESSAGES.changed,
+      COMPANY_REMOVE.has_people,
+    ]) {
+      expect(text).toContain(m);
+    }
+  });
+
+  it("shows pasting into Ask Vizzy only while that is on too", () => {
+    expect(ids({ vizzyPaste: true })).toContain("vizzy");
+    expect(md("paste-a-list", { vizzyPaste: true })).toContain("Vizzy never records that anyone agreed to emails");
+    // Pasted into the chat, the model does see the rows: the page says so.
+    expect(md("paste-a-list", { vizzyPaste: true })).toContain("Vizzy sees the rows you paste in the chat and passes them, as pasted, to the same code");
+    expect(ids({ vizzyPaste: false })).not.toContain("vizzy");
+    expect(md("paste-a-list", { vizzyPaste: false })).not.toContain("Ask Vizzy");
+    expect(ids({ vizzyPaste: false })).toEqual(["paste", "rows", "columns", "source", "add", "public-list", "remove", "check", "messages"]);
+  });
+
+  it("names your own fields only while fields are on", () => {
+    expect(md("paste-a-list", { fields: true })).toContain("fills that field");
+    // The columns a firm row never keeps, named from the list the code uses.
+    expect(md("paste-a-list", { fields: true })).toContain(`A firm row never fills a field from a column headed ${PERSON_ONLY_HEADERS.slice(0, -1).join(", ")} or ${PERSON_ONLY_HEADERS.at(-1)}, with Investor before it or not, or their plurals.`);
+    // How a field named by two columns is filled, as columns.ts and rows.ts do it.
+    expect(md("paste-a-list", { fields: true })).toContain("A column fills the field of its exact name, or else one a plural s away.");
+    expect(md("paste-a-list", { fields: true })).toContain("each row keeps the first cell that fits it, trying the column of its exact name first");
+    expect(md("paste-a-list", { fields: true })).toContain("On a person, Stages also fills a People field named Stage when you have no People field called Stages");
+    expect(md("paste-a-list", { fields: false })).not.toContain("fills that field");
+  });
+
+  it("points to it from the investor board's page only while it is on", () => {
+    const board = (paste: boolean) => md("investors-and-funding", { raiseFollowUps: true, paste });
+    expect(board(true)).toContain("**Paste a list**, beside How the board works ([Paste a list](https://app.example.com/help/paste-a-list.md))");
+    expect(board(true)).toContain(`"${boardStageHint("Stage")}"`);
+    expect(board(true)).toContain(`On an Investors board with no one on it yet, Paste a list opens ${PUBLIC_LIST.title} too`);
+    expect(board(true)).toContain("a column named like your board's Stage field, which the empty board names for you");
+    expect(board(true)).toContain("such as Research (Plan on a Funding board). It can go anywhere in the list");
+    expect(board(true)).toContain("Someone already in People is left as they are");
+    // The page's Next link still names Paste a list, the page after it.
+    expect(board(false)).not.toContain("beside How the board works");
+    expect(board(false)).not.toContain(boardStageHint("Stage"));
+    for (const line of board(true).split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
+  it("points to it from People and from Review only while it is on", () => {
+    const audience = (paste: boolean) => md("your-audience", { people: true, fields: true, addPerson: true, paste });
+    expect(audience(true)).toContain("To add many at once, use [Paste a list](https://app.example.com/help/paste-a-list.md).");
+    expect(audience(false)).not.toContain("To add many at once");
+    const review = (paste: boolean) => md("review-and-approvals", { paste });
+    expect(review(true)).toContain("**Pasted lists**: lists your team pasted on People, waiting for an admin to add them");
+    expect(review(false)).not.toContain("Pasted lists");
+  });
+
+  it("uses no dashes as punctuation and none of the AI tells, with every section shown", () => {
+    for (const props of [{ vizzyPaste: true, fields: true, people: true }, { vizzyPaste: false, fields: false, people: false }]) {
+      for (const line of md("paste-a-list", props).split("\n")) {
+        expect(dashesIn(line), line).toEqual([]);
+        expect(aiTellsIn(line), line).toEqual([]);
+      }
+    }
+  });
+});
+
+describe("Languages with translated journey emails", () => {
+  const md = (assetTranslations: boolean) =>
+    docToMarkdown(HELP_BODIES["languages"]!({ languageReaders: true, assetTranslations }), "https://app.example.com");
+
+  it("covers translations only while the switch is on, in house style", () => {
+    const on = md(true);
+    const off = md(false);
+    for (const heading of ["## Journey emails in other languages", "## Who gets which version", "## After you change an email"]) {
+      expect(on).toContain(heading);
+      expect(off).not.toContain(heading);
+    }
+    for (const line of on.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
+  it("names the Review section by its own title", () => {
+    const review = docToMarkdown(HELP_BODIES["review-and-approvals"]!({ assetTranslations: true }), "https://app.example.com");
+    expect(review).toContain(`**${REVIEW_SECTIONS.translation_check.title}**`);
+    expect(docToMarkdown(HELP_BODIES["review-and-approvals"]!({ assetTranslations: false }), "https://app.example.com")).not.toContain(
+      REVIEW_SECTIONS.translation_check.title,
+    );
+  });
+
+  it("gets the switch in the How to drawer from the admin shell", () => {
+    expect(drawerBodyProps({ assetTranslations: true } as never).assetTranslations).toBe(true);
+    expect(drawerBodyProps(null as never).assetTranslations).toBe(false);
   });
 });

@@ -35,6 +35,8 @@ export interface Candidate {
   lastArticleAt: string | null;
   /** On a buying situation the brand focuses on. */
   focus: boolean;
+  /** The approved strategy's focus situation it is on, when it is on one (first in the strategy's order). */
+  situationId?: string;
   /** A live article due a refresh (BLOG_FRESHNESS_ENABLED): its plan, programme and reasons. */
   refresh?: { planId: string; workspaceId: string; reasons: FreshnessReason[] };
   /** Stop repeats (NEXT_UP_REPEATS_ENABLED): a live article it is close to in meaning. */
@@ -96,6 +98,8 @@ interface FocusQuestions {
   ids: Set<string>;
   keys: Set<string>;
   subjects: Set<string>;
+  /** Each question's focus situation, by id and by its words: the first in the strategy's order. */
+  situationOf: Map<string, string>;
 }
 
 /**
@@ -116,7 +120,7 @@ async function focusQuestions(ctx: TenantContext, opts: { moved: boolean }, deps
           .map((s) => s.id)
       : [];
   const all = new Set<string>();
-  const strategy: FocusQuestions | null = fromStrategy.length ? { ids: new Set(), keys: new Set(), subjects: new Set() } : null;
+  const strategy: FocusQuestions | null = fromStrategy.length ? { ids: new Set(), keys: new Set(), subjects: new Set(), situationOf: new Map() } : null;
   const theirs = new Set(fromStrategy);
   for (const id of [...new Set([...fromStrategy, ...starred])]) {
     const read = await readSituation(ctx, id, { db: deps.db }).catch(() => null);
@@ -127,9 +131,16 @@ async function focusQuestions(ctx: TenantContext, opts: { moved: boolean }, deps
       strategy.ids.add(q.id);
       strategy.keys.add(questionKey(q.text));
       strategy.subjects.add(q.subjectId);
+      for (const k of [q.id, questionKey(q.text)]) if (!strategy.situationOf.has(k)) strategy.situationOf.set(k, id);
     }
   }
   return { all, strategy };
+}
+
+/** The strategy's focus situation a candidate is on, as a field to add, or nothing. */
+function situationOn(c: Pick<Candidate, "questionId" | "question">, strategy: FocusQuestions | null): { situationId?: string } {
+  const id = strategy?.situationOf.get(c.questionId) ?? strategy?.situationOf.get(questionKey(c.question));
+  return id ? { situationId: id } : {};
 }
 
 /**
@@ -160,14 +171,14 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
     for (const s of subjects) {
       const cov = await subjectCoverage(ctx, s.id, { db: deps.db }).catch(() => null);
       if (!cov) continue;
-      groups.push(fromCoverage(cov.subject, cov.coverage.questions, cov.rows).map((c) => ({ ...c, focus: focus.has(c.questionId) })));
+      groups.push(fromCoverage(cov.subject, cov.coverage.questions, cov.rows).map((c) => ({ ...c, focus: focus.has(c.questionId), ...situationOn(c, strategy) })));
     }
   } else {
     const rows = await listBrandMapPages(ctx, deps.db).catch(() => [] as BrandMapPage[]);
     const cov = computeCoverage(map, rows);
     const onFocus = (c: Candidate) => Boolean(strategy && (strategy.ids.has(c.questionId) || strategy.keys.has(questionKey(c.question))));
     groups = cov.subjects
-      .map((s) => fromCoverage(s, s.questions, rows).map((c) => (onFocus(c) ? { ...c, focus: true } : c)))
+      .map((s) => fromCoverage(s, s.questions, rows).map((c) => (onFocus(c) ? { ...c, focus: true, ...situationOn(c, strategy) } : c)))
       .filter((g) => g.length)
       .sort((a, b) =>
         isNextUpRepeatsEnabled()

@@ -10,6 +10,7 @@ import { brandStrategyDocId } from "@/lib/types/brandStrategy";
 import { CHECK_NOT_INCLUDED, agentBrandStrategy } from "./agentApi";
 import { freshCheck } from "./checkRules";
 import { approveStrategy, saveFound, saveProposal, saveStrategyDraft } from "./store";
+import { allConnectors } from "@/lib/connectors/catalog";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_a", role: "admin" };
 const T0 = Date.parse("2026-11-25T10:00:00.000Z");
@@ -138,5 +139,155 @@ describe("Vizzy's get_brand_strategy with the weekly check (STRATEGY_CHECK_ENABL
     const body = (await agentBrandStrategy(A, { db, loadTenant: async () => null })).body as Record<string, unknown> & { competitors: Array<{ name: string; monitored: boolean }> };
     expect(body.againstCompetitors).toEqual({ lookedAt: null, note: CHECK_NOT_INCLUDED });
     expect(body.competitors.map((c) => c.name)).toEqual(["Rivalco"]);
+  });
+});
+
+describe("Vizzy's get_brand_strategy with How it went (STRATEGY_RESULTS_ENABLED)", () => {
+  // Approved on 25 Nov: December is the first full month, added up on 2 Jan.
+  const NOV = {
+    month: "2026-12",
+    at: "2027-01-02T00:10:00.000Z",
+    strategyAt: "2026-11-25T10:00:02.000Z",
+    partway: false,
+    resultsFor: { from: "2026-12-05", to: "2027-01-01" },
+    rows: [
+      { id: "sit_aaaaaa01", questions: 12, answered: 1, live: 4, newLive: 2, theirs: 3, m: { searchClicks: 120, searchImpressions: 3400 } },
+      { id: "rest", questions: 40, answered: 9, live: 7, newLive: 1, theirs: 5, m: { searchClicks: 210, searchImpressions: 9000 } },
+    ],
+    site: { cfVisits: 900 },
+    roadmap: { due: 8, done: 6 },
+    did: { starsKept: 1, claimsEdited: 2 },
+    sources: { search: { connectionId: "dcn_aaaaaaaaaaaaaaaaaaaa", connector: "Google Search Console", measure: "searchClicks" }, visits: { connectionId: "dcn_bbbbbbbbbbbbbbbbbbbb", connector: "Cloudflare", measure: "cfVisits", siteOnly: true } },
+    missing: [
+      { kind: "key_actions", why: "not_connected" },
+      { kind: "ai_answers", why: "not_connected" },
+    ],
+  };
+
+  it("gives the latest month and what to connect, with a meaning for every number", async () => {
+    const db = new FakeFirestore();
+    await approved(db);
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId(A.tenantId), () => ({ months: [NOV] }));
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const body = (await agentBrandStrategy(A, { db, ...at(Date.parse("2027-01-10T10:00:00.000Z")), catalog: allConnectors })).body as Record<string, unknown> & { meanings: Record<string, unknown> };
+    expect(body.howItWent).toMatchObject({
+      month: "2026-12",
+      approvedPartway: false,
+      resultsFor: { from: "2026-12-05", to: "2027-01-01" },
+      rows: [
+        { situation: "A client asks why a rival is named", focus: true, focusQuestions: 12, focusLiveArticles: 1, focusArticlesLive: 4, focusArticlesNew: 2, focusTheirArticles: 3, focusSearchClicks: 120, focusSearchImpressions: 3400 },
+        { situation: "Rest of your map", focus: false, focusArticlesLive: 7, focusSearchClicks: 210 },
+      ],
+      siteVisits: 900,
+      roadmap: { roadmapDue: 8, roadmapDone: 6 },
+      whatPeopleDid: { starsKept: 1, claimsEdited: 2, starsRemoved: 0, mayBeMore: false },
+      sources: { "Found in search": "Google Search Console", Visits: "Cloudflare, whole site only" },
+      notMeasured: [
+        { kind: "Sign-ups and key actions", why: "nothing that measures it is connected" },
+        { kind: "Cited in AI answers", why: "nothing that measures it is connected" },
+      ],
+    });
+    expect(body.measuring).toMatchObject({
+      kinds: [
+        { kind: "Found in search", measuredBy: null, whatToSay: "Connect Google Search Console to see which focus situations people find you for in search.", link: "/admin/account/connections/search-console" },
+        { kind: "Visits", measuredBy: null },
+        { kind: "Sign-ups and key actions", measuredBy: null, whatToSay: "Connect Google Analytics 4 to see which focus situations bring sign-ups." },
+        { kind: "Cited in AI answers", measuredBy: null },
+      ],
+    });
+    const keys = [...numberKeys(body)].filter((k) => k !== "meanings");
+    for (const k of keys) expect(body.meanings[k], `"${k}" is not explained`).toBeTruthy();
+    expect(keys).toEqual(expect.arrayContaining(["focusArticlesLive", "focusSearchClicks", "siteVisits", "roadmapDone", "starsKept", "checksDismissed"]));
+  });
+
+  it("says it is too early to tell before the first full month, and adds nothing with the switch off", async () => {
+    const db = new FakeFirestore();
+    await approved(db);
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const early = (await agentBrandStrategy(A, { db, ...at(T0 + 3000), catalog: allConnectors })).body as Record<string, unknown>;
+    expect(early.howItWent).toMatchObject({ month: null, tooEarly: true });
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "false");
+    const off = (await agentBrandStrategy(A, { db, ...at(T0 + 3000) })).body as Record<string, unknown>;
+    expect(off).not.toHaveProperty("howItWent");
+    expect(off).not.toHaveProperty("measuring");
+  });
+});
+
+describe("Vizzy's get_brand_strategy with the month's suggestion (STRATEGY_SUGGEST_ENABLED)", () => {
+  // A made-up stalled focus situation, swapped for the one their articles are most on.
+  const SUGGESTION = {
+    key: "sug_stall1",
+    about: "sit_aaaaaa01",
+    month: "2026-12",
+    raisedAt: "2027-01-02T00:10:00.000Z",
+    detail: {
+      kind: "stalled_focus",
+      id: "sit_aaaaaa01",
+      text: "A client asks why a rival is named",
+      kinds: ["search"],
+      swap: { id: "sit_bbbbbb01", text: "Clicks fall while rankings hold", by: "their_articles", count: 6, outcome: null, measure: null },
+    },
+    keyWord: null,
+    basedOn: { builtIn: ["articles", "their_articles"], measured: [{ kind: "search", connector: "Google Search Console" }] },
+    cantSee: [{ kind: "key_actions", why: "not_connected", connector: "Google Analytics 4", href: "/admin/account/connections/google-analytics" }],
+    state: "open",
+  };
+  const HOLD = { kind: "measure_more", about: "visits", until: "2027-03-01T00:00:00.000Z", reason: "already_doing" };
+
+  it("says the open suggestion, what it was based on and couldn't see, and what was put off, with a meaning for every number", async () => {
+    const db = new FakeFirestore();
+    await approved(db);
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId(A.tenantId), () => ({ suggestion: SUGGESTION, suggestHolds: [HOLD] }));
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const when = at(Date.parse("2027-01-10T10:00:00.000Z"));
+    expect((await agentBrandStrategy(A, { db, ...when, catalog: allConnectors })).body).not.toHaveProperty("suggestion");
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    const body = (await agentBrandStrategy(A, { db, ...when, catalog: allConnectors })).body as Record<string, unknown> & { meanings: Record<string, unknown> };
+    expect(body.suggestion).toEqual({
+      month: "2026-12",
+      kind: "stalled_focus",
+      state: "open",
+      inReview: true,
+      whatToSay: [
+        `"A client asks why a rival is named" has had no new article and no search clicks for 2 months, while the rest of your map moved.`,
+        `Swap it for "Clicks fall while rankings hold": your competitors wrote 6 articles on it in the last 90 days.`,
+      ],
+      basedOn: { builtIn: ["your articles", "your competitors' articles"], measured: [{ kind: "Found in search", connector: "Google Search Console" }] },
+      cantSee: [{ kind: "Sign-ups and key actions", why: "nothing that measures it is connected", whatToDo: "Connect Google Analytics 4", link: "/admin/account/connections/google-analytics" }],
+      facts: {
+        situation: "A client asks why a rival is named",
+        monthsStalled: 2,
+        judgedOn: ["Found in search"],
+        swapFor: { situation: "Clicks fall while rankings hold", pickedBy: "their articles of the last 90 days", swapTheirArticles: 6 },
+      },
+      button: "Review the strategy",
+      link: "/admin/brand-kit/map?tab=strategy",
+      putOff: [{ kind: "measure_more", about: "visits", until: "2027-03-01T00:00:00.000Z", why: "Already doing it" }],
+      note: expect.stringContaining("Never change the strategy or plan yourself"),
+    });
+    const keys = [...numberKeys(body)].filter((k) => k !== "meanings");
+    for (const k of keys) expect(body.meanings[k], `"${k}" is not explained`).toBeTruthy();
+    expect(keys).toEqual(expect.arrayContaining(["monthsStalled", "swapTheirArticles"]));
+    // Another brand reads none of it.
+    expect((await agentBrandStrategy({ ...A, tenantId: "ten_B" }, { db, ...when, catalog: allConnectors })).body).not.toHaveProperty("suggestion");
+  });
+
+  it("names every number Working and Behind plan give, and says when there is none", async () => {
+    const db = new FakeFirestore();
+    await approved(db);
+    for (const k of ["STRATEGY_RESULTS_ENABLED", "STRATEGY_SUGGEST_ENABLED"]) vi.stubEnv(k, "true");
+    const when = at(Date.parse("2027-01-10T10:00:00.000Z"));
+    const none = (await agentBrandStrategy(A, { db, ...when, catalog: allConnectors })).body as { suggestion: { month: null; note: string } };
+    expect(none.suggestion).toMatchObject({ month: null, putOff: [] });
+    for (const detail of [
+      { kind: "working", outcome: "search", measure: "searchClicks", focusNow: 40, focusBefore: 23, restNow: 44, restBefore: 40 },
+      { kind: "behind_plan", behind: 4, entries: [{ slotId: "slt_aaaaaa01", title: "Is a standing desk worth it?" }] },
+      { kind: "claim_no_proof", id: "cl_aaaaaa02", text: "Cheapest for a solo founder", months: 3 },
+    ]) {
+      await forTenant(A, db).brandStrategy.claim(brandStrategyDocId(A.tenantId), () => ({ suggestion: { ...SUGGESTION, detail, basedOn: { builtIn: ["articles"], measured: [] }, cantSee: [] } }));
+      const body = (await agentBrandStrategy(A, { db, ...when, catalog: allConnectors })).body as Record<string, unknown> & { meanings: Record<string, unknown>; suggestion: { inReview: boolean } };
+      expect(body.suggestion.inReview).toBe(detail.kind !== "working");
+      for (const k of [...numberKeys(body)].filter((x) => x !== "meanings")) expect(body.meanings[k], `"${k}" is not explained`).toBeTruthy();
+    }
   });
 });

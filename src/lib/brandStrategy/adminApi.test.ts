@@ -11,6 +11,8 @@ import { monitorCompetitor, removeCompetitor, updateCompetitor } from "@/lib/com
 import { agentBrandStrategy } from "./agentApi";
 import { approveFromRequest, isNotFromRequest, notCompetitorFromRequest, saveFromRequest, sameStrategy, strategyView } from "./adminApi";
 import { noteMonitored, readBrandStrategyDoc, saveFound, saveProposal, type ProposedStrategy } from "./store";
+import { forTenant } from "@/lib/tenant";
+import { brandStrategyDocId, type StrategySuggestion } from "@/lib/types/brandStrategy";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_a", role: "admin" };
 const MEMBER: TenantContext = { ...A, userId: "usr_m", role: "member" };
@@ -245,5 +247,43 @@ describe("the Strategy tab joined to Competitors", () => {
     const v = await strategyView(A, view(db));
     expect(v).toMatchObject({ joined: true, canMonitor: false });
     expect(v.competitors.map((c) => [c.name, c.monitored, c.id])).toEqual([["Alpha", false, null]]);
+  });
+});
+
+describe("the month's suggestion on the Strategy tab (STRATEGY_SUGGEST_ENABLED)", () => {
+  const claimSuggestion: StrategySuggestion = {
+    key: "sug_claim1",
+    about: "cl_aaaaaa01",
+    month: "2026-12",
+    raisedAt: "2027-01-02T00:10:00.000Z",
+    detail: { kind: "claim_no_proof", id: "cl_aaaaaa01", text: "Same week appointments", months: 2 },
+    keyWord: null,
+    basedOn: { builtIn: ["claims"], measured: [] },
+    cantSee: [],
+    state: "open",
+    actedAt: null,
+    dismissedAt: null,
+  };
+
+  it("shows the open one above Propose, says when the draft took it, and nothing while off", async () => {
+    const { db } = await brand();
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ suggestion: claimSuggestion }));
+    for (const k of ["STRATEGY_RESULTS_ENABLED"]) vi.stubEnv(k, "true");
+    expect((await strategyView(A, view(db))).suggestion).toBeNull();
+    vi.stubEnv("STRATEGY_SUGGEST_ENABLED", "true");
+    expect((await strategyView(MEMBER, view(db))).suggestion).toEqual({
+      key: "sug_claim1",
+      kind: "claim_no_proof",
+      lines: [`Your claim "Same week appointments" has had no proof for 2 months.`, "Add the page that proves it, or drop it."],
+      sources: "From your approved claims.",
+      action: null,
+      proposedWith: false,
+    });
+    // A draft Propose made with it as a note.
+    await saveProposal(A, { ...PROPOSAL, made: { ...PROPOSAL.made, suggestion: "sug_claim1" } }, { db, now: () => new Date(T0 + 1000) });
+    expect((await strategyView(A, view(db))).suggestion?.proposedWith).toBe(true);
+    // Put off: no longer shown.
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ suggestion: { ...claimSuggestion, state: "dismissed" } }));
+    expect((await strategyView(A, view(db))).suggestion).toBeNull();
   });
 });

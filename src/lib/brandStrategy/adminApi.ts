@@ -16,12 +16,26 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMapSituation } from "@/lib/types/brandMapRecords";
 import type { Competitor } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
-import { BRAND_STRATEGY_LIMITS as L, StrategyEditSchema, competitorsOf, type BrandStrategyDoc, type CompetitorGroupKind, type Strategy, type StrategyCompetitor } from "@/lib/types/brandStrategy";
+import { oneLine } from "@/lib/brandMap/lineChecks";
+import {
+  BRAND_STRATEGY_LIMITS as L,
+  NotNowReason,
+  STRATEGY_SUGGEST_LIMITS,
+  StrategyEditSchema,
+  competitorsOf,
+  type BrandStrategyDoc,
+  type CompetitorGroupKind,
+  type Strategy,
+  type StrategyCompetitor,
+  type StrategySuggestion,
+  type SuggestionKind,
+} from "@/lib/types/brandStrategy";
 import { liveCompetitors, suggestionsOf, type LiveCompetitor } from "./competitors";
 import { findCompetitors, type FinderDeps } from "./finder";
-import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled, isStrategyResultsEnabled, isStrategySuggestEnabled } from "./flags";
 import { proposeStrategy, type ProposeDeps } from "./propose";
-import { approveStrategy, decideIsNot, deleteBrandStrategy, dismissFound, dismissStrategyCheck, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
+import { approveStrategy, decideIsNot, deleteBrandStrategy, dismissFound, dismissStrategyCheck, dismissSuggestion, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
+import { isNoteSuggestion, isReviewSuggestion, sourcesLine, suggestionAction, suggestionLines } from "./suggestRules";
 
 /**
  * The Strategy tab's APIs (Brand › Brand map › Strategy): origin, switch, sign-in and admin, in that
@@ -35,11 +49,18 @@ export const finderAdmin = (req: Request) => brandMapAdmin(req, { on: isCompetit
 export const joinedReader = (req: Request) => brandMapReader(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
 export const joinedAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
 export const checkAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCheckEnabled, offError: "strategy_check_disabled" });
+export const resultsReader = (req: Request) => brandMapReader(req, { on: isStrategyResultsEnabled, offError: "strategy_results_disabled" });
+export const resultsAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyResultsEnabled, offError: "strategy_results_disabled" });
+export const suggestAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategySuggestEnabled, offError: "strategy_suggest_disabled" });
 
 /** Propose with Vizzy: one model call, a few an hour per brand. */
 export const PROPOSE_LIMIT = { prefix: "strategy_propose", burstLimit: 2, hourlyLimit: 6 };
 /** The competitor finder: up to four grounded searches a run. */
 export const FIND_LIMIT = { prefix: "strategy_find", burstLimit: 2, hourlyLimit: 6 };
+/** How it went added up by hand: it reads the brand's connections now. */
+export const MONTH_LIMIT = { prefix: "strategy_month", burstLimit: 2, hourlyLimit: 6 };
+/** Not now on the month's suggestion: one a month at most is open, so a few a minute is plenty. */
+export const SUGGEST_LIMIT = { prefix: "strategy_suggest", burstLimit: 5, hourlyLimit: 30 };
 
 export interface ViewDeps {
   db?: FirestoreLike;
@@ -91,6 +112,35 @@ export interface StrategyView {
   canMonitor: boolean;
   /** The strategy joined to Competitors (STRATEGY_COMPETITORS_ENABLED): the live list, groups and Not a competitor. */
   joined: boolean;
+  /** The month's open suggestion (STRATEGY_SUGGEST_ENABLED), shown above Propose; null when none is open or it is off. */
+  suggestion: ShownSuggestion | null;
+}
+
+/** The month's suggestion as the Strategy tab shows it: its lines, what it stood on, and for Measure more its link. */
+export interface ShownSuggestion {
+  key: string;
+  kind: SuggestionKind;
+  lines: string[];
+  /** What it was based on and what it couldn't see, in one line ("" for Measure more). */
+  sources: string;
+  /** Measure more's Connect or Share it; null for the rest, whose next step is Propose with Vizzy. */
+  action: { label: string; href: string } | null;
+  /** The draft was proposed with it as a note: approving it acts on it. */
+  proposedWith: boolean;
+}
+
+/** The suggestion the tab shows, or null. Pure. */
+export function shownSuggestion(s: StrategySuggestion | null | undefined, draft: Pick<Strategy, "made"> | null): ShownSuggestion | null {
+  if (!isReviewSuggestion(s)) return null;
+  return {
+    key: s.key,
+    kind: s.detail.kind,
+    lines: suggestionLines(s),
+    sources: sourcesLine(s),
+    action: s.detail.kind === "measure_more" ? suggestionAction(s, "") : null,
+    // Measure more is never a note, so a draft is never proposed with it.
+    proposedWith: isNoteSuggestion(s) && draft?.made?.suggestion === s.key,
+  };
 }
 
 const MAX_SITUATIONS = 200;
@@ -212,6 +262,7 @@ export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Pro
     canPropose: isGeminiConfigured(),
     canMonitor,
     joined,
+    suggestion: isStrategySuggestEnabled() ? shownSuggestion(doc?.suggestion, doc?.draft ?? null) : null,
   };
 }
 
@@ -321,6 +372,33 @@ export async function notCompetitorFromRequest(ctx: TenantContext, body: unknown
  */
 export async function dismissCheckFromRequest(ctx: TenantContext, deps: ViewDeps = {}): Promise<Response> {
   const dismissed = await dismissStrategyCheck(ctx, deps);
+  return NextResponse.json({ ok: true, dismissed }, { headers: noStore });
+}
+
+/** What Not now takes: the suggestion's key, a reason picked in a tap, and an optional note of 200 characters at most. */
+export const NotNowSchema = z
+  .object({
+    key: z.string().trim().min(1).max(40),
+    reason: NotNowReason,
+    note: z
+      .string()
+      .max(STRATEGY_SUGGEST_LIMITS.note)
+      .transform(oneLine)
+      .refine((t) => !/\p{Cc}/u.test(t), "must be one line of text")
+      .optional(),
+  })
+  .strict();
+
+/**
+ * POST suggestion/dismiss: Not now on the month's suggestion (STRATEGY_SUGGEST_ENABLED). It leaves
+ * Review and stays away 60 days (90 for Measure more), with the reason and note kept.
+ * `dismissed: false` when it wasn't open any more: someone put it off, acted on it, or a new month
+ * replaced it a moment ago.
+ */
+export async function notNowFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
+  const parsed = NotNowSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  const dismissed = await dismissSuggestion(ctx, { key: parsed.data.key, reason: parsed.data.reason, note: parsed.data.note || null }, deps);
   return NextResponse.json({ ok: true, dismissed }, { headers: noStore });
 }
 

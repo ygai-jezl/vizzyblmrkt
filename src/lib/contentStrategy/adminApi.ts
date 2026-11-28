@@ -23,6 +23,7 @@ import { questionTexts } from "./questions";
 import { combineId, isOpenSlot, refreshIdsOf, weeksOf } from "./roadmap";
 import { mixOf, slotWhy } from "./scores";
 import { approvePlan, deleteContentStrategy, readContentStrategyDoc, savePlanEdit, type PlanResult } from "./store";
+import { settlePlanSuggestion } from "@/lib/brandStrategy/store";
 
 /**
  * The Content plan's APIs (Brand › Brand map › Strategy › Content plan): origin, switch, sign-in
@@ -294,7 +295,11 @@ const ApproveBody = z.object({ baseRev: z.number().int().min(0) }).strict();
 export async function approveFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
   const parsed = ApproveBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  return answer(ctx, await approvePlan(ctx, parsed.data, deps), deps);
+  const r = await approvePlan(ctx, parsed.data, deps);
+  // The strategy's month suggestion that the plan was behind was about the plan before this one
+  // (STRATEGY_SUGGEST_ENABLED): it goes. A failure here never fails the approval.
+  if (r.ok && r.value.approved) await settlePlanSuggestion(ctx, r.value.approved.at, { db: deps.db }).catch(() => false);
+  return answer(ctx, r, deps);
 }
 
 /** POST make: a new draft from the brand map and the approved strategy. Nothing approved changes. */

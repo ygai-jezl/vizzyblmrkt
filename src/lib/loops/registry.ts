@@ -50,6 +50,8 @@ export const RULE_DECISIONS = {
   competitor_profile: { label: "What competitors write", file: "src/lib/competitors/profile.ts" },
   competitor_claim_match: { label: "Claims competitors now make", file: "src/lib/competitors/profile.ts" },
   strategy_check: { label: "Weekly strategy check", file: "src/lib/brandStrategy/checkRules.ts" },
+  strategy_month: { label: "How the strategy went each month", file: "src/lib/brandStrategy/monthRules.ts" },
+  strategy_suggest: { label: "The strategy's suggestion each month", file: "src/lib/brandStrategy/suggestRules.ts" },
   image_style_pick: { label: "Image style used", file: "src/lib/content/imageStyle/resolve.ts" },
   pattern_holdout: { label: "Post patterns holdout", file: "src/lib/distribute/feedback/patterns.ts" },
   waitlist_rank: { label: "Waitlist order", file: "src/lib/waitlist/scoring.ts" },
@@ -61,6 +63,7 @@ export const RULE_DECISIONS = {
   work_ready: { label: "Ready to start", file: "src/lib/work/service.ts" },
   work_measure_kind: { label: "Suggested kind of win", file: "src/lib/work/measureKind.ts" },
   investor_quiet: { label: "Investor follow-ups", file: "src/lib/raise/pipeline/due.ts" },
+  paste_columns: { label: "Pasted columns read as fields", file: "src/lib/crm/paste/columns.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
 export type RuleDecision = keyof typeof RULE_DECISIONS;
@@ -105,7 +108,8 @@ export const LEARNED_STORES = {
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
-  brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
+  brand_strategy:
+    "The brand strategy keeps the newest 50 names a person marked Not a competitor, and the monthly suggestions a person put off with Not now with their reasons, beside the stars, ticks, groups and edits people made.",
   lifecycle_journey: "A launch's journey on the lifecycle engine keeps each email test winner a person picked, with when and the versions it was picked from.",
 } as const satisfies Record<string, string>;
 
@@ -234,6 +238,7 @@ export const LOOPS = {
   email_copy: own("broadcast", "Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none."),
   journeys: gap("A journey draft is saved over by your team's edits, so what they changed is never kept or learned.", LATER),
   lifecycle_lines: gap("Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.", LATER),
+  translation: gap("A person's edits to a translation are kept as the version they approved, but the next translation learns nothing from them yet.", LATER),
   competitor_analysis: none("It labels and summarises a competitor's own pages as they are, so there is no taste of yours in it to learn."),
   competitor_articles: none("It records what each competitor article says and asks, a fact about their page rather than a choice made for you."),
   next_up: own("learned", "Next up learns from the picks your team skips, kept with their reason on the Learned list."),
@@ -301,6 +306,8 @@ export const LOOPS = {
   competitor_profile: none("Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves."),
   competitor_claim_match: gap("A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.", LATER),
   strategy_check: gap("The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.", LATER),
+  strategy_month: none("How it went adds up plain counts anyone can check, each from a source it names, and chooses nothing for the brand, so it has nothing to learn."),
+  strategy_suggest: own("brand_strategy", "A suggestion your team put off with Not now stays away 60 days, or 90 for one about connecting a tool, and the reason they gave is kept with the strategy."),
   image_style_pick: gap("Where image versions are on, each painted style learns its own look from votes, but which style an image uses is still the brand's pick or a fixed preset for its surface, and votes never change it.", IMAGES_BY),
   pattern_holdout: none("A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results."),
   waitlist_rank: none("The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own."),
@@ -312,6 +319,7 @@ export const LOOPS = {
   work_ready: gap("Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.", LATER),
   work_measure_kind: gap("The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.", LATER),
   investor_quiet: gap("A follow-up comes up after 14 quiet days or a past next step date, and the follow-ups your team dismisses never change that rule.", LATER),
+  paste_columns: none("Each column is read by its header the same way for every brand, and the list shows how every column was read before an admin adds a row."),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----
   waitlist_voice_chat: none("The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people."),

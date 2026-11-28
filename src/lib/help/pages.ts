@@ -12,6 +12,7 @@ import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { isRaisePipelineEnabled } from "@/lib/raise/pipeline/flags";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -34,7 +35,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "learning" | "settings_history" | "content_language" | "work" | "raise_pipeline";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "work" | "raise_pipeline" | "paste" | "learning";
 }
 
 /**
@@ -113,6 +114,12 @@ export interface HelpBodyProps {
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), a server switch: the drawer gets it from the admin shell). */
   raiseFollowUps?: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
+  paste?: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
+  vizzyPaste?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), a server switch: the drawer gets it from the admin shell). */
+  assetTranslations?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -226,6 +233,13 @@ export const HELP_PAGES: HelpPage[] = [
     "Set up investor or lender fields in one press, work a board by stage, log why each one passed and get follow-ups in Review.",
     "raise_pipeline",
   ),
+  page(
+    "paste-a-list",
+    "Paste a list",
+    "grow",
+    "Paste rows from a sheet to add people and companies with one approval, and where to find a list to start from.",
+    "paste",
+  ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
   page("invite-your-waitlist", "Invite your waitlist", "product", "Bring the people on your waitlist into your product, in waves."),
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
@@ -259,6 +273,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
   if (p.onlyWhen === "work") return isWorkEnabled();
   if (p.onlyWhen === "raise_pipeline") return isRaisePipelineEnabled();
+  if (p.onlyWhen === "paste") return isPasteEnabled();
   return true;
 }
 

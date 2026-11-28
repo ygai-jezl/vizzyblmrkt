@@ -7,7 +7,7 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
-import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
+import { isStrategyCheckEnabled, isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
@@ -16,6 +16,7 @@ import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { isSettingsEraseEnabled } from "@/lib/settings/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isLoopsEnabled } from "@/lib/loops/flags";
@@ -48,6 +49,10 @@ export const dynamic = "force-dynamic";
  * The weekly strategy check (STRATEGY_CHECK_ENABLED) rides beside the competitors' checks, about every
  * 30 minutes at a tick of its own, a few brands a run (src/lib/brandStrategy/check.ts).
  *
+ * How it went's monthly look (STRATEGY_RESULTS_ENABLED) runs about every 30 minutes too, at a tick of
+ * its own (every 15th, at offset 4), from the 2nd of each month, a few brands a run, whatever
+ * Competitors says (src/lib/brandStrategy/month.ts).
+ *
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
  *
@@ -64,6 +69,9 @@ export const dynamic = "force-dynamic";
  * Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED) run about hourly, at a
  * tick of their own (every 30th, at offset 13), within their own budget: open ones put in step with
  * their people at any hour, new ones raised 6 to 9 in each brand's morning.
+ *
+ * Journey emails in other languages (ASSET_TRANSLATIONS_ENABLED) are planned and translated on every
+ * tick, a few calls a run, for the brands a publish marked; the rest cost nothing.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -85,6 +93,11 @@ const FRESHNESS_BUDGET_MS = 20_000;
 const REFRESH_BUDGET_MS = 90_000;
 /** The weekly strategy check (STRATEGY_CHECK_ENABLED): a few reads for each of up to 3 brands. */
 const STRATEGY_CHECK_BUDGET_MS = 10_000;
+/**
+ * How it went's monthly look (STRATEGY_RESULTS_ENABLED): up to 3 brands, each started only with time
+ * left for the slowest connector's live read (up to 20 s), like connected data's lane.
+ */
+const STRATEGY_MONTH_BUDGET_MS = 25_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
 /** The learning loops lane (IMAGE_STYLE_VERSIONS_ENABLED or LOOPS_ENABLED): a page of brands, about every 10 minutes. */
@@ -95,6 +108,8 @@ const FIELD_ERASE_BUDGET_MS = 20_000;
 const AGENT_RECORD_BUDGET_MS = 15_000;
 /** Follow-ups from the investor and funding board (RAISE_FOLLOWUPS_ENABLED): every 30th tick, at offset 13. */
 const RAISE_FOLLOWUPS_BUDGET_MS = 15_000;
+/** Translations (ASSET_TRANSLATIONS_ENABLED): a few calls of up to 45s each, for marked brands only. */
+const TRANSLATIONS_BUDGET_MS = 95_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -115,8 +130,10 @@ export async function POST(req: Request) {
   const fieldErase = isSettingsEraseEnabled();
   const agentRecord = isAgentRecordEnabled();
   const raiseFollowups = isRaiseFollowupsEnabled();
+  const translations = isAssetTranslationsEnabled();
+  const strategyMonth = isStrategyResultsEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase || agentRecord || raiseFollowups))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops || fieldErase || agentRecord || raiseFollowups || translations || strategyMonth))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -249,6 +266,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const translationsRun = translations
+        ? timedTickJob("translations", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + TRANSLATIONS_BUDGET_MS);
+            const { runTranslations } = await import("@/lib/i18n/translationsTick");
+            return runTranslations({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[translations] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const raiseFollowupsRun = raiseFollowups
         ? timedTickJob("raise-followups", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + RAISE_FOLLOWUPS_BUDGET_MS);
@@ -256,6 +283,16 @@ export async function POST(req: Request) {
             return runRaiseFollowups({ deadlineMs });
           }).catch((err: unknown) => {
             console.warn(`[raise] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const strategyMonthRun = strategyMonth
+        ? timedTickJob("strategy-month", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + STRATEGY_MONTH_BUDGET_MS);
+            const { runStrategyMonths } = await import("@/lib/brandStrategy/month");
+            return runStrategyMonths({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[strategy-month] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
             return null;
           })
         : Promise.resolve(null);
@@ -307,6 +344,8 @@ export async function POST(req: Request) {
       const fieldEraseResult = await fieldEraseRun;
       const agentRecordResult = await agentRecordRun;
       const raiseFollowupsResult = await raiseFollowupsRun;
+      const translationsResult = await translationsRun;
+      const strategyMonthResult = await strategyMonthRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -328,6 +367,8 @@ export async function POST(req: Request) {
         ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
         ...(agentRecordResult?.brands ? { agentRecord: agentRecordResult } : {}),
         ...(raiseFollowupsResult?.brands ? { raiseFollowups: raiseFollowupsResult } : {}),
+        ...(translationsResult?.brands ? { translations: translationsResult } : {}),
+        ...(strategyMonthResult?.brands ? { strategyMonth: strategyMonthResult } : {}),
       });
     } finally {
       logTickMemory();

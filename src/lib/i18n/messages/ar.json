@@ -122,5 +122,11 @@
   "article.keyTakeaways": "أهم النقاط",
   "article.bottomLine": "الخلاصة",
   "article.sources": "المصادر",
-  "article.aboutAuthor": "عن الكاتب"
+  "article.aboutAuthor": "عن الكاتب",
+  "email.footer.sentBy": "أرسل {{sender_brand}} هذه الرسالة.",
+  "email.footer.preferences": "إدارة التفضيلات",
+  "email.footer.unsubscribe": "إلغاء الاشتراك",
+  "email.footer.privacy": "سياسة الخصوصية",
+  "email.steps.done": "اكتمل {done} من أصل {total} خطوات",
+  "email.steps.more": "و{n} أخرى"
 }

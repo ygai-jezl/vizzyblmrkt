@@ -2,13 +2,14 @@ import { createElement, isValidElement, type ReactElement, type ReactNode } from
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { boardStageHint, PASTE_WORDS } from "@/lib/crm/paste/words";
 import { BOARD_WORDS } from "@/lib/raise/pipeline/words";
 import type { BoardAnswer, BoardCard, BoardColumn } from "./investorsApi";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { BoardView, cardLines, countsLine, MoveMenu, movedCard, moveTargets, placeCard } = await import("./InvestorBoard");
+const { BoardView, boardPasteButton, cardLines, countsLine, MoveMenu, movedCard, moveTargets, opensPublicList, PasteButton, placeCard } = await import("./InvestorBoard");
 
 /** Every element in a tree with a given tag. */
 function elementsOf(node: ReactNode, type: string, out: ReactElement[] = []): ReactElement[] {
@@ -224,5 +225,67 @@ describe("the board as drawn", () => {
     expect(draw(capped)).toContain(BOARD_WORDS.capped);
     const archived = board({ columns: [...board().columns, column("archived", BOARD_WORDS.archivedColumn, "archived", [card("ct_old", { name: "Kim Lee", stageOptionId: "opt_meeting1" })])] });
     expect(draw(archived, () => {})).toContain(`aria-label="${BOARD_WORDS.archivedColumn}"`);
+  });
+});
+
+describe("Paste a list on the board (S2b)", () => {
+  const empty = () => board({ columns: [column("opt_research", "Research", "open", [])], totals: { people: 0, quiet: 0, nextStepPast: 0, capped: false } });
+  const draw = (b: BoardAnswer, onPaste?: (open: boolean) => void) => renderToStaticMarkup(createElement(BoardView, { board: b, onMove: () => {}, onPaste }));
+
+  it("shows the button beside How the board works only when it is given, and the Stage hint only on an empty board", () => {
+    expect(draw(board())).not.toContain(PASTE_WORDS.button);
+    const html = draw(board(), () => {});
+    expect(html).toContain(PASTE_WORDS.button);
+    expect(html.indexOf(BOARD_WORDS.howItWorks)).toBeLessThan(html.indexOf(PASTE_WORDS.button));
+    expect(html).not.toContain(boardStageHint("Stage"));
+    expect(draw(empty(), () => {})).toContain(boardStageHint("Stage"));
+    expect(draw(empty())).not.toContain(boardStageHint("Stage"));
+  });
+
+  it("names the brand's own Stage field in the hint", () => {
+    const own = { ...empty(), fields: { ...empty().fields, stage: { id: "fld_status", label: "Status" } } };
+    expect(draw(own, () => {})).toContain(boardStageHint("Status"));
+  });
+
+  it("opens Start from a public list only on an Investors board with no one on it yet", () => {
+    expect(opensPublicList(empty())).toBe(true);
+    expect(opensPublicList(board())).toBe(false);
+    // Its card lists investor directories: never for loans and grants.
+    expect(opensPublicList({ ...empty(), kind: "funding" })).toBe(false);
+  });
+
+  it("draws the board's button for its kind: an empty Funding board never opens the investor list", () => {
+    const pressed = (b: BoardAnswer) => {
+      const onPaste = vi.fn();
+      const el = boardPasteButton(b, onPaste);
+      expect(el.type).toBe(PasteButton);
+      (PasteButton(el.props as Parameters<typeof PasteButton>[0]).props as { onClick: () => void }).onClick();
+      return onPaste.mock.calls[0]?.[0];
+    };
+    expect(pressed(empty())).toBe(true);
+    expect(pressed({ ...empty(), kind: "funding" })).toBe(false);
+    expect(pressed(board())).toBe(false);
+  });
+
+  it("is drawn on the board the same way: open on an empty Investors board, never on Funding", () => {
+    expect(draw(empty(), () => {})).toContain('data-public-list="open"');
+    expect(draw({ ...empty(), kind: "funding" }, () => {})).not.toContain("data-public-list");
+    expect(draw(board(), () => {})).not.toContain("data-public-list");
+  });
+
+  it("passes on whether to open Start from a public list when pressed", () => {
+    const onPaste = vi.fn();
+    const press = (open: boolean) => (PasteButton({ openPublicList: open, onPaste }).props as { onClick: () => void }).onClick();
+    press(true);
+    press(false);
+    expect(onPaste.mock.calls).toEqual([[true], [false]]);
+    expect((PasteButton({ openPublicList: false, onPaste }).props as { type: string }).type).toBe("button");
+  });
+
+  it("keeps to house style", () => {
+    for (const s of [boardStageHint("Stage"), boardStageHint("Status")]) {
+      expect(dashesIn(s)).toEqual([]);
+      expect(aiTellsIn(s)).toEqual([]);
+    }
   });
 });

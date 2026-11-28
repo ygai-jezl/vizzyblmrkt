@@ -23,6 +23,7 @@ import { lookupsThisMonth } from "@/lib/signals/store";
 import { AutopilotSettingsSchema } from "@/lib/types/autopilot";
 import type { Tenant } from "@/lib/types/tenant";
 import { fileSuggestions } from "@/lib/brandMap/filing";
+import { isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 
 /**
  * Admin APIs for the next article autopilot on Brand › Brand map. Routes call these after the
@@ -213,7 +214,9 @@ export async function startFind(ctx: TenantContext, raw: unknown, deps: NextUpAd
   const limited = deps.rateLimited ?? ((s: string) => isRateLimited(s, FIND_LIMIT));
   if (await limited(`tenant:${ctx.tenantId}`)) return { status: 429, body: { error: "rate_limited" } };
   const { questionId, question, subjectId, subjectName } = parsed.data;
-  const run = await createRun(ctx, { id: freshRunId(), mode: "find", trigger: "person", step: "find", question: { questionId, text: question, subjectId, subjectName } }, deps);
+  // Started from one of Next up's picks: the run keeps what the stored pick came from, never what the page sent.
+  const basedOn = isStrategyResultsEnabled() ? (await readNextUp(ctx, deps).catch(() => null))?.picks.find((p) => p.questionId === questionId)?.basedOn : undefined;
+  const run = await createRun(ctx, { id: freshRunId(), mode: "find", trigger: "person", step: "find", question: { questionId, text: question, subjectId, subjectName }, ...(basedOn ? { basedOn } : {}) }, deps);
   const after = (await advanceRun(ctx, run.id, { deadlineMs: Date.now() + PAGE_STEP_MS }, deps)) ?? run;
   return { status: 200, body: { run: runView(after) } };
 }

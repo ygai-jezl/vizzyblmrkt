@@ -775,6 +775,14 @@ export const TenantSchema = z.object({
       counts: z.record(z.string(), z.number().int().nonnegative()),
     })
     .optional(),
+  /**
+   * Set when one of the brand's journeys has translations to check or make
+   * (ASSET_TRANSLATIONS_ENABLED), so the translations lane reads only brands with work. Cleared
+   * by the lane, in a transaction, when nothing is left and it hasn't moved since.
+   */
+  translationsQueuedAt: z.string().nullable().optional(),
+  /** Translation calls made on `day` (UTC date), for the daily cap (src/lib/i18n/translationsTick.ts). */
+  translationCalls: z.object({ day: z.string(), count: z.number().int().nonnegative() }).optional(),
   /** AI-extracted brand kit (from an uploaded guidelines PDF); powers on-brand generation. */
   brandKit: BrandKitSchema.optional(),
   /** Authored, tenant-global brand voice (Summary/Do/Don't/guidelines); grounds all AI copy. */

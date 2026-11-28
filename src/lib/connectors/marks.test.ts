@@ -125,9 +125,8 @@ describe("the connector marks", () => {
       const cells = row!.split("|").map((c) => c.trim());
       const [, , , owner, source, sha] = cells;
       expect(owner, file).toMatch(/^(?:Google LLC|Cloudflare, Inc\.|Vizzybl)$/);
-      // Downloaded from its owner's own server, or a plain mark drawn here, which the notice says.
-      expect(source, file).toMatch(/^(?:https:\/\/[a-z0-9.-]+\/|Drawn for YouGrow$)/);
-      if (source === "Drawn for YouGrow") expect(NOTICE, file).toMatch(/drawn for YouGrow so its tile shows a mark/);
+      // Downloaded from its owner's own server: a connector shows its owner's real mark, never one drawn here.
+      expect(source, file).toMatch(/^https:\/\/[a-z0-9.-]+\//);
       expect(sha, file).toBe(`\`${createHash("sha256").update(bytesOf(file)).digest("hex")}\``);
     }
     for (const m of manifests) if (m.icon) expect(NOTICE, m.id).toContain(m.icon.owner);

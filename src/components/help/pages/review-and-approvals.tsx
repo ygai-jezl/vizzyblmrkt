@@ -6,7 +6,10 @@ import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsShar
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS as FOLLOW_UP_WORDS } from "@/lib/raise/pipeline/words";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
+import { SUGGEST_WORDS } from "@/lib/brandStrategy/suggestRules";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
@@ -27,6 +30,7 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * suggestions and drafts aren't in that record, as Vizzy's get_drafts line does.
  * While the investor and funding board's follow-ups are on (RAISE_FOLLOWUPS_ENABLED), the team
  * sees Follow-ups from your board.
+ * While Paste a list is on (RAISE_PASTE_ENABLED), admins also see pasted lists waiting to be added.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -39,6 +43,8 @@ export default function ReviewAndApprovalsHelp({
   onboarding = isOnboardingEnabled(),
   agentRecord = isAgentRecordEnabled(),
   raiseFollowUps = isRaiseFollowupsEnabled(),
+  paste = isPasteEnabled(),
+  assetTranslations = isAssetTranslationsEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -122,6 +128,13 @@ export default function ReviewAndApprovalsHelp({
             ? " Admins also see an email or image style Vizzy suggested, which opens Brand › Email style or Brand › Image style, and one row for the notes Vizzy suggested in your chats, which opens What we've seen."
             : ""}
         </li>
+        {assetTranslations ? (
+          <li>
+            <strong>Emails in other languages</strong>: translations of your journey emails, one row per journey. Open shows each
+            email&apos;s language tabs, and admins can press <strong>Approve all languages</strong> here (
+            <Open href="/help/languages#translations">Journey emails in other languages</Open>).
+          </li>
+        ) : null}
         {vizzyFields ? (
           <li>
             <strong>Suggestions about people</strong>: changes to someone&apos;s fields that Vizzy suggested. Each opens their page,
@@ -139,6 +152,13 @@ export default function ReviewAndApprovalsHelp({
             <strong>{FOLLOW_UP_WORDS.title}</strong>: people on your investor or funding board who have been quiet for 14 days, or whose
             next step date has passed. Everyone on the team sees them; admins press <strong>{FOLLOW_UP_WORDS.followedUp}</strong> or{" "}
             <strong>{FOLLOW_UP_WORDS.dismiss}</strong> (<Open href="/help/investors-and-funding#follow-ups">Follow-ups in Review</Open>).
+          </li>
+        ) : null}
+        {paste ? (
+          <li>
+            <strong>Pasted lists</strong>: lists your team pasted on People, waiting for an admin to add them, listed for admins
+            only. <strong>Open</strong> opens the list on People, where an admin checks it and adds everyone on it, or dismisses it (
+            <Open href="/help/paste-a-list#add">Add them in one go</Open>).
           </li>
         ) : null}
         {onboarding ? (
@@ -159,6 +179,13 @@ export default function ReviewAndApprovalsHelp({
           week, one row when your competitors moved on it, with each reason in full. <strong>Review the strategy</strong> opens
           the Strategy tab, and an admin can <strong>Dismiss</strong> it for 30 days (
           <Open href="/help/brand-map">Brand map</Open>).
+        </li>
+        <li>
+          <strong>{SUGGEST_WORDS.title}</strong>: where your copy of YouGrow suggests one change to your strategy a month,
+          one row with the suggestion, what it was based on and what it couldn&apos;t see. Everyone on the team sees it.{" "}
+          <strong>{SUGGEST_WORDS.review}</strong> opens the Strategy tab, or a tool&apos;s Connect page when it suggests
+          connecting one, and an admin can press <strong>{SUGGEST_WORDS.notNow}</strong> and say why (
+          <Open href="/help/brand-map#strategy">Approve your strategy</Open>).
         </li>
         {isAutopilotEnabled() ? (
           <li>

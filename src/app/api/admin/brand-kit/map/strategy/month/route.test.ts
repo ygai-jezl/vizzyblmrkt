@@ -1,0 +1,84 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// How it went's route (STRATEGY_RESULTS_ENABLED): origin, the switch (which needs the strategy), then
+// sign-in, then admin for the run by hand. The data side is tested in src/lib/brandStrategy.
+const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
+vi.mock("@/lib/auth/session", () => session);
+const limits = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
+vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), isRateLimited: limits.isRateLimited }));
+const view = vi.hoisted(() => ({
+  monthsFromRequest: vi.fn(async () => Response.json({ howItWent: { months: [] } })),
+  runMonthFromRequest: vi.fn(async () => Response.json({ howItWent: { months: [{ month: "2026-11" }] } })),
+}));
+vi.mock("@/lib/brandStrategy/monthView", () => view);
+
+const route = await import("./route");
+
+const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
+const req = (method: string, origin?: string, body?: string) =>
+  new Request("http://localhost/api/admin/brand-kit/map/strategy/month", { method, headers: { "content-type": "application/json", ...(origin ? { origin } : {}) }, ...(body !== undefined ? { body } : {}) });
+const post = (origin?: string, body?: string) => route.POST(req("POST", origin, body));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubEnv("BRAND_MAP_ENABLED", "true");
+  vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+  session.getAdminContext.mockResolvedValue(admin);
+});
+afterEach(() => vi.unstubAllEnvs());
+
+describe("GET /api/admin/brand-kit/map/strategy/month", () => {
+  it("503s with its switch off, 401s signed out, and any member reads it", async () => {
+    const get = () => route.GET(req("GET"));
+    const off = await get();
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "strategy_results_disabled" });
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await get()).status).toBe(401);
+    const member = { ...admin, role: "member" };
+    session.getAdminContext.mockResolvedValueOnce(member);
+    const read = await get();
+    expect(read.status).toBe(200);
+    expect(view.monthsFromRequest).toHaveBeenCalledWith(member);
+    expect(view.runMonthFromRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/admin/brand-kit/map/strategy/month", () => {
+  it("503s with its switch off, or the strategy off, before anything else", async () => {
+    const off = await post();
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "strategy_results_disabled" });
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "false");
+    expect((await post()).status).toBe(503);
+    expect(session.getAdminContext).not.toHaveBeenCalled();
+    expect(view.runMonthFromRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses another site, 401s signed out, 403s a member and 429s past the brand's limit", async () => {
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    expect((await post("https://elsewhere.example")).status).toBe(403);
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await post()).status).toBe(401);
+    session.getAdminContext.mockResolvedValueOnce({ ...admin, role: "member" });
+    expect((await post()).status).toBe(403);
+    limits.isRateLimited.mockResolvedValueOnce(true);
+    expect((await post()).status).toBe(429);
+    expect(view.runMonthFromRequest).not.toHaveBeenCalled();
+  });
+
+  it("runs the look, or a preview, for the caller's own brand, with the brand from the session only", async () => {
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const r = await post();
+    expect(r.status).toBe(200);
+    expect(view.runMonthFromRequest).toHaveBeenCalledWith(admin, {});
+    await post(undefined, JSON.stringify({ preview: true }));
+    expect(view.runMonthFromRequest).toHaveBeenLastCalledWith(admin, { preview: true });
+    // A body that isn't JSON is refused before anything runs.
+    expect((await post(undefined, "{not json")).status).toBe(400);
+    expect(view.runMonthFromRequest).toHaveBeenCalledTimes(2);
+    expect(limits.isRateLimited).toHaveBeenCalledWith("tenant:ten_A", expect.objectContaining({ prefix: "strategy_month" }), expect.anything());
+  });
+});

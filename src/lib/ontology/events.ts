@@ -497,10 +497,14 @@ export interface FieldChangedProperties {
   source: FieldChangeSource;
 }
 
-/** record.created: what was created, and how (for example "form", "palette" or "vizzy"). */
+/**
+ * record.created: what was created, and how (for example "form", "palette", "vizzy" or "paste").
+ * `source`: where a pasted list came from, in the admin's words, only on a row it made.
+ */
 export interface RecordCreatedProperties {
   object: FieldObject;
   via: string;
+  source?: string;
 }
 
 /**

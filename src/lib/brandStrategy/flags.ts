@@ -48,3 +48,28 @@ export function isStrategyCompetitorsEnabled(): boolean {
 export function isStrategyCheckEnabled(): boolean {
   return isStrategyCompetitorsEnabled() && isCompetitorArticlesEnabled() && process.env.STRATEGY_CHECK_ENABLED === "true";
 }
+
+/**
+ * How it went (STRATEGY_RESULTS_ENABLED): once a month, the approved strategy's focus situations and
+ * the rest of the map are added up from YouGrow's own data and from each kind of result the brand's
+ * shared connections give (src/lib/metrics/outcomes.ts), kept on the strategy record, shown on the
+ * Strategy tab and read by Vizzy. Next up's picks, the autopilot's runs and their briefs say which
+ * strategy and plan they came from (`basedOn`). Needs the strategy. Off: nothing is added up or
+ * linked, and the tab, Next up and Vizzy are as before.
+ */
+export function isStrategyResultsEnabled(): boolean {
+  return isBrandStrategyEnabled() && process.env.STRATEGY_RESULTS_ENABLED === "true";
+}
+
+/**
+ * One suggestion a month (STRATEGY_SUGGEST_ENABLED): when the monthly look keeps a month, pure rules
+ * (src/lib/brandStrategy/suggestRules.ts, no model call) pick at most one change worth a look (behind
+ * the plan, a stalled focus situation, a claim still without proof, or a kind of result to connect),
+ * kept on the strategy record. It shows as one Review row and above Propose on the Strategy tab, and
+ * Vizzy reads it. Propose takes it as a note; nothing changes until a person approves. Not now keeps
+ * it away 60 days (90 for connecting a tool), with the reason kept. Needs STRATEGY_RESULTS_ENABLED.
+ * Off: no suggestion is worked out or shown, and Propose, Review and Vizzy are as before.
+ */
+export function isStrategySuggestEnabled(): boolean {
+  return isStrategyResultsEnabled() && process.env.STRATEGY_SUGGEST_ENABLED === "true";
+}

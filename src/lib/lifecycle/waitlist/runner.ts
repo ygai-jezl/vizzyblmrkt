@@ -45,6 +45,9 @@ import { isWaitlistEngineEnabled } from "./flags";
 import { pickWaitlistItem } from "./pick";
 import { liveWinners } from "./winners";
 import { personIdForSignup } from "@/lib/ontology/personRef";
+import { emailVersionFor, versionLanguage, type EmailVersion } from "@/lib/i18n/emailVersion";
+import { DEFAULT_LOCALE, normalizeLocale, resolveCampaignLocale, supportedLocalesFor } from "@/lib/i18n/locale";
+import { translationIdOf, type Translation } from "@/lib/types/translation";
 
 /**
  * The runner for WAITLIST journeys on the lifecycle engine (engine move D2): a
@@ -87,6 +90,7 @@ export class WaitlistRunCache {
   private readonly versions = new Map<string, Promise<LifecycleVersion | null>>();
   private readonly campaigns = new Map<string, Promise<Campaign | null>>();
   private readonly ranks = new Map<string, Promise<Map<string, number>>>();
+  private readonly translations = new Map<string, Promise<Translation | null>>();
   /** Learning loops step 5 (4.1): the run's stamps, read once per kind, and its counts, written once when the run ends. */
   readonly stamps: LoopsRunCache;
   readonly counts: CountBuffer;
@@ -124,6 +128,10 @@ export class WaitlistRunCache {
   /** Waitlist rank by signup id (for `signup.rank` and the {{rank}} merge tag), once per launch per tick. */
   rankOf(campaignId: string) {
     return this.memo(this.ranks, campaignId, () => computeRanks(this.ctx, campaignId, this.db));
+  }
+  /** One journey email in one language (ASSET_TRANSLATIONS_ENABLED), read once per tick. */
+  translation(id: string) {
+    return this.memo(this.translations, id, () => forTenant(this.ctx, this.db).translations.getById(id));
   }
 }
 
@@ -306,11 +314,26 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
       ? { pageUrl: "", apiUrl: "" }
       : unsubscribeLinks({ tenantId: ctx.tenantId, campaignId: campaign.id, signupId: signup.id, email: signup.email });
   const footer = journeyFooterValues({ tenant, campaign, unsubscribeUrl: unsub.pageUrl });
-  const email = compileJourneyEmail(
-    { subject: d.item.subject, body: d.item.body, heroImageUrl: d.item.heroImageUrl ?? null },
-    { signup, campaign, rank: s.rank, footer },
-    resolveJourneyEmailStyle(tenant, journey.emailStyle),
-  );
+  // The reader's language (ASSET_TRANSLATIONS_ENABLED): the approved translation of this email in
+  // the language they signed up in, else the launch's.
+  const base = normalizeLocale(resolveCampaignLocale(campaign, tenant)) ?? DEFAULT_LOCALE;
+  const reader = await emailVersionFor({
+    item: d.item,
+    base,
+    lang: versionLanguage(signup.locale, base, supportedLocalesFor(campaign, tenant)),
+    load: (l) => s.cache.translation(translationIdOf(journey.id, d.pool.id, d.item.id, l)),
+  });
+  const compile = (v: EmailVersion<typeof d.item>) =>
+    compileJourneyEmail(
+      { subject: v.item.subject, body: v.item.body, heroImageUrl: v.item.heroImageUrl ?? null },
+      { signup, campaign, rank: s.rank, footer },
+      resolveJourneyEmailStyle(tenant, journey.emailStyle),
+      undefined,
+      v.language,
+    );
+  let email = compile(reader);
+  // A translation whose subject comes out empty: the launch's version goes out instead.
+  if (reader.language && !email.subject.trim()) email = compile({ item: d.item, language: null });
 
   // Claim: the day's send slot + pendingSend, in one transaction.
   const atMs = clock();

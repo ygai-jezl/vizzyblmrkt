@@ -43,6 +43,8 @@ import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { BUSINESS_FACT_ACTION, businessFactReviewItem } from "@/lib/onboarding/factSuggestions";
+import { canPaste } from "@/lib/crm/paste/flags";
+import { pasteBatchItems } from "@/lib/crm/paste/review";
 import { readFieldList } from "@/lib/audience/fieldList";
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { signalReviewItems } from "@/lib/connectors/signals/review";
@@ -58,11 +60,13 @@ import { learnedReviewItems } from "@/lib/loops/cards";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { workReviewItems } from "@/lib/work/review";
 import type { WorkReviewPayload } from "@/lib/work/reviewCards";
-import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
+import { isStrategyCheckEnabled, isStrategySuggestEnabled } from "@/lib/brandStrategy/flags";
 import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { reasonLine } from "@/lib/brandStrategy/checkRules";
-import type { StrategyCheck } from "@/lib/types/brandStrategy";
+import { isReviewSuggestion, sourcesLine, SUGGEST_WORDS, suggestionAction, suggestionLines } from "@/lib/brandStrategy/suggestRules";
+import type { BrandStrategyDoc, StrategyCheck, StrategySuggestion } from "@/lib/types/brandStrategy";
 import { isRaiseFollowupsEnabled } from "@/lib/raise/pipeline/flags";
+import { isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { REVIEW_WORDS } from "@/lib/raise/pipeline/words";
 
 /**
@@ -86,6 +90,7 @@ export type ReviewKind =
   | "data_source"
   | "competitor_news"
   | "strategy_check"
+  | "strategy_suggest"
   | "next_article"
   | "data_signal"
   | "content_refresh"
@@ -94,7 +99,9 @@ export type ReviewKind =
   | "work_ready"
   | "work_suggestion"
   | "raise_followup"
+  | "paste_batch"
   | "business_fact"
+  | "translation_check"
   | "learned";
 
 export interface ReviewItem {
@@ -117,8 +124,12 @@ export interface ReviewItem {
   work?: WorkReviewPayload;
   /** The weekly strategy check's row: Dismiss beside the link (admins only). */
   dismissCheck?: true;
+  /** The strategy's month row (STRATEGY_SUGGEST_ENABLED): Not now, with why, beside the link (admins only). */
+  notNow?: { key: string };
   /** A follow-up from the investor or funding board: I followed up today (quiet ones) and Dismiss beside the link (admins only). */
   followUp?: { id: string; rev: number; quiet: boolean };
+  /** A journey's translations to check (ASSET_TRANSLATIONS_ENABLED): Approve all languages beside the link (admins only). */
+  approveLanguages?: { journeyId: string; revs: Record<string, number> };
 }
 
 /**
@@ -189,6 +200,12 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Once a week your approved strategy is set against what your competitors publish. It asks for a look only when something material changed: review the strategy, or dismiss it for 30 days.",
     from: ["strategy_check"],
   },
+  strategy_suggest: {
+    title: SUGGEST_WORDS.title,
+    description:
+      "Once a month, after How it went is added up, one change worth a look: your plan falling behind, a focus situation that stalled, a claim still without proof, or a tool to connect. Review the strategy, or say Not now and why.",
+    from: ["strategy_suggest"],
+  },
   next_article: {
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
@@ -230,6 +247,16 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: REVIEW_WORDS.description,
     from: ["investor_quiet"],
   },
+  paste_batch: {
+    title: "Pasted lists",
+    description: "Lists your team pasted on People, waiting for an admin to add them. Nobody is added until then.",
+    from: ["paste_columns"],
+  },
+  translation_check: {
+    title: "Emails in other languages",
+    description: "Translations of your journey emails, one row per journey. Readers of each language get the default until you approve theirs.",
+    from: ["translation"],
+  },
   learned: {
     title: "What YouGrow learned",
     description: "Looks YouGrow learned that did worse than the look before. Nothing goes back on its own, and a card goes after 14 days.",
@@ -256,13 +283,16 @@ export const REVIEW_ORDER: ReviewKind[] = [
   "content_refresh",
   "work_suggestion",
   "agent_draft",
+  "translation_check",
   "person_suggestion",
   "raise_followup",
+  "paste_batch",
   "business_fact",
   "repo_results",
   "brand_map",
   "competitor_news",
   "strategy_check",
+  "strategy_suggest",
   "content_hub",
 ];
 
@@ -546,6 +576,29 @@ export function strategyCheckItem(check: StrategyCheck | null, nowIso: string = 
     href: `${BRAND_KIT_MAP_ROUTE}?tab=strategy`,
     action: "Review the strategy",
     dismissCheck: true,
+  };
+}
+
+/**
+ * The month's strategy suggestion (STRATEGY_SUGGEST_ENABLED): one row at most, while one is open,
+ * and never for Working (a line on How it went only). Its lines, then what it was based on and what
+ * it couldn't see. Review the strategy opens the Strategy tab; on Measure more the link is Connect or
+ * Share it. Members see it; Not now is for admins.
+ */
+export function strategySuggestItem(s: StrategySuggestion | null | undefined): ReviewItem | null {
+  if (!isReviewSuggestion(s)) return null;
+  const lines = suggestionLines(s);
+  const sources = sourcesLine(s);
+  const action = suggestionAction(s, `${BRAND_KIT_MAP_ROUTE}?tab=strategy`);
+  return {
+    id: `strategy_suggest:${s.key}`,
+    kind: "strategy_suggest",
+    title: SUGGEST_WORDS.title,
+    detail: lines.join(" "),
+    details: [...lines, ...(sources ? [sources] : [])],
+    href: action.href,
+    action: action.label,
+    notNow: { key: s.key },
   };
 }
 
@@ -970,12 +1023,14 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
-  // The weekly strategy check's open row (STRATEGY_CHECK_ENABLED): one read of the strategy record.
-  // It needs their articles too, as the tick does, so a row left from before a change of plan doesn't stay.
-  const strategyCheck =
-    competitorsOn && isStrategyCheckEnabled() && (await soft("competitor articles access", brandCanUse(ctx, "competitor_articles"), false))
-      ? await soft("strategy check", readBrandStrategyDoc(ctx, { db }).then((d) => (d?.approved ? d.check : null)), null)
-      : null;
+  // The weekly strategy check's open row (STRATEGY_CHECK_ENABLED) and the month's suggestion
+  // (STRATEGY_SUGGEST_ENABLED): one read of the strategy record for both. The check needs their
+  // articles too, as the tick does, so a row left from before a change of plan doesn't stay.
+  const checkOn = competitorsOn && isStrategyCheckEnabled() && (await soft("competitor articles access", brandCanUse(ctx, "competitor_articles"), false));
+  const suggestOn = isStrategySuggestEnabled();
+  const strategyDoc = checkOn || suggestOn ? await soft("strategy check", readBrandStrategyDoc(ctx, { db }), null as BrandStrategyDoc | null) : null;
+  const strategyCheck = checkOn && strategyDoc?.approved ? strategyDoc.check : null;
+  const strategySuggestion = suggestOn && strategyDoc?.approved ? strategyDoc.suggestion : null;
   // Articles due a refresh (BLOG_FRESHNESS_ENABLED): the freshness watch's list, one read.
   const dueArticles = isBlogFreshnessEnabled()
     ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])
@@ -995,10 +1050,20 @@ export async function loadReview(
         [] as ReviewItem[],
       )
     : [];
+  // Journey emails in other languages waiting to be checked (ASSET_TRANSLATIONS_ENABLED): one row a journey.
+  const translationChecks = isAssetTranslationsEnabled()
+    ? await soft(
+        "translations",
+        import("@/lib/i18n/translationsAdmin").then((m) => m.translationReviewItems(ctx, db)),
+        [] as ReviewItem[],
+      )
+    : [];
   // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
   const recordItems = isAgentRecordEnabled() && ctx.role === "admin" ? await soft("agent record", agentRecordItems(ctx, db), [] as ReviewItem[]) : [];
+  // Lists pasted on People, waiting for an admin to add them: admins only, who alone add people.
+  const pastedLists = canPaste(ctx.role) ? await soft("pasted lists", pasteBatchItems(ctx, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
@@ -1031,11 +1096,14 @@ export async function loadReview(
     ...personSuggestions,
     ...work,
     ...raiseFollowUps,
+    ...translationChecks,
     ...businessFacts,
+    ...pastedLists,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),
     strategyCheckItem(strategyCheck),
+    strategySuggestItem(strategySuggestion),
     ...nextArticleItems(autopilotRuns),
     ...numberSuggestions,
     ...refreshItems(dueArticles, readyArticles),

@@ -23,8 +23,10 @@ import {
   saveFound,
   saveProposal,
   saveStrategyDraft,
+  settlePlanSuggestion,
   type ProposedStrategy,
 } from "./store";
+import type { StrategySuggestion } from "@/lib/types/brandStrategy";
 
 // Made-up brands and people.
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_a", email: "admin@a.example.com", role: "admin" };
@@ -400,5 +402,83 @@ describe("what a person decided stays, and runs and approvals hold", () => {
     expect(quick.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["finder_quick_used", "ok"]);
     const full = await Promise.all([1, 2, 3].map(() => claimFinderRun(A, { mode: "full", granted: true, limit: 2 }, { db, ...at(T0) })));
     expect(full.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["finder_monthly_limit", "ok", "ok"]);
+  });
+});
+
+describe("approving settles the month's suggestion when its subject is gone (STRATEGY_SUGGEST_ENABLED)", () => {
+  const SWITCHES = ["STRATEGY_RESULTS_ENABLED", "STRATEGY_SUGGEST_ENABLED"];
+  const base: Omit<StrategySuggestion, "key" | "about" | "detail"> = { month: "2026-12", raisedAt: "2027-01-02T00:10:00.000Z", keyWord: null, basedOn: { builtIn: ["articles"], measured: [] }, cantSee: [], state: "open", actedAt: null, dismissedAt: null };
+  const stalled = (id: string): StrategySuggestion => ({
+    ...base,
+    key: `sug_${id.slice(-2)}`,
+    about: id,
+    detail: { kind: "stalled_focus", id, text: "Situation number 2", kinds: ["search"], swap: { id: "sit_aaaaaa04", text: "Situation number 4", by: "questions", count: 4, outcome: null, measure: null } },
+  });
+  const noProof = (id: string): StrategySuggestion => ({ ...base, key: `sug_${id.slice(-2)}`, about: id, detail: { kind: "claim_no_proof", id, text: "Cheapest for a solo founder", months: 2 } });
+  const behind = (planAt: string): StrategySuggestion => ({ ...base, key: "sug_plan", about: `plan:${planAt}`, detail: { kind: "behind_plan", behind: 3, entries: [{ slotId: "slt_aaaaaa01", title: "Is a standing desk worth it?" }] } });
+
+  /** A draft with focus 01 to 03 and an unproven claim, approved, the suggestion open, then a hand edit. */
+  async function editThenApprove(suggestion: StrategySuggestion, edit: Record<string, unknown>, opts: { proof?: boolean } = {}) {
+    const db = new FakeFirestore();
+    await seedSituations(db, A, ["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03", "sit_aaaaaa04"]);
+    const made = await saveProposal(A, proposal(), { db, ...at(T0) });
+    await approveStrategy(A, { baseRev: made.ok ? made.value.rev : 0 }, { db, ...at(T0 + 100) });
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), (cur) => ({
+      suggestion,
+      // The claim now has proof, as a later Propose or the record would say.
+      ...(opts.proof ? { draft: { ...(cur.draft as Record<string, unknown>), claims: [claim("cl_aaaaaa02", "Cheapest for a solo founder", { kind: "site", url: "https://a.example.com/pricing", title: "Pricing" })] } } : {}),
+    }));
+    const doc = (await readBrandStrategyDoc(A, { db }))!;
+    const edited = Object.keys(edit).length ? await saveStrategyDraft(A, { baseRev: doc.rev, ...edit }, { db, ...at(T0 + 200) }) : null;
+    const rev = edited?.ok ? edited.value.rev : doc.rev;
+    const done = await approveStrategy(A, { baseRev: rev }, { db, ...at(T0 + 300) });
+    expect(done.ok).toBe(true);
+    return (await readBrandStrategyDoc(A, { db }))!;
+  }
+
+  it("clears a stalled focus situation's suggestion once it is out of the focus, and keeps one still in it", async () => {
+    for (const k of SWITCHES) vi.stubEnv(k, "true");
+    const out = await editThenApprove(stalled("sit_aaaaaa02"), { focusSituationIds: ["sit_aaaaaa01", "sit_aaaaaa03", "sit_aaaaaa04"] });
+    expect(out.suggestion).toBeNull();
+    // Settled is not acted on: only a Propose with it as a note is.
+    expect(out.decisions.map((d) => d.kind)).not.toContain("suggestion_acted");
+    const kept = await editThenApprove(stalled("sit_aaaaaa01"), { focusSituationIds: ["sit_aaaaaa01", "sit_aaaaaa03", "sit_aaaaaa04"] });
+    expect(kept.suggestion).toMatchObject({ state: "open", about: "sit_aaaaaa01" });
+  });
+
+  it("clears a claim's suggestion once the claim is gone or has proof, and keeps one still without", async () => {
+    for (const k of SWITCHES) vi.stubEnv(k, "true");
+    const gone = await editThenApprove(noProof("cl_aaaaaa02"), { claims: [{ id: "cl_aaaaaa01", side: "you", text: "Tracks 8 AI engines" }] });
+    expect(gone.suggestion).toBeNull();
+    const proven = await editThenApprove(noProof("cl_aaaaaa02"), {}, { proof: true });
+    expect(proven.approved?.claims.find((c) => c.id === "cl_aaaaaa02")?.proof).not.toBeNull();
+    expect(proven.suggestion).toBeNull();
+    const still = await editThenApprove(noProof("cl_aaaaaa02"), { audiences: ["Agencies"] });
+    expect(still.suggestion).toMatchObject({ state: "open", about: "cl_aaaaaa02" });
+  });
+
+  it("leaves the suggestion alone with the switch off", async () => {
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const off = await editThenApprove(stalled("sit_aaaaaa02"), { focusSituationIds: ["sit_aaaaaa01", "sit_aaaaaa03", "sit_aaaaaa04"] });
+    expect(off.suggestion).toMatchObject({ state: "open", about: "sit_aaaaaa02" });
+  });
+
+  it("clears a Behind plan suggestion about an earlier plan when a new plan is approved, and only then", async () => {
+    const db = new FakeFirestore();
+    await saveProposal(A, proposal(), { db, ...at(T0) });
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ suggestion: behind("2026-11-01T09:00:00.000Z") }));
+    expect(await settlePlanSuggestion(A, "2026-12-15T09:00:00.000Z", { db })).toBe(false);
+    for (const k of SWITCHES) vi.stubEnv(k, "true");
+    const rev = (await readBrandStrategyDoc(A, { db }))!.rev;
+    // The same plan: nothing to settle.
+    expect(await settlePlanSuggestion(A, "2026-11-01T09:00:00.000Z", { db })).toBe(false);
+    expect(await settlePlanSuggestion(A, "2026-12-15T09:00:00.000Z", { db })).toBe(true);
+    const doc = (await readBrandStrategyDoc(A, { db }))!;
+    expect(doc.suggestion).toBeNull();
+    expect(doc.rev).toBe(rev);
+    // Another kind of suggestion, or another brand, is left alone.
+    await forTenant(A, db).brandStrategy.claim(brandStrategyDocId("ten_A"), () => ({ suggestion: stalled("sit_aaaaaa02") }));
+    expect(await settlePlanSuggestion(A, "2027-01-15T09:00:00.000Z", { db })).toBe(false);
+    expect(await settlePlanSuggestion(B, "2027-01-15T09:00:00.000Z", { db })).toBe(false);
   });
 });

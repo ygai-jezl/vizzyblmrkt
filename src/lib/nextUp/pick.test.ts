@@ -11,6 +11,7 @@ import { dropPick, goalLine, linesFor, pickNextUp, readNextUp, readPicks, reason
 import { loopWeekOf } from "@/lib/loops/count";
 import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { StrategySchema, type Strategy } from "@/lib/types/brandStrategy";
+import { ContentPlanSchema } from "@/lib/types/contentStrategy";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -140,6 +141,32 @@ describe("choosing Next up", () => {
       return JSON.stringify({ picks: [] });
     });
     await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+  });
+
+  it("with How it went on, each pick says the strategy and plan it came from and keeps its focus; off, nothing is added", async () => {
+    const d = await setup();
+    const strategy = StrategySchema.parse({ focusSituationIds: ["sit_aaaaaa01"], at: "2026-11-25T10:00:00.000Z" });
+    const plan = ContentPlanSchema.parse({ at: "2026-11-26T10:00:00.000Z" });
+    const slot = { id: "slt_aaaaaa01", title: "Question 2?", pillar: null, kind: "guide", stage: "learn", action: "write", week: "2026-W49" } as const;
+    d.strategy = async () => strategy;
+    d.contentPlan = async () => plan;
+    d.roadmap = async () => [cand(2, { slot })];
+    d.candidates = async () => [cand(1, { focus: true, situationId: "sit_aaaaaa01" }), cand(2, { focus: true, situationId: "sit_aaaaaa01" }), cand(3)];
+    d.generate = vi.fn(async () => JSON.stringify({ picks: [1, 2, 3].map((n) => ({ n, because: `Pick ${n}: 2 of 7 answered.`, uses: [`${n}.1`] })) }));
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+    const off = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(off.ok && off.doc.picks.some((p) => "basedOn" in p || "focus" in p)).toBe(false);
+    vi.stubEnv("STRATEGY_RESULTS_ENABLED", "true");
+    const on = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    const byId = new Map((on.ok ? on.doc.picks : []).map((p) => [p.questionId, p] as const));
+    expect(byId.get("q_aaaaaaa2")).toMatchObject({ focus: true, basedOn: { strategyAt: strategy.at, planAt: "2026-11-26T10:00:00.000Z", situationId: "sit_aaaaaa01", slotId: "slt_aaaaaa01" } });
+    expect(byId.get("q_aaaaaaa1")).toMatchObject({ focus: true, basedOn: { strategyAt: strategy.at, planAt: null, situationId: "sit_aaaaaa01", slotId: null } });
+    expect(byId.get("q_aaaaaaa3")).toMatchObject({ focus: false, basedOn: { strategyAt: strategy.at, planAt: null, situationId: null, slotId: null } });
+    // Nothing approved: no basedOn at all.
+    d.strategy = async () => null;
+    d.contentPlan = async () => null;
+    const none = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(none.ok && none.doc.picks.some((p) => "basedOn" in p)).toBe(false);
   });
 
   it("weighs live articles due a refresh beside the questions, at most the brand's share of them, never filled in by code", async () => {

@@ -10,7 +10,7 @@ import { planningId } from "../keys";
 import { addDays } from "../period";
 import { cutRows, putSnapshot, ttlFor } from "../snapshots";
 import { LAST_DAY, page, search, seedSearchConsole, writeDays, writePlanning } from "../testing/signals";
-import { addDay, CAPS, detectConnection, losingPages, NEAR_SUBJECT, newTally, pageOf, risingSearches, topicOf, withinReach, type MapView } from "./detect";
+import { addDay, CAPS, detectConnection, losingPages, NEAR_SUBJECT, NEAR_SUBJECT_WORDS, newTally, pageOf, risingSearches, topicOf, withinReach, type MapView } from "./detect";
 import { DATA_SIGNAL_ACTION, SIGNALS_REVIEW_HREF } from "./names";
 import { dismissSignal } from "./review";
 import { blankSignal } from "./store";
@@ -255,6 +255,30 @@ describe("looking at a connection", () => {
     // On: brand search's, which it does.
     for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_SUBJECT_READS_ENABLED"]) vi.stubEnv(k, "true");
     expect(await look()).toEqual({ subject: "sub_pets00000000", lines: ["sub_water0000000", "sub_pets00000000"] });
+  });
+
+  it("keeps the word cut-off for a match by shared words, whichever store subject readers use", async () => {
+    // Meaning cut-offs on both sides of 0.65, the word cut-off under it: only a word match counts.
+    const was = { ...NEAR_SUBJECT };
+    Object.assign(NEAR_SUBJECT, { old: 0.75, new: 0.7 });
+    onTestFinished(() => void Object.assign(NEAR_SUBJECT, was));
+    expect(NEAR_SUBJECT_WORDS).toBeLessThan(0.65);
+    const view = (byWords: boolean) =>
+      mapView({ nearest: async (texts) => texts.map((t) => (t.includes("pet") ? { ref: "sub_pets00000000", sim: 0.65, ...(byWords ? { byWords } : {}) } : null)) });
+    const look = async (byWords: boolean) => {
+      db = new FakeFirestore();
+      await seedSearchConsole(A, db, ID);
+      await topics();
+      await rolledTopics();
+      await detectConnection(A, await load(), [], { db, now: NOW, map: async () => view(byWords) });
+      return (await rows()).find((x) => x.rule === "rising_search")?.subjectId ?? null;
+    };
+
+    expect(await look(true)).toBe("sub_pets00000000");
+    expect(await look(false)).toBeNull();
+    for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_SUBJECT_READS_ENABLED"]) vi.stubEnv(k, "true");
+    expect(await look(true)).toBe("sub_pets00000000");
+    expect(await look(false)).toBeNull();
   });
 
   it("leaves out a rising search the map already asks, in the same words or close in meaning", async () => {

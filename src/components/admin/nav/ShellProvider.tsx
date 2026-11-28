@@ -94,6 +94,12 @@ interface Shell {
   languageReaders: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server), for the How to drawer. */
   raiseFollowUps: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), from the server), for the How to drawer. */
+  paste: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), from the server), for the How to drawer. */
+  vizzyPaste: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), from the server), for the How to drawer. */
+  assetTranslations: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -164,6 +170,9 @@ export function ShellProvider({
   agentRecord = false,
   languageReaders = false,
   raiseFollowUps = false,
+  paste = false,
+  vizzyPaste = false,
+  assetTranslations = false,
   children,
 }: {
   names: CrumbNames;
@@ -241,6 +250,12 @@ export function ShellProvider({
   languageReaders?: boolean;
   /** Follow-ups from the investor and funding board in Review (isRaiseFollowupsEnabled(), from the server): the How to drawer says so. */
   raiseFollowUps?: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), from the server): the How to drawer says so. */
+  paste?: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), from the server): the How to drawer says so. */
+  vizzyPaste?: boolean;
+  /** Journey emails in each reader's language (isAssetTranslationsEnabled(), from the server): the How to drawer says so. */
+  assetTranslations?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -345,9 +360,12 @@ export function ShellProvider({
       agentRecord,
       languageReaders,
       raiseFollowUps,
+      paste,
+      vizzyPaste,
+      assetTranslations,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, loops, imageVersions, agentRecord, languageReaders, raiseFollowUps, saved, work, workVizzy],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, loops, imageVersions, agentRecord, languageReaders, raiseFollowUps, paste, vizzyPaste, assetTranslations, saved, work, workVizzy],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

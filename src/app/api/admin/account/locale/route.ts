@@ -5,7 +5,7 @@ import { getTenantById } from "@/lib/tenant";
 import { updateTenantConfig } from "@/lib/tenant/control";
 import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
 import { LocaleSettingsSchema } from "@/lib/admin/localeSettings";
-import { isContentLanguageEnabled, isLanguageReadersEnabled } from "@/lib/i18n/flags";
+import { isContentLanguageEnabled, isLanguageReadersEnabled, isAssetTranslationsEnabled } from "@/lib/i18n/flags";
 import { brandLanguages, languageReaders, minReadersOf } from "@/lib/i18n/languageReaders";
 
 export const runtime = "nodejs";
@@ -50,6 +50,8 @@ export async function GET(req: Request) {
     oneList: true,
     minReaders: minReadersOf(tenant),
     canSetMinReaders: ctx.role === "admin",
+    // Journey emails are translated for languages over the threshold (ASSET_TRANSLATIONS_ENABLED).
+    ...(isAssetTranslationsEnabled() ? { translations: true } : {}),
     ...(wantReaders ? { readers: counted?.readers ?? null } : {}),
   });
 }

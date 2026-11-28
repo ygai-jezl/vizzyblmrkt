@@ -23,6 +23,7 @@ import type { Workspace } from "@/lib/types/workspace";
 import type { AdvanceDeps, StepFn } from "./advance";
 import { draftsThisMonth, heldQuestionIds, notePlan, type StepPatch } from "./runs";
 import { recordPlanDraft } from "@/lib/agentRecord/drafts";
+import { isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
 
 /**
  * The run's own steps, past find and sort: picking the question (a scheduled run), then in Draft
@@ -89,6 +90,7 @@ async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps
     refreshOf: plan.id,
     workspaceId: plan.workspaceId,
     question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+    ...fromPick(pick),
   };
 }
 
@@ -111,8 +113,12 @@ async function takeClose(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps):
     refreshOf: plan.id,
     workspaceId: plan.workspaceId,
     question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+    ...fromPick(pick),
   };
 }
+
+/** What a run keeps of the pick it took: the strategy and plan it came from (STRATEGY_RESULTS_ENABLED). */
+const fromPick = (pick: NextUpPick): { basedOn?: AutopilotRun["basedOn"] } => (isStrategyResultsEnabled() && pick.basedOn ? { basedOn: pick.basedOn } : {});
 
 /** A scheduled run takes Next up's best pick no other run has (choosing again when Next up is old). */
 export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
@@ -153,7 +159,7 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   }
   if (!pick) return { step: "stopped", error: "nothing_to_pick" };
   await dropPick(ctx, pick.questionId, "kept", deps);
-  return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName } };
+  return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName }, ...fromPick(pick) };
 };
 
 /** Draft mode: make the workflow in the brand's programme, then plan it and research it together. */
@@ -199,6 +205,8 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     });
     const fields = planFromIntake(intake);
     if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog);
+    // The brief says which strategy and plan the article came from, as the run does.
+    if (fields.blog && run.basedOn && isStrategyResultsEnabled()) fields.blog = { ...fields.blog, basedOn: run.basedOn };
     plan = await createContentPlan(
       ctx,
       workspace.id,

@@ -261,8 +261,8 @@ const UNRESOLVED: Record<string, Unresolved> = {
     reads: { paste_columns: ["src/lib/crm/paste/batch.ts"] },
   },
   "src/lib/i18n/translate.ts": {
-    why: "Translates one journey email; translateOne keeps the draft for a person to check, and reads and counts it made there.",
-    reads: { translation: ["src/lib/i18n/translationsTick.ts"] },
+    why: "Meters each translation, of a journey email, an article or a launch page; translateOne, translateArticleOne and translateLaunchOne keep each draft for a person to check, and read and count it made there.",
+    reads: { translation: ["src/lib/i18n/translationsTick.ts", "src/lib/i18n/articleTranslations.ts", "src/lib/i18n/launchTranslations.ts"] },
   },
 };
 

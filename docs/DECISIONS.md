@@ -328,6 +328,24 @@ Where the build follows the code, not the plan (the plan's intent kept):
   `src/components/admin/brand-kit/kitTokens.test.ts`, `src/lib/loops/tick.test.ts`,
   `src/lib/work/words.test.ts`, `screenWords.test.ts`, the Work screens test and
   `src/components/admin/settings/learningScreens.test.ts`.
+- After merging pages in each language (#281), Carry over (#282) and the Raise kit's decks (#272):
+  a deck's words are `raise_write`'s, so `draftDeck` (`src/lib/raise/docs/draft.ts`) reads it where
+  the deck is saved and counts it made once when the model's words are on it, by Vizzy when the
+  chat asked for it, and an outline saved without them counts none; `reviseDeck` (`revise.ts`)
+  counts made once for a version that took the model's words, and nothing for a change made in
+  code or a version saved over nothing. The deck keeps no loop stamp, as its own `made` names the
+  prompt, and counts under the type `raise_doc`; a person's kept or changed slides aren't counted
+  yet, so `raise_write` sits in `UNANSWERED`. The deck canvas (`canvas.raise_deck`) counts no made
+  of its own, as the content plan doesn't: a draft says `none`, a revise that saved a version
+  `rewritten`, and the Loops section calls it Deck or lender pack. The deck's outline
+  (`deck_outline`) is a rule that counts made nowhere. An article's or a launch page's translation
+  counts made once its draft is kept (`translateArticleOne`, `translateLaunchOne`), as a journey
+  email's does, with no stamp and no type, and `src/lib/i18n/translate.ts` sits in `UNRESOLVED`,
+  read in all three. Carry over is a person's tap on an admin route that logs entries in their
+  name (`work_carry`) and calls no model, so the stamp scan finds nothing there and it needs no
+  line of its own. Tested in `src/lib/raise/docs/loops.test.ts`,
+  `src/lib/canvas/kinds/raiseDeck.test.ts`, `src/lib/i18n/articleTranslations.test.ts` and
+  `src/lib/i18n/launchTranslations.test.ts`.
 
 Enforced where:
 

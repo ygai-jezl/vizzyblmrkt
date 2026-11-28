@@ -8,6 +8,8 @@ import { isArticleTranslation, type ArticleTranslation } from "@/lib/types/trans
 import { runTranslations } from "./translationsTick";
 import type { ArticleTranslateInput, ArticleTranslateResult } from "./translateArticle";
 import { forTenant } from "@/lib/tenant";
+import { loopWeekOf } from "@/lib/loops/count";
+import { sumWeek } from "@/lib/loops/testing/sumWeek";
 /** An article's versions in other languages (PAGE_LANGUAGES_ENABLED). */
 
 const A = { tenantId: "ten_A", region: "us", source: "system" } as TenantContext;
@@ -148,6 +150,47 @@ describe("the lane makes article versions", () => {
     expect((await versions(db))[0]).toMatchObject({ state: "failed", failReason: "The article has a different number of sections." });
     expect(await queue(db, plan)).toBe(0);
     expect(await queue(db, plan, ["fr"])).toBe(1);
+  });
+});
+
+describe("article versions under the learning loops (LOOPS_ENABLED, learning loops step 5)", () => {
+  beforeEach(() => vi.unstubAllEnvs());
+  afterEach(() => vi.unstubAllEnvs());
+  /** What this brand's week counts under the translation kind: made against its stamp, and why none. */
+  const counted = (db: FakeFirestore) => {
+    const week = sumWeek(db, "ten_A", loopWeekOf(new Date())) as { c?: Record<string, unknown>; u?: Record<string, unknown> };
+    return { stamped: week.c?.translation, unstamped: week.u?.translation };
+  };
+  const made = vi.fn(async (input: ArticleTranslateInput): Promise<ArticleTranslateResult> => ({ ok: true, tries: 1, fields: { ...input.words, metaTitle: "Qu’est-ce que la visibilité ?" } }));
+  const run = (db: FakeFirestore, translateArticle: (input: ArticleTranslateInput) => Promise<ArticleTranslateResult> = made) =>
+    runTranslations({ deadlineMs: NOW + 95_000 }, { db: db as unknown as FirestoreLike, now: () => NOW, translateArticle, log: () => {} });
+
+  it("counts each article version made once its draft is kept, and a run with nothing queued counts no more", async () => {
+    pagesOn();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const db = new FakeFirestore();
+    brand(db);
+    await queue(db, approvedPlan());
+    expect(await run(db)).toMatchObject({ made: 1 });
+    expect(counted(db)).toEqual({ stamped: { translation: { v0: { none: { made: 1 } } } }, unstamped: undefined });
+    await run(db);
+    expect(counted(db)).toEqual({ stamped: { translation: { v0: { none: { made: 1 } } } }, unstamped: undefined });
+  });
+
+  it("counts a failed version as nothing made, and nothing at all with LOOPS_ENABLED off (decision 22)", async () => {
+    pagesOn();
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const failed = new FakeFirestore();
+    brand(failed);
+    await queue(failed, approvedPlan());
+    await run(failed, async () => ({ ok: false, tries: 2, reason: "The article has a different number of sections." }));
+    expect(counted(failed)).toEqual({ stamped: undefined, unstamped: undefined });
+    vi.stubEnv("LOOPS_ENABLED", "false");
+    const off = new FakeFirestore();
+    brand(off);
+    await queue(off, approvedPlan());
+    expect(await run(off)).toMatchObject({ made: 1 });
+    expect(off.dump("loop_days")).toEqual([]);
   });
 });
 

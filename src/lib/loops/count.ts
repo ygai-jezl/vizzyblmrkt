@@ -118,7 +118,8 @@ function amounts<K extends string>(deltas: Partial<Record<K, number>>, keep: (ke
   return out;
 }
 
-const isLoopKind = (k: string): k is LoopKind => Object.prototype.hasOwnProperty.call(LOOPS, k);
+/** Whether a name is a kind of the registry. */
+export const isLoopKind = (k: string): k is LoopKind => Object.prototype.hasOwnProperty.call(LOOPS, k);
 
 /** Add to this week's counters in one shard. Never throws. */
 async function addToWeek(ctx: TenantContext, kind: LoopKind, tree: CounterTree, what: string, deps: CountDeps): Promise<void> {

@@ -7,7 +7,7 @@ import type { SearchOutcome } from "@/lib/search/query";
 import { addLearned, listLearned } from "@/lib/autopilot/learned";
 import { readLearned, skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
-import { dropPick, goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { dropPick, goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, usedPick, type PickDeps } from "./pick";
 import { loopWeekOf } from "@/lib/loops/count";
 import { sumWeek } from "@/lib/loops/testing/sumWeek";
 import { StrategySchema, type Strategy } from "@/lib/types/brandStrategy";
@@ -268,6 +268,23 @@ describe("choosing Next up", () => {
     expect(week.c.next_up!.next_up).toEqual({ v0: { none: { made: 3, declined: 1, kept: 1 } } });
   });
 
+  it("counts a pick a person uses by hand kept once, keeps it on the list, and counts nothing more when it comes off later", async () => {
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const d = await setup();
+    d.generate = async () => null;
+    await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    // Write it on the first pick, then again, then Not now on it: one answer, kept.
+    expect(await usedPick(A, "q_aaaaaaa1", d)).toBe(true);
+    expect(await usedPick(A, "q_aaaaaaa1", d)).toBe(false);
+    expect((await readNextUp(A, d))!.picks.map((p) => p.questionId)).toContain("q_aaaaaaa1");
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    await skipPick(A, { questionId: "q_aaaaaaa1", reason: "written already" }, { db: d.db, canUse: async () => true });
+    // A question that isn't a pick counts nothing.
+    expect(await usedPick(A, "q_zzzzzzz9", d)).toBe(false);
+    const week = sumWeek(d.db, A.tenantId, loopWeekOf(new Date())) as { c: Record<string, Record<string, unknown>> };
+    expect(week.c.next_up!.next_up).toEqual({ v0: { none: { made: 3, kept: 1 } } });
+  });
+
   it("with LOOPS_ENABLED off keeps picks as before, with no made, and never opens loop_days (decision 22)", async () => {
     const d = await setup();
     d.generate = async () => null;
@@ -275,6 +292,7 @@ describe("choosing Next up", () => {
     expect(got.ok && got.doc.picks).toHaveLength(3);
     for (const p of (await readNextUp(A, d))!.picks) expect(p).not.toHaveProperty("made");
     expect(await dropPick(A, "q_aaaaaaa2", "kept", d)).not.toBeNull();
+    expect(await usedPick(A, "q_aaaaaaa1", d)).toBe(false);
     expect(d.db.collectionCalls("loop_days")).toBe(0);
   });
 

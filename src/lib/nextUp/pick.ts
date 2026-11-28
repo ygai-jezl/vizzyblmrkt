@@ -2,6 +2,7 @@ import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/
 import { CountBuffer } from "@/lib/loops/count";
 import { countStamped } from "@/lib/loops/decisions";
 import { keptMade } from "@/lib/loops/made";
+import { isLoopsEnabled } from "@/lib/loops/flags";
 import { learnedFor } from "@/lib/loops/read";
 import type { Made } from "@/lib/types/loopStamp";
 import { aiUsage } from "@/lib/plans/meter";
@@ -357,6 +358,37 @@ export async function dropPick(ctx: TenantContext, questionId: string, as: "kept
   if (doc && dropped) await countStamped(ctx, dropped.made, { [as]: 1 }, { db: deps.db });
   return doc;
 }
+
+/**
+ * A person used one of Next up's picks by hand: Write it saved an article from it, or Find what
+ * buyers ask started on it. The pick stays on the list, as it did, and counts kept against its
+ * stamp once (learning loops step 5): the stamp comes off the stored pick in the same claim, so
+ * using it again, or a later drop (a run taking it, Not now), counts nothing more. With
+ * LOOPS_ENABLED off, or for a pick with no stamp, nothing is written. True when it counted. Never
+ * throws: a count never fails the work it counts.
+ */
+export async function usedPick(ctx: TenantContext, questionId: string, deps: Pick<PickDeps, "db"> = {}): Promise<boolean> {
+  if (!isLoopsEnabled() || !questionId) return false;
+  let used: Made | undefined;
+  try {
+    await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
+      used = cur.picks.find((p) => p.questionId === questionId)?.made;
+      if (!used) return null;
+      return { picks: cur.picks.map((p) => (p.questionId === questionId ? withoutMade(p) : p)) };
+    });
+  } catch (err) {
+    console.warn("[next up] counting a used pick failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+    return false;
+  }
+  if (!used) return false;
+  await countStamped(ctx, used, { kept: 1 }, { db: deps.db });
+  return true;
+}
+
+const withoutMade = ({ made: _made, ...rest }: NextUpPick): NextUpPick => {
+  void _made;
+  return rest;
+};
 
 /**
  * Choose the brand's next three articles and keep them. `deadlineMs` bounds the whole thing; the

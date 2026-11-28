@@ -240,6 +240,30 @@ describe("the lane widened (LOOPS_ENABLED, step 5)", () => {
     expect((await readLaneState(ctxOf("ten_hearth"), db)).reportsFromWeek).toBe(loopWeekOf(back));
   });
 
+  it("adds no fold alarm to the week before the loops came back on, after both switches were off for eight weeks", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    db.cols.get(LOOP_LANE)?.delete(LANE_DOC_ID);
+    brand("ten_hearth", { organisationId: "org_hearth" });
+    brand("ten_lumen", { organisationId: "org_lumen" });
+    // Both brands folded by runs in 2026-W41 and W42.
+    await countKindSignals(ctxOf("ten_hearth"), "next_up", { made: 2 }, { db, now: new Date("2026-10-05T09:00:00.000Z") });
+    await runAt(new Date("2026-10-05T09:00:00.000Z"));
+    const w42 = new Date("2026-10-12T09:00:00.000Z");
+    ranJustBefore(w42);
+    await runAt(w42);
+    // Both off for eight weeks: nothing runs the lane. Then LOOPS_ENABLED comes back on.
+    vi.stubEnv("LOOPS_ENABLED", "");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    expect((await runAt(new Date("2026-11-16T09:00:00.000Z"))).skipped).toBe("switch");
+    vi.stubEnv("LOOPS_ENABLED", "true");
+    const back = new Date("2026-12-09T10:00:00.000Z");
+    expect(await runAt(back)).toMatchObject({ brands: 2, reported: 0, cells: 0 });
+    expect((await readLoopLane(db)).loopsOnFrom).toBe("2026-W50");
+    // The fold caught up in the same visit: nothing goes to 2026-W49, from before the loops came on.
+    expect(orgsOf("2026-W49")).toBeUndefined();
+    for (const id of ["ten_hearth", "ten_lumen"]) expect((await readLaneState(ctxOf(id), db)).behindWeek, id).toBeUndefined();
+  });
+
   it("with only LOOPS_ENABLED on, reports no week from the time it was off once it is back", async () => {
     vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
     db.cols.get(LOOP_LANE)?.delete(LANE_DOC_ID);

@@ -8,6 +8,7 @@ import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
 import { briefWithPick } from "@/lib/brandStrategy/basedOn";
+import { usedPick } from "@/lib/nextUp/pick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
   // Written from one of Next up's picks: the brief says what the pick came from, read from the stored pick.
   if (fields.blog) fields.blog = await briefWithPick(ctx, fields.blog);
   const plan = await createContentPlan(ctx, workspaceId, fields);
+  // Written from one of Next up's picks: the pick counts kept once (LOOPS_ENABLED), read on the server by the brief's question.
+  if (fields.blog?.primaryRef) await usedPick(ctx, fields.blog.primaryRef);
   // A plan made with its article's address: Found live checks it at its next look.
   if (plan.strategy.hubUrl) await wakeLiveWatch(ctx);
   // A new blog article is a planned page on the brand map (its pages switch on).

@@ -299,9 +299,12 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
     const f = await foldClosedWeeks(ctx, lane.foldedThrough, { db, now });
     if (f.foldedThrough) foldedThrough = f.foldedThrough;
     // A brand folded before that has fallen behind; a brand's first fold starts at the oldest week kept.
+    // The alarm across brands goes to the last closed week, so not when that week is from before the
+    // loops came back on: no week before loopsOnFrom is written (a turn on run catches up the fold).
     if (lane.foldedThrough && f.behindDays !== null && f.behindDays > LOOP_RULES.foldBehindDays) {
       console.warn(`[loops] fold behind ${f.behindDays}`);
-      if (loopsOn && !pointers.fleetOptOut && lane.behindWeek !== lastClosed) behindWeeks = Math.min(BEHIND_WEEKS_MAX, Math.ceil(f.behindDays / 7));
+      const inLoopsWeeks = !run.loopsOnFrom || lastClosed >= run.loopsOnFrom;
+      if (loopsOn && inLoopsWeeks && !pointers.fleetOptOut && lane.behindWeek !== lastClosed) behindWeeks = Math.min(BEHIND_WEEKS_MAX, Math.ceil(f.behindDays / 7));
     }
   }
   if (run.deadlineMs - clock() < LANE.MIN_LEFT_MS) return out;

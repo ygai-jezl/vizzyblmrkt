@@ -621,6 +621,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
             products={screen.measureBrand ? screen.measureBrand.products : null}
             meanings={options.meanings}
             operator={options.operator}
+            counting={options.counting}
             runsInApp={repos.length > 0 || (screen.measureBrand?.products.length ?? 0) > 0}
             word={options.brands.find((b) => b.id === screen.measureBrand?.id)?.word ?? null}
             oneBrand={screen.oneBrand}

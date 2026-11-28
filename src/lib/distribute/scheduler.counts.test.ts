@@ -19,10 +19,14 @@ import { processScheduledPosts, schedulePost, setPostSpintax } from "./scheduler
 import { publishToX } from "@/lib/social/x/client";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import type { Made } from "@/lib/types/loopStamp";
+import type { LoopStamp, Made } from "@/lib/types/loopStamp";
 import { learnedFor } from "@/lib/loops/read";
-import { loopWeekOf } from "@/lib/loops/count";
 import { sumWeek } from "@/lib/loops/testing/sumWeek";
+import { unusedForWeek } from "@/lib/loops/tally";
+import { countMade, loopWeekOf } from "@/lib/loops/count";
+import { pinOriginal, recordApprovals } from "@/lib/content/create/aiOriginals";
+import { ContentPlanSchema, type ContentPlan } from "@/lib/types/contentPlan";
+import type { ScheduledPostChannel } from "@/lib/types/scheduledPost";
 
 const ctx: TenantContext = { tenantId: "ten_hearth", region: "us", source: "system" };
 const COLLECTION = "campaign_scheduled_posts";
@@ -129,5 +133,93 @@ describe("publishing counts what happened to Vizzy's draft", () => {
     const again = await schedulePost(ctx, { ...input, body: "Rye at noon.", made: { unstamped: "person_wrote" } }, db);
     expect(db.raw(COLLECTION, post.id)).not.toHaveProperty("made");
     expect(again.post).not.toHaveProperty("made");
+  });
+});
+
+describe("a piece for another channel counts one answer, at its approval or its publish", () => {
+  const person: TenantContext = { tenantId: ctx.tenantId, region: "us", source: "idtoken", userId: "uid_sam" };
+  const LETTER = "Hearth Bakery's winter loaves are in. Rye, spelt and a fruit bread for the season.";
+
+  /** A plan with one piece Vizzy wrote: made counted once, its AI original pinned, as fillPlanNode does. */
+  async function piece(db: FakeFirestore, nodeId: string, channel: ScheduledPostChannel, made: Made): Promise<ContentPlan> {
+    const plan = ContentPlanSchema.parse({
+      id: "plan_1",
+      tenantId: ctx.tenantId,
+      workspaceId: "ws_1",
+      name: "Winter loaves",
+      strategy: { objective: "product_launch" },
+      scope: {},
+      knowledge: {},
+      topology: {},
+      graph: { nodes: [{ id: nodeId, type: "spoke", channel, role: "Piece", position: { x: 0, y: 0 }, body: LETTER, status: "generated", made }], edges: [] },
+      createdAt: PAST,
+      updatedAt: PAST,
+    });
+    db.seed("workspaces/ws_1/content_plans", "plan_1", plan);
+    db.seed("workspaces", "ws_1", { tenantId: ctx.tenantId, name: "Hearth Bakery" });
+    await countMade(ctx, "content_write", made, { type: "content_plan", db });
+    await pinOriginal(person, { plan, node: plan.graph.nodes[0]!, body: LETTER }, { db });
+    return plan;
+  }
+  const approve = (db: FakeFirestore, plan: ContentPlan) =>
+    recordApprovals(person, { before: plan, after: { ...plan, graph: { ...plan.graph, nodes: [{ ...plan.graph.nodes[0]!, status: "approved" as const }] } } }, { db });
+  /** Scheduled as the schedule route does (the node's stamp, no aiBody for these channels) and due now. */
+  async function publishDue(db: FakeFirestore, nodeId: string, channel: ScheduledPostChannel, made: Made) {
+    const { post } = await schedulePost(ctx, { workspaceId: "ws_1", contentPlanId: "plan_1", nodeId, channel, body: LETTER, scheduledAt: FUTURE, made }, db);
+    db.seed(COLLECTION, post.id, { ...(db.raw(COLLECTION, post.id) as object), scheduledAt: PAST });
+    expect(await processScheduledPosts(ctx, 25, db)).toMatchObject({ done: 1 });
+  }
+
+  beforeEach(() => vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true"));
+
+  it("a newsletter approved, then published by hand, counts kept once and no no_draft", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    const plan = await piece(db, "n_letter", "newsletter", stamp);
+    expect(await approve(db, plan)).toBe(1);
+    await publishDue(db, "n_letter", "newsletter", stamp);
+    expect(cellOf(db)).toEqual({ v0: { none: { made: 1, kept: 1 } } });
+  });
+
+  it("an Instagram post approved and published leaves a second post nobody used as unused", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    const plan = await piece(db, "n_ig", "instagram", stamp);
+    // A second post Vizzy wrote this week that nobody used.
+    await countMade(ctx, "content_write", { ...(stamp as LoopStamp), at: new Date(Date.now() + 1).toISOString() }, { type: "content_plan", db });
+    await approve(db, plan);
+    await publishDue(db, "n_ig", "instagram", stamp);
+    expect(cellOf(db)).toEqual({ v0: { none: { made: 2, kept: 1 } } });
+    expect(unusedForWeek([sumWeek(db, ctx.tenantId, loopWeekOf(new Date())), undefined, undefined]).get("content_write")).toBe(1);
+  });
+
+  it("a piece published before anyone approved it counts no_draft at the publish, and its approval after counts nothing", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    const plan = await piece(db, "n_ig", "instagram", stamp);
+    await publishDue(db, "n_ig", "instagram", stamp);
+    expect(cellOf(db)).toEqual({ v0: { none: { made: 1, no_draft: 1 } } });
+    expect(await approve(db, plan)).toBe(1);
+    expect(cellOf(db)).toEqual({ v0: { none: { made: 1, no_draft: 1 } } });
+  });
+
+  it("with AI originals off, the publish is the answer: no_draft once", async () => {
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "");
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    const plan = await piece(db, "n_letter", "newsletter", stamp);
+    expect(await approve(db, plan)).toBe(0);
+    await publishDue(db, "n_letter", "newsletter", stamp);
+    expect(cellOf(db)).toEqual({ v0: { none: { made: 1, no_draft: 1 } } });
+    expect(db.dump("ai_originals")).toEqual([]);
+  });
+
+  it("with LOOPS_ENABLED off marks nothing on the AI original", async () => {
+    const db = new FakeFirestore();
+    const { stamp } = await learnedFor(ctx, "content_write");
+    await piece(db, "n_letter", "newsletter", stamp);
+    vi.stubEnv("LOOPS_ENABLED", "");
+    await publishDue(db, "n_letter", "newsletter", stamp);
+    expect(db.dump("ai_originals")[0]).not.toHaveProperty("publishedFor");
   });
 });

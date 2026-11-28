@@ -1,3 +1,5 @@
+import type { PaletteColor, PaletteGroup } from "@/lib/types/tenant";
+
 /**
  * Which stamp tokens a brand kit save sends (learning loops step 5, decision 20). A save counts
  * kept once for each stamp it is sent, so each token goes with at most one save, and only while
@@ -22,12 +24,22 @@ export function handUpGroupToken<G extends TokenGroup>(group: G, token: string):
 }
 
 /**
- * The tokens Account › Brand sends with its next save. A guidelines PDF's extract sends none: its
- * route stores the kit and counts it kept there, so only colours kept from a source wait here.
+ * What a token stamps in the kit: the palette group Keep as palette made from its colours (`groupId`),
+ * or the colours it added to the Colour palette (`hexes`, as six digit hex in lower case).
+ */
+export type TokenHolds = { groupId: string } | { hexes: string[] };
+
+/** A token and what it stamps. */
+export type KitToken = { token: string } & TokenHolds;
+
+/**
+ * The tokens Account › Brand and Brand Kit › Colours send with their next save. A guidelines PDF's
+ * extract sends none: its route stores the kit and counts it kept there, so only colours kept from
+ * a source wait here.
  */
 export interface KitTokens {
-  /** The tokens of colours kept from a source since the kit was last saved or replaced. */
-  colours: string[];
+  /** The tokens of colours kept from a source since the kit was last saved or replaced, each with what it stamps. */
+  colours: KitToken[];
 }
 
 export const NO_KIT_TOKENS: KitTokens = { colours: [] };
@@ -40,12 +52,30 @@ export function kitReplaced(): KitTokens {
   return { colours: [] };
 }
 
-/** Colours from a source went into the kit: their group's token goes with the next save, once. */
-export function withColourToken(t: KitTokens, token: string): KitTokens {
-  return t.colours.includes(token) ? t : { ...t, colours: [...t.colours, token] };
+const hexOf = (hex: string) => hex.trim().toLowerCase();
+
+/**
+ * Colours from a source went into the kit: their group's token goes with the next save, once, with
+ * what it stamps. The same token handed up again (more of its colours added) adds those colours.
+ */
+export function withColourToken(t: KitTokens, token: string, holds: TokenHolds): KitTokens {
+  const held: TokenHolds = "hexes" in holds ? { hexes: [...new Set(holds.hexes.map(hexOf))] } : holds;
+  const at = t.colours.findIndex((k) => k.token === token);
+  if (at < 0) return { ...t, colours: [...t.colours, { token, ...held }] };
+  const cur = t.colours[at]!;
+  if (!("hexes" in cur) || !("hexes" in held)) return t;
+  const next = { token, hexes: [...new Set([...cur.hexes, ...held.hexes])] };
+  return { ...t, colours: t.colours.map((k, i) => (i === at ? next : k)) };
 }
 
-/** The tokens the next save sends. After it saves, the page starts again from NO_KIT_TOKENS. */
-export function kitTokensToSend(t: KitTokens): string[] {
-  return [...t.colours];
+/**
+ * The tokens the next save sends: only those whose colours are still in what it saves, so a
+ * palette group removed, or colours taken back out of the Colour palette, send nothing. A kept
+ * group is still there while a group with its id holds a colour. After the save, the page starts
+ * again from NO_KIT_TOKENS.
+ */
+export function kitTokensToSend(t: KitTokens, kit: { palette?: readonly PaletteColor[] | null; palettes?: readonly PaletteGroup[] | null }): string[] {
+  const inPalette = new Set((kit.palette ?? []).map((c) => hexOf(c.hex)));
+  const groups = new Set((kit.palettes ?? []).filter((g) => g.colors.length > 0).map((g) => g.id));
+  return t.colours.filter((k) => ("groupId" in k ? groups.has(k.groupId) : k.hexes.some((h) => inPalette.has(h)))).map((k) => k.token);
 }

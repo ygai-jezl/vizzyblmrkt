@@ -130,6 +130,18 @@ describe("Work's words", () => {
     expect(countedLine(LOOPS_LINES[5]!)).toContain("counts up to 20 a week");
   });
 
+  it("keep a label's acronym or name as it is mid sentence", () => {
+    const used = (counts: Record<string, string>, n: number) =>
+      countedLine({ part: { kind: "used", counts, look: { days: 14 } } as CountedLineInput["part"], counted: { ...weeksSpan, n, weeks: { read: 2, shown: 2, orgs: 12, open: 0, older: 0 } }, brandName: null, timeZone: "UTC", loopsOn: true });
+    expect(used({ loopKind: "lifecycle_lines" }, 210)).toMatch(/^Work counted about 210 things made for AI lines in emails across brands in the 2 weeks from 16 Nov to 29 Nov/);
+    expect(used({ loopKind: "vizzy_chat" }, 210)).toMatch(/^Work counted about 210 things made for Vizzy chat across brands/);
+    expect(used({ loopKind: "edit_memory" }, 210)).toMatch(/^Work counted about 210 things made for Memory Bank memories across brands/);
+    expect(used({ purpose: "lifecycle_lines" }, 1800)).toMatch(/^Work counted about 1,800 AI calls for AI lines in emails across brands/);
+    // A plain first word still reads in lower case.
+    expect(used({ loopKind: "next_up" }, 210)).toMatch(/^Work counted about 210 things made for next up across brands/);
+    expect(countedLine({ ...LINES[6]!, part: { kind: "used", counts: { purpose: "lifecycle_lines" }, look: { days: 30 } } })).toBe("Work can't count AI lines in emails while the usage meter is off, so your read is the record.");
+  });
+
   it("say every point of USED_NOTE in Work's own words", () => {
     const points: Array<[RegExp, RegExp]> = [
       [/added once and never retried/, /fails to save isn't tried again/],

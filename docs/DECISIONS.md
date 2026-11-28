@@ -303,6 +303,31 @@ Where the build follows the code, not the plan (the plan's intent kept):
   `UNRESOLVED`. How it went (`strategy_month`) and the month's suggestion (`strategy_suggest`) are
   rules that count made nowhere. Tested in `src/lib/crm/paste/loops.test.ts` and
   `src/lib/i18n/translationsTick.test.ts`.
+- After review round 7: a Next up pick a person uses by hand (Write it saving an article from it,
+  or Find what buyers ask starting on it) counts kept once against its stamp (`usedPick` in
+  `src/lib/nextUp/pick.ts`), read on the server from the stored pick whether or not
+  `STRATEGY_RESULTS_ENABLED` is on. The stamp comes off the pick, which stays on the list, so a
+  run taking it or Not now after it counts nothing more. An article approved by its live mark
+  counts as a canvas Approve does: the first approval of each AI original counts kept or edited
+  wherever its pair is kept (`recordApproval` and `recordApprovals`), so whichever comes first
+  counts once. A piece for a channel other than LinkedIn or X counts at that first approval, and
+  its publish through Distribute counts `no_draft` only when no approval did; the publish then
+  keeps `publishedFor` on the AI original, so an approval after it counts nothing
+  (`publishAnswers`). While `CONTENT_AI_ORIGINALS_ENABLED` is off, the kinds only that approval
+  answers (`ORIGINALS_ONLY`: articles, workflow emails and hub pieces) read as unanswered, as the
+  `RECORD_ONLY` kinds do, and posts still count at publish. A brand kit stamp token goes with a
+  save only while what it stamps is still in it: the kept palette, by its id, or a colour it added
+  to the Colour palette. The fold alarm across brands adds nothing to a week before `loopsOnFrom`.
+  Work's lines keep a label's acronym or name mid sentence ("AI lines in emails", "Vizzy chat"),
+  and the measure picker tells an operator that Work counts their purpose, type or loop kind from
+  the loops' weekly counts while they are on (`loopsCountHint`). The kinds table on the Loops
+  section heads each kind's rows as a row group, and Help check that learning works announces a
+  save that failed. Tested in `src/lib/nextUp/pick.test.ts`, `src/lib/autopilot/find.test.ts`,
+  the content plans route's `route.loops.test.ts`, `src/lib/content/blog/foundLive.counts.test.ts`,
+  `src/lib/distribute/scheduler.counts.test.ts`, `src/lib/loops/unanswered.test.ts`,
+  `src/components/admin/brand-kit/kitTokens.test.ts`, `src/lib/loops/tick.test.ts`,
+  `src/lib/work/words.test.ts`, `screenWords.test.ts`, the Work screens test and
+  `src/components/admin/settings/learningScreens.test.ts`.
 
 Enforced where:
 
@@ -352,8 +377,8 @@ counted, and a failed synthesis writes no line. An operator path for agents wait
 retro (step 6), decline reasons for other kinds for the edits loop (step 7), and fleet defaults,
 industry and Proven for step 9.
 
-What follows: two new collections in the control plane, `fleet_cells` and `loop_lane`'s
-organisation marks; the 4 step 5 field exemptions written in ADR-0028's deploy, deployed only when
+What follows: one new collection in the control plane, `fleet_cells`, and the organisation marks
+in step 4's `loop_lane`; the 4 step 5 field exemptions written in ADR-0028's deploy, deployed only when
 the owner says; one switch, off; and one Vizzy tool, which needs a redeploy (asked first). No new
 service, Function, scheduler job, secret, dependency, rule change or composite index. With the
 switch off, two things change for everyone: the post pattern judge defers, and Work's Used
@@ -535,8 +560,11 @@ Where the build follows the code, not the plan (the plan's intent kept):
 
 - `LEARNED_STORES.brand_kit` is removed rather than reworded, since no own line names it once the
   image kinds learn; the `brand_kit` ontology type says its looks are used only while versions are
-  off. There is no brand export, so a vote's note is erased with its image and its brand instead of
-  "included in the brand's export".
+  off. There is no brand export, so a vote's note is erased with its image instead of "included in
+  the brand's export" (`deleteImageAsset` is the only path that erases it).
+- Plan 3.1 has `loop_days` erased with the brand. No path erases a whole brand, so its counts
+  and pointers, which hold no one's data, are kept with the brand, and its weekly counts go by
+  their time to live, as the `loop_day` ontology entry says.
 - Counters can't tell when a look is due (a brand look image is stamped with the brand's scope, and
   uploads are never stamped), so whether a scope is free comes from counters and pointers, and likes
   are counted on projected image rows, read only after a new like or when a scope becomes free.
@@ -611,8 +639,8 @@ waits until the checks show how looks move. Fleet defaults and industry wait for
 is adjusted for season. ADR-0027's "nothing calls the verdict" and "the lane that runs verdicts in
 step 5" describe step 3 and stay as written.
 
-What follows: two new collections, `loop_days` (regional, erased with the brand) and `loop_lane`
-(control plane, one document); one composite index, 9 field exemptions and 1 time to live, all in
+What follows: two new collections, `loop_days` (regional, kept with the brand: no path erases it,
+and its weekly counts go by their time to live) and `loop_lane` (control plane, one document); one composite index, 9 field exemptions and 1 time to live, all in
 the pull request and deployed only when the owner says; one switch, off. No new service, Function,
 scheduler job, secret, dependency or rule change, and no Vizzy redeploy. With the switch off, three
 things change for everyone: `skipPick`'s fix, and the contrast of the selected image style tile's

@@ -11,7 +11,7 @@ import { AUTOPILOT_RUNNING, autopilotHolds } from "./planLock";
 import { nextUpDocId, type NextUpPick } from "@/lib/types/autopilot";
 import { addLearned, clearLearned, learnedLine, listLearned, removeLearned, type LearnedDeps } from "./learned";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
-import { dropPick, pickNextUp, readNextUp, type PickDeps } from "@/lib/nextUp/pick";
+import { dropPick, pickNextUp, readNextUp, usedPick, type PickDeps } from "@/lib/nextUp/pick";
 import type { AutopilotRun } from "@/lib/types/autopilot";
 import { advanceRun, type AdvanceDeps } from "./advance";
 import { createRun, draftsThisMonth, freshRunId, getRun, heldQuestionIds, readyToWrite, recentRuns, updateTrays } from "./runs";
@@ -217,6 +217,8 @@ export async function startFind(ctx: TenantContext, raw: unknown, deps: NextUpAd
   // Started from one of Next up's picks: the run keeps what the stored pick came from, never what the page sent.
   const basedOn = isStrategyResultsEnabled() ? (await readNextUp(ctx, deps).catch(() => null))?.picks.find((p) => p.questionId === questionId)?.basedOn : undefined;
   const run = await createRun(ctx, { id: freshRunId(), mode: "find", trigger: "person", step: "find", question: { questionId, text: question, subjectId, subjectName }, ...(basedOn ? { basedOn } : {}) }, deps);
+  // Started on one of Next up's picks: the pick counts kept once (LOOPS_ENABLED), as a run that takes it does.
+  await usedPick(ctx, questionId, deps);
   const after = (await advanceRun(ctx, run.id, { deadlineMs: Date.now() + PAGE_STEP_MS }, deps)) ?? run;
   return { status: 200, body: { run: runView(after) } };
 }

@@ -20,9 +20,9 @@ beforeEach(() => vi.stubEnv("LOOPS_ENABLED", "true"));
 afterEach(() => vi.unstubAllEnvs());
 
 /** A colours route run: made counts once and the tray group holds the token it hands back. */
-async function colourExtract(db: FakeFirestore) {
-  const { stamp } = await learnedFor(hearth, "brand_kit", {}, { now: NOW });
-  const stampToken = (await handBack(hearth, "brand_kit", stamp, { db, now: NOW }))!;
+async function colourExtract(db: FakeFirestore, now = NOW) {
+  const { stamp } = await learnedFor(hearth, "brand_kit", {}, { now });
+  const stampToken = (await handBack(hearth, "brand_kit", stamp, { db, now }))!;
   expect(stampToken).toEqual(expect.any(String));
   return { source: "website" as const, label: "Website", colors: COLOURS, stampToken };
 }
@@ -32,15 +32,17 @@ describe("brand kit stamp tokens", () => {
     const db = new FakeFirestore();
     let group: { stampToken?: string; colors: typeof COLOURS } = await colourExtract(db);
     let tokens: KitTokens = NO_KIT_TOKENS;
-    // "→ palette" does what addFromTray does: the token goes up and the group drops it.
+    let palette: Array<{ hex: string; name?: string }> = [];
+    // "→ palette" does what addFromTray does: the colours go in, the token goes up and the group drops it.
     const toPalette = () => {
+      palette = [...palette, ...group.colors];
       const token = group.stampToken;
       if (!token) return;
-      tokens = withColourToken(tokens, token);
+      tokens = withColourToken(tokens, token, { hexes: group.colors.map((c) => c.hex) });
       group = handUpGroupToken(group, token);
     };
     const save = async () => {
-      await keptFromTokens(hearth, ["brand_kit"], kitTokensToSend(tokens), { db, now: NOW });
+      await keptFromTokens(hearth, ["brand_kit"], kitTokensToSend(tokens, { palette }), { db, now: NOW });
       tokens = NO_KIT_TOKENS;
     };
 
@@ -55,12 +57,31 @@ describe("brand kit stamp tokens", () => {
   });
 
   it("sends a colour token once however often it is kept, and drops it when an extract or the stored kit replaces its colours", () => {
-    let tokens = withColourToken(kitReplaced(), "tok_website");
-    tokens = withColourToken(tokens, "tok_website");
-    tokens = withColourToken(tokens, "tok_logo");
-    expect(kitTokensToSend(tokens)).toEqual(["tok_website", "tok_logo"]);
+    let tokens = withColourToken(kitReplaced(), "tok_website", { hexes: ["#8A5A2B"] });
+    tokens = withColourToken(tokens, "tok_website", { hexes: ["#f3e6cf"] });
+    tokens = withColourToken(tokens, "tok_logo", { groupId: "grp_logo" });
+    const kit = { palette: COLOURS, palettes: [{ id: "grp_logo", name: "Logo", colors: COLOURS }] };
+    expect(kitTokensToSend(tokens, kit)).toEqual(["tok_website", "tok_logo"]);
     // An extract sends no token of its own: its route stores the kit and counts it kept there.
-    expect(kitTokensToSend(kitReplaced())).toEqual([]);
+    expect(kitTokensToSend(kitReplaced(), kit)).toEqual([]);
+  });
+
+  it("sends a token only while what it stamps is still in the save: a kept palette removed, or its colours taken out, counts kept 0", async () => {
+    const db = new FakeFirestore();
+    const kept = await colourExtract(db);
+    const added = { ...(await colourExtract(db, new Date(NOW.getTime() + 60_000))), source: "logo" as const };
+    expect(added.stampToken).not.toBe(kept.stampToken);
+    // Keep as palette, then Remove palette; → palette, then each colour's remove.
+    let tokens = withColourToken(NO_KIT_TOKENS, kept.stampToken, { groupId: "grp_website" });
+    tokens = withColourToken(tokens, added.stampToken, { hexes: added.colors.map((c) => c.hex) });
+    const kit = { palette: [{ hex: "#000000", name: "Ink" }], palettes: [] };
+    expect(kitTokensToSend(tokens, kit)).toEqual([]);
+    await keptFromTokens(hearth, ["brand_kit"], kitTokensToSend(tokens, kit), { db, now: NOW });
+    const week = sumWeek(db, hearth.tenantId, "2027-W02") as { c?: { brand_kit?: { brand_kit?: { v0?: { none?: unknown } } } } };
+    expect(week.c?.brand_kit?.brand_kit?.v0?.none).toEqual({ made: 2 });
+    // A kept palette emptied of colours sends nothing either; one colour still there is enough.
+    expect(kitTokensToSend(tokens, { palettes: [{ id: "grp_website", name: "Website", colors: [] }] })).toEqual([]);
+    expect(kitTokensToSend(tokens, { palette: [{ hex: "#F3E6CF" }] })).toEqual([added.stampToken]);
   });
 
   it("a group run again since keeps its new token", () => {

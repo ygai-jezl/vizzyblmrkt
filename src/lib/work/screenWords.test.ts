@@ -2,7 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { IMAGES_OFF_LINE } from "./words";
 import {
+  loopsCountHint,
   addedLine,
   afterTaskDueLine,
   logRegionsDownText,
@@ -218,5 +220,30 @@ describe("Work's screen words", () => {
     expect(dayNWords(3, false)).toBe("Day 3");
     expect(tasksTabLabel(12)).toBe("Tasks · 12 open");
     expect(tasksTabLabel(null)).toBe("Tasks");
+  });
+});
+
+describe("the measure picker's hint for an operator's own counts", () => {
+  const on = { loops: true, images: true, meter: true };
+
+  it("says Work counts a purpose, a type or a loop kind from the learning loops' weekly counts while they are on", () => {
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "next_up" }, on)).toBe(WORK_COPY.loopsCountHint);
+    expect(loopsCountHint({ counts: "type" }, on)).toBe(WORK_COPY.loopsCountHint);
+    expect(loopsCountHint({ counts: "purpose" }, on)).toBe(WORK_COPY.loopsCountHint);
+  });
+
+  it("says what isn't counted on this copy: AI calls with the meter off, an image kind with image learning off", () => {
+    expect(loopsCountHint({ counts: "purpose" }, { ...on, meter: false })).toBe(WORK_COPY.meterOffHint);
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "blog_hero" }, { ...on, images: false })).toBe(IMAGES_OFF_LINE);
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "loop_learn" }, { ...on, images: false })).toBe(IMAGES_OFF_LINE);
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "next_up" }, { ...on, images: false })).toBe(WORK_COPY.loopsCountHint);
+  });
+
+  it("leaves the hint as it was for anything else, with the loops off, or for someone who isn't an operator", () => {
+    expect(loopsCountHint({ counts: "none" }, on)).toBeNull();
+    expect(loopsCountHint({ counts: "event" }, on)).toBeNull();
+    expect(loopsCountHint({ counts: "loopKind", loopKind: "next_up" }, { ...on, loops: false })).toBeNull();
+    expect(loopsCountHint({ counts: "type" }, null)).toBeNull();
+    for (const line of [WORK_COPY.loopsCountHint, WORK_COPY.meterOffHint]) expect([...dashesIn(line), ...aiTellsIn(line)]).toEqual([]);
   });
 });

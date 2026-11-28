@@ -70,7 +70,8 @@ function Stages({ data }: { data: LoopsData }) {
           {data.stages.map((k) => (
             <tbody key={k.label} className="border-t border-neutral-200 dark:border-neutral-800">
               <tr className="font-semibold">
-                <th scope="row" className="px-3 py-2 text-left">
+                {/* The kind heads its whole tbody (rowgroup), so each plan row's cells are read with it. */}
+                <th scope="rowgroup" className="px-3 py-2 text-left">
                   {k.label} {k.note ? <span className="ml-1 text-xs font-normal text-neutral-500 dark:text-neutral-400">{k.note}</span> : null}
                 </th>
                 {k.cells.map((c, i) => (

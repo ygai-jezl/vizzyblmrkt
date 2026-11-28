@@ -5,7 +5,8 @@ import type { AddScreen } from "@/lib/work/screens";
 import type { WorkRow } from "@/lib/work/list";
 import type { ImportPreview } from "@/lib/work/service";
 import { blankMeasure, blankPart, typedLinkWords } from "@/lib/work/form";
-import { changeWords, checkSaidLine, noLinksText, regionsFullText } from "@/lib/work/screenWords";
+import { changeWords, checkSaidLine, noLinksText, regionsFullText, WORK_COPY } from "@/lib/work/screenWords";
+import { IMAGES_OFF_LINE } from "@/lib/work/words";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
 import type { WorkLogRowOf } from "@/lib/work/types";
 
@@ -260,6 +261,7 @@ const screen: Pick<AddScreen, "nextRef" | "defaultBrandId" | "options" | "multiB
     meanings: ["conversions", "openRate"],
     operator: false,
     loopsRepo: null,
+    counting: null,
   },
 };
 
@@ -333,6 +335,24 @@ describe("the measure picker", () => {
     expect(used).toContain("A product event is counted for one brand");
     expect(used).toContain("An AI purpose of this copy");
     expect(renderToStaticMarkup(createElement(MeasurePicker, { ...base, value: blankMeasure(), suggestion: null, products: null }))).toContain("No measure. Pick a kind of win, or leave it for later.");
+  });
+
+  it("tells an operator Work counts their purpose, type or loop kind from the learning loops while they are on", () => {
+    const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/'/g, "&#x27;");
+    const on = { loops: true, images: false, meter: true };
+    const pick = (part: Partial<ReturnType<typeof blankPart>>, counting: typeof on | null) =>
+      renderToStaticMarkup(createElement(MeasurePicker, { ...base, operator: true, counting, value: { kind: "used", first: blankPart(part), then: null }, suggestion: null, products: screen.options.brands[0]!.products }));
+    expect(pick({ counts: "loopKind", loopKind: "next_up" }, on)).toContain(escapeHtml(WORK_COPY.loopsCountHint));
+    expect(pick({ counts: "loopKind", loopKind: "next_up" }, on)).not.toContain(escapeHtml(WORK_COPY.usedNoneHint));
+    expect(pick({ counts: "type", type: "work_task" }, on)).toContain(escapeHtml(WORK_COPY.loopsCountHint));
+    expect(pick({ counts: "purpose", purpose: "content_angle" }, on)).toContain(escapeHtml(WORK_COPY.loopsCountHint));
+    expect(pick({ counts: "purpose", purpose: "content_angle" }, { ...on, meter: false })).toContain(escapeHtml(WORK_COPY.meterOffHint));
+    // An image kind isn't counted while image learning is off on this copy.
+    expect(pick({ counts: "loopKind", loopKind: "post_image" }, on)).toContain(escapeHtml(IMAGES_OFF_LINE));
+    expect(pick({ counts: "loopKind", loopKind: "post_image" }, { ...on, images: true })).toContain(escapeHtml(WORK_COPY.loopsCountHint));
+    // Nothing to count, or the loops off: the hint is as it was.
+    expect(pick({ counts: "none" }, on)).toContain(escapeHtml(WORK_COPY.usedNoneHint));
+    expect(pick({ counts: "loopKind", loopKind: "next_up" }, { ...on, loops: false })).toContain(escapeHtml(WORK_COPY.usedNoneHint));
   });
 });
 

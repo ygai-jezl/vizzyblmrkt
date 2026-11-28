@@ -224,6 +224,8 @@ describe("blog hub actions", () => {
 
   it("counts an article made once: a check of the writer's words revises them, keeps their stamp and counts no made, a rerun included", async () => {
     vi.stubEnv("LOOPS_ENABLED", "true");
+    // Its approval answers it only where AI originals are kept (ORIGINALS_ONLY).
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true");
     const db = new FakeFirestore();
     // fillPlanNode's save: the writer's stamp on the words, counted made once as a content plan piece.
     const { stamp: written } = await learnedFor(ctx, "blog_write", { promptId: "content.blog_draft" });

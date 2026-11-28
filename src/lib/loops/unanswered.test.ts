@@ -5,7 +5,7 @@ import { TOKEN_SAVES } from "./handBack";
 import { isImageKind } from "./imageKinds";
 import { LOOPS, type LoopKind } from "./registry";
 import { unusedForWeek } from "./tally";
-import { isUnanswered, RECORD_OFF_WHY, RECORD_ONLY, UNANSWERED, unansweredWhy } from "./unanswered";
+import { isUnanswered, ORIGINALS_OFF_WHY, ORIGINALS_ONLY, RECORD_OFF_WHY, RECORD_ONLY, UNANSWERED, unansweredWhy } from "./unanswered";
 
 /**
  * The kinds no path can answer yet (learning loops step 5): left out of unused and shares, so
@@ -47,13 +47,15 @@ describe("the kinds no path can answer yet", () => {
     expect(isUnanswered("toString")).toBe(false);
   });
 
-  it("leave out every kind a save, a decision or a stamp token answers, with the agent record on", () => {
+  it("leave out every kind a save, a decision or a stamp token answers, with the agent record and AI originals on", () => {
     vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true");
     for (const kind of [...ANSWERED, ...TOKEN_SAVES]) expect(isUnanswered(kind), kind).toBe(false);
   });
 
   it("take in the kinds only the agent record answers while it is off, as it ships", () => {
     vi.stubEnv("AGENT_RECORD_ENABLED", "false");
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true");
     for (const kind of RECORD_ONLY) expect(unansweredWhy(kind), kind).toBe(RECORD_OFF_WHY);
     for (const kind of [...ANSWERED.filter((k) => !RECORD_ONLY.includes(k)), ...TOKEN_SAVES]) expect(isUnanswered(kind), kind).toBe(false);
     expect(unansweredWhy("send_time")).toBe(UNANSWERED.send_time);
@@ -63,6 +65,21 @@ describe("the kinds no path can answer yet", () => {
     vi.stubEnv("AGENT_RECORD_ENABLED", "true");
     expect(unansweredWhy("canvas.journey")).toBeNull();
     expect(unusedForWeek([drafted, undefined, undefined]).get("canvas.journey")).toBe(4);
+  });
+
+  it("take in the kinds only an approval of their AI original answers while AI originals are off, as they ship", () => {
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "false");
+    for (const kind of ORIGINALS_ONLY) expect(unansweredWhy(kind), kind).toBe(ORIGINALS_OFF_WHY);
+    // Posts count when they are published, so they stay answered.
+    expect(isUnanswered("content_write")).toBe(false);
+    for (const kind of ORIGINALS_ONLY) expect(Object.prototype.hasOwnProperty.call(UNANSWERED, kind), kind).toBe(false);
+    // Three articles Hearth Bakery approved with no AI original kept: none reads as unused.
+    const written = { c: { blog_write: { blog_write: { v0: { none: { made: 3 } } } } } };
+    expect(unusedForWeek([written, undefined, undefined]).has("blog_write")).toBe(false);
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true");
+    expect(unansweredWhy("blog_write")).toBeNull();
+    expect(unusedForWeek([written, undefined, undefined]).get("blog_write")).toBe(3);
   });
 
   it("list every kind the agent record answers at its transition and no other path does", () => {
@@ -75,7 +92,7 @@ describe("the kinds no path can answer yet", () => {
   });
 
   it("say why in house style", () => {
-    for (const [kind, why] of Object.entries({ ...UNANSWERED, record_off: RECORD_OFF_WHY })) {
+    for (const [kind, why] of Object.entries({ ...UNANSWERED, record_off: RECORD_OFF_WHY, originals_off: ORIGINALS_OFF_WHY })) {
       expect(why!.trim().length, kind).toBeGreaterThan(20);
       expect(dashesIn(why!), kind).toEqual([]);
       expect(aiTellsIn(why!), kind).toEqual([]);

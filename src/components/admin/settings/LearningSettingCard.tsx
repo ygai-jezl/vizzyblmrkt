@@ -68,8 +68,20 @@ export function LearningSettingCard({
           </p>
         ) : null}
         {!isAdmin ? <p className="text-xs text-neutral-600 dark:text-neutral-400">{LEARNING_SETTING.member}</p> : null}
-        {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
+        <SaveError error={error} />
       </div>
     </section>
   );
+}
+
+/**
+ * Why a change didn't save, announced as it shows (role alert), so a screen reader user hears it
+ * as the checkbox goes back to where it was. Nothing while there is no error.
+ */
+export function SaveError({ error }: { error: string | null }) {
+  return error ? (
+    <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+      {error}
+    </p>
+  ) : null;
 }

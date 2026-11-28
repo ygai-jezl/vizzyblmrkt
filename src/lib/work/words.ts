@@ -156,7 +156,18 @@ export function purposeResource(purpose: string): ResourceId | null {
   return best;
 }
 
-const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+/** Names a label may start with, which keep their capitals mid sentence. */
+const NAMES = ["Vizzy", "Memory Bank", "LinkedIn", "Google", "YouGrow", "Instagram", "Search Console"];
+
+/**
+ * A label as it reads mid sentence: a plain first word loses its capital ("Suggesting angles" is
+ * "suggesting angles", "A plan for one person" is "a plan for one person"), while one that starts
+ * with an acronym or a name keeps it ("AI lines in emails", "Vizzy chat", "Memory Bank memories").
+ */
+const lower = (s: string) => {
+  if (NAMES.some((n) => s === n || s.startsWith(`${n} `))) return s;
+  return /^[A-Z](?:[a-z]|\s|$)/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+};
 
 /** What a Moves a number measure moves, in the brand's word: "orders", "open rate". */
 export function movesWhat(m: { meaning: MeaningKey; word?: string }): string {

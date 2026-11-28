@@ -42,7 +42,9 @@ import {
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
-import { countDraftOutcome, countMade } from "@/lib/loops/count";
+import { countDraftOutcome, countMade, countsFor, isLoopKind } from "@/lib/loops/count";
+import { keepsAiDraft } from "@/lib/content/create/aiDraft";
+import { publishAnswers } from "@/lib/content/create/aiOriginals";
 import { keptMade, rootOf, sameStamp } from "@/lib/loops/made";
 import { learnedFor } from "@/lib/loops/read";
 import type { Made } from "@/lib/types/loopStamp";
@@ -501,7 +503,10 @@ async function publishPost(
  * as Vizzy wrote them, edited otherwise. The words that went out are the spintax variant when the
  * post has a template (a person's, set with setPostSpintax), else its body, as each path posts
  * them. A post with no kept draft counts neither. A retry after the done stamp returns before
- * this, so each post counts once. Never throws.
+ * this, so each post counts once. A piece for a channel other than LinkedIn or X (a blog, a
+ * newsletter, Instagram) counts at the first approval of its AI original, so its publish counts
+ * only when no approval did, and then an approval after it counts nothing (publishAnswers): one
+ * answer for one made thing. Never throws.
  */
 async function countPublished(
   ctx: TenantContext,
@@ -509,7 +514,13 @@ async function countPublished(
   renderedVariant: string | undefined,
   db?: FirestoreLike,
 ): Promise<void> {
-  await countDraftOutcome(ctx, post.made, { draft: post.aiBody, final: renderedVariant ?? post.body }, { db });
+  const made = post.made;
+  if (!made || "unstamped" in made || !isLoopKind(made.kind) || !countsFor(made.kind)) return;
+  if (post.jobKind === "publish" && !keepsAiDraft(post.channel)) {
+    const answers = await publishAnswers(ctx, { planId: post.contentPlanId, nodeId: post.nodeId }, { db }).catch(() => true);
+    if (!answers) return;
+  }
+  await countDraftOutcome(ctx, made, { draft: post.aiBody, final: renderedVariant ?? post.body }, { db });
 }
 
 /**

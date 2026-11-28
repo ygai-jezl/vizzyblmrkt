@@ -1,4 +1,5 @@
 import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
+import { isAiOriginalsEnabled } from "@/lib/content/create/flags";
 import type { LoopKind } from "./registry";
 
 /**
@@ -10,7 +11,8 @@ import type { LoopKind } from "./registry";
  *
  * Image kinds aren't here: votes answer them, and their versions say what went unused. Kinds that
  * count made nowhere (a pick inside a sender, a rule) need no line. The kinds only the agent
- * record answers join them while it is off (RECORD_ONLY, unansweredWhy).
+ * record answers join them while it is off (RECORD_ONLY), and the kinds only an approval of their
+ * AI original answers while AI originals are off (ORIGINALS_ONLY, unansweredWhy).
  */
 export const UNANSWERED: Partial<Record<LoopKind, string>> = {
   send_time: "Each email goes out at the time YouGrow picks, and nothing a person does answers that time.",
@@ -61,13 +63,28 @@ export const RECORD_ONLY: readonly LoopKind[] = ["canvas.journey", "canvas.lifec
 export const RECORD_OFF_WHY = "Its answer is kept on the agent record, which is off on this copy.";
 
 /**
- * Why no path counts an answer to this kind's made things yet (UNANSWERED, or RECORD_OFF_WHY for a
- * RECORD_ONLY kind while the agent record is off), or null when one does. Reads the switch each
- * call, so the heartbeat and get_learning follow the copy as it is now.
+ * The kinds a person answers by approving the piece (learning loops step 5): an article, a
+ * workflow email and a hub piece count kept or edited at the first approval of their AI original,
+ * on the canvas or by the article's live mark (src/lib/content/create/aiOriginals.ts). While
+ * CONTENT_AI_ORIGINALS_ENABLED is off no AI original is kept, so approving one counts nothing,
+ * and they read as unanswered. A post (content_write) isn't here: it counts when it is published,
+ * with or without its AI original.
+ */
+export const ORIGINALS_ONLY: readonly LoopKind[] = ["blog_write", "content_email", "content_hub"];
+
+/** Why an ORIGINALS_ONLY kind reads as unanswered while AI originals are off. */
+export const ORIGINALS_OFF_WHY = "Approving it counts only where its AI original is kept, and AI originals are off on this copy.";
+
+/**
+ * Why no path counts an answer to this kind's made things yet (UNANSWERED, RECORD_OFF_WHY for a
+ * RECORD_ONLY kind while the agent record is off, or ORIGINALS_OFF_WHY for an ORIGINALS_ONLY kind
+ * while AI originals are off), or null when one does. Reads the switches each call, so the
+ * heartbeat and get_learning follow the copy as it is now.
  */
 export function unansweredWhy(kind: string): string | null {
   if (Object.prototype.hasOwnProperty.call(UNANSWERED, kind)) return UNANSWERED[kind as LoopKind] ?? null;
-  return !isAgentRecordEnabled() && (RECORD_ONLY as readonly string[]).includes(kind) ? RECORD_OFF_WHY : null;
+  if (!isAgentRecordEnabled() && (RECORD_ONLY as readonly string[]).includes(kind)) return RECORD_OFF_WHY;
+  return !isAiOriginalsEnabled() && (ORIGINALS_ONLY as readonly string[]).includes(kind) ? ORIGINALS_OFF_WHY : null;
 }
 
 /** Whether no path counts an answer to this kind's made things yet. */

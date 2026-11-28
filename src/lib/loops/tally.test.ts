@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ANSWER_WEEKS, coverageByKind, tallyByKind, unusedForWeek, unusedOfVersion } from "./tally";
 
 /** Reading a brand's counts back by kind (src/lib/loops/tally.ts, learning loops step 5, 4.4). */
@@ -42,9 +42,13 @@ describe("a week by kind", () => {
 });
 
 describe("unused", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   const answers = (kept: number, edited = 0, declined = 0) => ({ c: { content_write: { content_write: { v0: { none: { kept, edited, declined } } } } } });
 
   it("is what was made in a week, less what was kept, edited or declined that week and the two after it", () => {
+    // An article is answered at the approval of its AI original (ORIGINALS_ONLY), kept where this switch is on.
+    vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true");
     expect(ANSWER_WEEKS).toBe(2);
     const u = unusedForWeek([week, answers(1), answers(0, 0, 1), answers(5)]);
     // 10 made, 8 answered in W, 1 in W+1, 1 in W+2; W+3 is past the window.

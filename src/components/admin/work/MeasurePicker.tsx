@@ -6,7 +6,7 @@ import type { MeaningKey } from "@/lib/metrics/meanings";
 import { LOOPS } from "@/lib/loops/registry";
 import { PURPOSE_LABELS, RESOURCES, type ResourcePurpose } from "@/lib/plans/resources";
 import { measureProblems, PRODUCT_EVENT_DAYS, thenFor, withMeaning, type MeasureDraft, type PartDraft } from "@/lib/work/form";
-import { keptLine, kindHint, MEASURE_KIND_LABEL, meaningLabel, productEventHint, RUNS_BETTER_LABEL, runsBetterHint, suggestionLine, WORK_COPY } from "@/lib/work/screenWords";
+import { keptLine, kindHint, loopsCountHint, MEASURE_KIND_LABEL, meaningLabel, productEventHint, RUNS_BETTER_LABEL, runsBetterHint, suggestionLine, WORK_COPY, type OperatorCounting } from "@/lib/work/screenWords";
 import { MEASURE_KINDS, RUNS_BETTER_WHAT, type MeasureKind } from "@/lib/work/types";
 import type { ProductOption } from "@/lib/work/screens";
 
@@ -24,6 +24,8 @@ export interface MeasurePickerProps {
   meanings: MeaningKey[];
   /** Named by LOOPS_OPERATOR_EMAILS: may count this copy's own purposes, types and loop kinds. */
   operator: boolean;
+  /** What Work can count for those on this copy, from the server's switches (operators only). */
+  counting?: OperatorCounting | null;
   /** A repo or a product is connected, so crashes and memory make sense. */
   runsInApp: boolean;
   /** The brand's word for conversions, to start the field with. */
@@ -41,7 +43,7 @@ const RADIO = (on: boolean) =>
  * reason, that kind's fields, when to look, and an optional then. The server proposes the kind
  * again on save and keeps both the proposal and the pick, so overrides can teach the suggestion.
  */
-export function MeasurePicker({ value, onChange, suggestion, suggestedBy = "rule", products, meanings, operator, runsInApp, word, idPrefix }: MeasurePickerProps) {
+export function MeasurePicker({ value, onChange, suggestion, suggestedBy = "rule", products, meanings, operator, counting = null, runsInApp, word, idPrefix }: MeasurePickerProps) {
   const d = value;
   const set = (patch: Partial<MeasureDraft>) => onChange({ ...d, ...patch });
   const pickKind = (k: MeasureKind) => {
@@ -92,6 +94,7 @@ export function MeasurePicker({ value, onChange, suggestion, suggestedBy = "rule
             products={products}
             meanings={meanings}
             operator={operator}
+            counting={counting}
             runsInApp={runsInApp}
             idPrefix={`${idPrefix}-first`}
           />
@@ -122,6 +125,7 @@ export function MeasurePicker({ value, onChange, suggestion, suggestedBy = "rule
             products={products}
             meanings={meanings}
             operator={operator}
+            counting={counting}
             runsInApp={runsInApp}
             idPrefix={`${idPrefix}-then`}
           />
@@ -162,6 +166,7 @@ function PartFields({
   products,
   meanings,
   operator,
+  counting,
   runsInApp,
   idPrefix,
 }: {
@@ -172,6 +177,7 @@ function PartFields({
   products: ProductOption[] | null;
   meanings: MeaningKey[];
   operator: boolean;
+  counting: OperatorCounting | null;
   runsInApp: boolean;
   idPrefix: string;
 }) {
@@ -239,7 +245,9 @@ function PartFields({
             </select>
           ) : null}
           <span className="block text-xs text-neutral-500 dark:text-neutral-400">
-            {p.counts === "event" && product ? productEventHint(product.name) : products === null && !isThen ? `${WORK_COPY.usedNoneHint} ${WORK_COPY.productNeedsBrand}` : WORK_COPY.usedNoneHint}
+            {p.counts === "event" && product
+              ? productEventHint(product.name)
+              : (loopsCountHint(p, counting) ?? (products === null && !isThen ? `${WORK_COPY.usedNoneHint} ${WORK_COPY.productNeedsBrand}` : WORK_COPY.usedNoneHint))}
           </span>
         </label>
       ) : null}

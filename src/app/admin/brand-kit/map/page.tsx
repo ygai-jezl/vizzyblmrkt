@@ -38,7 +38,7 @@ import { BrandMapSituations } from "@/components/admin/brand-kit/BrandMapSituati
 import { BrandMapImport } from "@/components/admin/brand-kit/BrandMapImport";
 import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
 import { BrandMapStrategy } from "@/components/admin/brand-kit/BrandMapStrategy";
-import { isBrandStrategyEnabled, isStrategyCheckEnabled, isStrategyResultsEnabled } from "@/lib/brandStrategy/flags";
+import { isBrandStrategyEnabled, isStrategyCheckEnabled, isStrategyResultsEnabled, isStrategySuggestEnabled } from "@/lib/brandStrategy/flags";
 import { isContentStrategyEnabled } from "@/lib/contentStrategy/flags";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
@@ -100,8 +100,9 @@ export default async function BrandMapPage({ searchParams }: { searchParams?: Pr
   const strategy = isBrandStrategyEnabled()
     ? [{ id: "strategy", label: "Strategy", node: <BrandMapStrategy canEdit={ctx.role === "admin"} contentPlan={isContentStrategyEnabled()} canAsk={askOn && isGeminiConfigured()} howItWent={isStrategyResultsEnabled()} /> }]
     : [];
-  // Review the strategy, from the weekly check's row in Review (STRATEGY_CHECK_ENABLED), opens its tab.
-  const openTab = isStrategyCheckEnabled() && strategy.length && (await searchParams)?.tab === "strategy" ? "strategy" : undefined;
+  // Review the strategy, from the weekly check's row (STRATEGY_CHECK_ENABLED) or the month's suggestion
+  // (STRATEGY_SUGGEST_ENABLED) in Review, opens its tab.
+  const openTab = (isStrategyCheckEnabled() || isStrategySuggestEnabled()) && strategy.length && (await searchParams)?.tab === "strategy" ? "strategy" : undefined;
   const tabs = (
     <BrandMapTabs
       initialTab={openTab}

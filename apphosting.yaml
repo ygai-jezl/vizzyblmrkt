@@ -957,6 +957,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # One suggestion a month: when How it went keeps a month, rules with no model call pick at most one
+  # change worth a look (behind the plan, a stalled focus situation, a claim still without proof, or a
+  # kind of result to connect), shown as one Review row and above Propose, and read by Vizzy. Not now
+  # keeps it away 60 days, or 90 for connecting a tool (needs STRATEGY_RESULTS_ENABLED).
+  - variable: STRATEGY_SUGGEST_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
   # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
   # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its

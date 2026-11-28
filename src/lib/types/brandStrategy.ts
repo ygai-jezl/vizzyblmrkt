@@ -233,6 +233,11 @@ export const StrategyMadeSchema = z.object({
   promptId: z.string().max(80),
   version: z.number().int().min(0),
   model: z.string().max(80),
+  /**
+   * The monthly suggestion Propose took as a note (its key, STRATEGY_SUGGEST_ENABLED). Absent when it
+   * took none: approving a draft proposed with the open suggestion logs `suggestion_acted`.
+   */
+  suggestion: z.string().max(40).optional().catch(undefined),
 });
 export type StrategyMade = z.infer<typeof StrategyMadeSchema>;
 
@@ -288,6 +293,13 @@ export const STRATEGY_DECISION_KINDS = [
   "check_acted",
   /** An admin dismissed the weekly check's row: it stays quiet 30 days. */
   "check_dismissed",
+  /**
+   * A strategy approved whose draft Propose made with the month's suggestion as a note
+   * (STRATEGY_SUGGEST_ENABLED). `ref` is the suggestion's kind and what it was about ("stalled_focus:sit_x").
+   */
+  "suggestion_acted",
+  /** An admin pressed Not now on the month's suggestion: `ref` as above, `before` the reason, `after` the note or null. */
+  "suggestion_dismissed",
 ] as const;
 export const StrategyDecisionKind = z.enum(STRATEGY_DECISION_KINDS);
 export type StrategyDecisionKind = z.infer<typeof StrategyDecisionKind>;
@@ -505,6 +517,141 @@ export const StrategyMonthSchema = z.object({
 });
 export type StrategyMonth = z.infer<typeof StrategyMonthSchema>;
 
+// ----- One suggestion a month (STRATEGY_SUGGEST_ENABLED) ---------------------------------------
+
+export const STRATEGY_SUGGEST_LIMITS = {
+  /** Not now keeps a suggestion away this long. */
+  holdDays: 60,
+  /** And one about connecting or sharing a tool this long. */
+  measureHoldDays: 90,
+  /** Holds kept, newest first. */
+  holds: 20,
+  /** Roadmap entries a Behind plan suggestion names. */
+  named: 3,
+  /** Behind plan: at least this many entries due and not live. */
+  behind: 3,
+  /** Kept months a focus situation or a claim must have stood still for. */
+  months: 2,
+  /** A Not now note. */
+  note: 200,
+  text: 160,
+} as const;
+
+const S = STRATEGY_SUGGEST_LIMITS;
+
+/**
+ * What a suggestion is about, in the order the rules are tried: the plan's roadmap is behind, a focus
+ * situation stalled, a claim still has no proof, a kind of result to connect or share, or (no Review
+ * row, only a line on How it went) the focus situations are working.
+ */
+export const SUGGESTION_KINDS = ["behind_plan", "stalled_focus", "claim_no_proof", "measure_more", "working"] as const;
+export const SuggestionKind = z.enum(SUGGESTION_KINDS);
+export type SuggestionKind = z.infer<typeof SuggestionKind>;
+
+/** Why an admin said Not now, picked in a tap. */
+export const NOT_NOW_REASONS = ["not_a_priority", "already_doing", "numbers_wrong", "other"] as const;
+export const NotNowReason = z.enum(NOT_NOW_REASONS);
+export type NotNowReason = z.infer<typeof NotNowReason>;
+export const NOT_NOW_LABEL: Record<NotNowReason, string> = {
+  not_a_priority: "Not a priority",
+  already_doing: "Already doing it",
+  numbers_wrong: "The numbers are wrong",
+  other: "Other",
+};
+
+/** YouGrow's own data a suggestion can stand on, no connector needed. */
+export const SUGGEST_BUILT_IN = ["articles", "roadmap", "claims", "questions", "their_articles", "connections"] as const;
+export const SuggestBuiltIn = z.enum(SUGGEST_BUILT_IN);
+export type SuggestBuiltIn = z.infer<typeof SuggestBuiltIn>;
+
+const SuggestText = Line(S.text);
+const SuggestCount = z.number().int().min(0).max(100_000);
+const Connector = z.object({ connectorId: z.string().max(80), name: Line(80), href: z.string().max(300) });
+
+/** What the suggestion says, by kind: the facts its words are made from. */
+export const SuggestDetailSchema = z.discriminatedUnion("kind", [
+  /** The approved plan's entries to write, due by the end of the month and not live, earliest first. */
+  z.object({ kind: z.literal("behind_plan"), behind: SuggestCount, entries: tolerantArray(z.object({ slotId: z.string().max(40), title: SuggestText }), S.named) }),
+  /**
+   * A focus situation with no new article and no result for the last 2 kept months while the rest
+   * of the map moved, the kinds it was judged on, and the situation outside the focus to swap it for.
+   */
+  z.object({
+    kind: z.literal("stalled_focus"),
+    id: SituationId,
+    text: SuggestText,
+    kinds: z.array(z.enum(OUTCOME_KINDS)).max(OUTCOME_KINDS.length),
+    swap: z.object({
+      id: SituationId,
+      text: SuggestText,
+      /** Picked by their articles in the last 90 days, a measured result, or questions with no live answer. */
+      by: z.enum(["their_articles", "result", "questions"]),
+      count: z.number().min(0).max(1_000_000_000_000),
+      /** For `result`: the kind and the number, by meaning. */
+      outcome: z.enum(OUTCOME_KINDS).nullable().catch(null).default(null),
+      measure: z.string().max(60).nullable().catch(null).default(null),
+    }),
+  }),
+  /** A claim of the approved strategy with no proof in each of the newest kept months, and how many. */
+  z.object({ kind: z.literal("claim_no_proof"), id: ClaimId, text: Line(L.claimText), months: SuggestCount }),
+  /** A kind of result not connected or not shared, and the connectors in this build that give it. */
+  z.object({ kind: z.literal("measure_more"), outcome: z.enum(OUTCOME_KINDS), why: z.enum(["not_connected", "not_shared"]), connectors: tolerantArray(Connector, 3) }),
+  /** The focus situations' result rose against last month, by more than the rest of the map's. */
+  z.object({
+    kind: z.literal("working"),
+    outcome: z.enum(OUTCOME_KINDS),
+    measure: z.string().max(60),
+    focusNow: z.number().min(0).max(1_000_000_000_000),
+    focusBefore: z.number().min(0).max(1_000_000_000_000),
+    restNow: z.number().min(0).max(1_000_000_000_000),
+    restBefore: z.number().min(0).max(1_000_000_000_000),
+  }),
+]);
+export type SuggestDetail = z.infer<typeof SuggestDetailSchema>;
+
+/**
+ * The month's suggestion, worked out by rules when the monthly look keeps a month (no model call),
+ * kept on the record without moving `rev`. One at a time: a new month's replaces it. Each says what
+ * it was based on and what it couldn't see, so its words can say both.
+ */
+export const StrategySuggestionSchema = z.object({
+  /** Changes with its kind and what it is about, not its numbers, so Review keeps one row for it. */
+  key: z.string().max(40),
+  /** What it is about, for Not now: the plan's approval stamp, a situation or claim id, or a kind of result. */
+  about: z.string().min(1).max(64),
+  /** The month it was worked out from. */
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  raisedAt: Stamp,
+  detail: SuggestDetailSchema,
+  /** The brand's own word for key actions, from its goal's measure ("bookings"); null: "sign-ups". */
+  keyWord: z.string().max(40).nullable().catch(null).default(null),
+  basedOn: z
+    .object({
+      builtIn: tolerantArray(SuggestBuiltIn, SUGGEST_BUILT_IN.length),
+      measured: tolerantArray(z.object({ kind: z.enum(OUTCOME_KINDS), connector: Line(80) }), OUTCOME_KINDS.length),
+    })
+    .prefault({}),
+  /** The kinds the month couldn't measure, and what would give each: the connector to connect, share or check. */
+  cantSee: tolerantArray(
+    z.object({ kind: z.enum(OUTCOME_KINDS), why: z.enum(["not_shared", "failed", "not_connected"]), connector: Line(80).nullable().catch(null).default(null), href: z.string().max(300).nullable().catch(null).default(null) }),
+    OUTCOME_KINDS.length,
+  ),
+  /** open: waiting in Review; acted: a strategy proposed with it was approved; dismissed: Not now. */
+  state: z.enum(["open", "acted", "dismissed"]).catch("open").default("open"),
+  actedAt: Stamp.nullable().catch(null).default(null),
+  dismissedAt: Stamp.nullable().catch(null).default(null),
+});
+export type StrategySuggestion = z.infer<typeof StrategySuggestionSchema>;
+
+/** Not now: that kind of suggestion about that thing stays away until `until`, with the reason given. */
+export const SuggestHoldSchema = z.object({
+  kind: SuggestionKind,
+  about: z.string().min(1).max(64),
+  until: Stamp,
+  reason: NotNowReason,
+});
+export type SuggestHold = z.infer<typeof SuggestHoldSchema>;
+
 // ----- The record ------------------------------------------------------------------------------
 
 export const BrandStrategyDocSchema = z.object({
@@ -540,6 +687,10 @@ export const BrandStrategyDocSchema = z.object({
   monthsRetryAt: Stamp.nullable().catch(null).default(null),
   /** Looks held back because a connected tool couldn't be read (2 at most, then the month is kept with it marked failed); 0 once a month is kept. */
   monthsRetries: z.number().int().min(0).max(10).catch(0).default(0),
+  /** The month's suggestion (STRATEGY_SUGGEST_ENABLED); null until the first, and on records stored before it. */
+  suggestion: StrategySuggestionSchema.nullable().catch(null).default(null),
+  /** Suggestions put off with Not now, newest first: each stays away until its `until`. Empty on older records. */
+  suggestHolds: tolerantArray(SuggestHoldSchema, STRATEGY_SUGGEST_LIMITS.holds),
   createdAt: Stamp.catch("").default(""),
   updatedAt: Stamp.catch("").default(""),
 });

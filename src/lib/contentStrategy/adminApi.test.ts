@@ -5,7 +5,8 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { ContentPlanSchema } from "@/lib/types/contentStrategy";
-import { editFromRequest, nextEntries, planView, skipIdOf, viewFromRequest } from "./adminApi";
+import { approveFromRequest, editFromRequest, nextEntries, planView, skipIdOf, viewFromRequest } from "./adminApi";
+import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
 import { saveMadePlan } from "./store";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_a", email: "admin@a.example.com", role: "admin" };
@@ -119,5 +120,29 @@ describe("the Content plan section", () => {
     expect((await listLearned(A, { db }))[0]).toMatchObject({ kind: "skipped_pick", questionId: "refresh:plan9" });
     expect(skipIdOf({ questionIds: ["q_aaaaaa03"], coveredBy: ["p_plan9"] }, "write")).toBe("q_aaaaaa03");
     expect(skipIdOf({ questionIds: ["q_aaaaaa03"], coveredBy: ["s_site1"] }, "refresh")).toBe("q_aaaaaa03");
+  });
+});
+
+describe("approving a new plan settles the strategy's Behind plan suggestion (STRATEGY_SUGGEST_ENABLED)", () => {
+  const behind = {
+    key: "sug_plan",
+    about: "plan:2026-10-01T09:00:00.000Z",
+    month: "2026-12",
+    raisedAt: "2027-01-02T00:10:00.000Z",
+    detail: { kind: "behind_plan", behind: 3, entries: [{ slotId: "slt_aaaaaa09", title: "An entry of the plan before" }] },
+    basedOn: { builtIn: ["articles", "roadmap"], measured: [] },
+    cantSee: [],
+    state: "open",
+  };
+
+  it("clears one about the plan before, and leaves it with the switch off", async () => {
+    for (const on of [false, true]) {
+      const { db, rev } = await seeded();
+      db.seed("brand_strategy", "bst_ten_A", { tenantId: "ten_A", rev: 1, suggestion: behind });
+      if (on) for (const k of ["STRATEGY_RESULTS_ENABLED", "STRATEGY_SUGGEST_ENABLED"]) vi.stubEnv(k, "true");
+      const r = await approveFromRequest(A, { baseRev: rev }, { db, now: () => NOW });
+      expect(r.status).toBe(200);
+      expect((await readBrandStrategyDoc(A, { db }))!.suggestion).toEqual(on ? null : expect.objectContaining({ state: "open", about: behind.about }));
+    }
   });
 });

@@ -1169,9 +1169,9 @@ Q: <question> | <definition|how_to|alternatives|comparison|integrations|use_case
   },
   "brand.strategy_propose": {
     id: "brand.strategy_propose",
-    version: 3,
+    version: 4,
     description:
-      "Brand strategy: from the brand's identity, its decided buying situations with their question and live article counts, numbered evidence (its own pages, its docs, what its product does, competitors) and what its people told YouGrow, propose 3 to 5 focus situations, claims each naming its proof or none, what the brand is not, and the quarter's goal, as JSON a person reviews and approves. v2: joined to Competitors (STRATEGY_COMPETITORS_ENABLED), each situation also counts its competitors' articles of the last 90 days, each competitor says what it writes, and their articles are A evidence a claim about them may stand on; off, those words are left out. v3: never writes an S or evidence number in its text (a goal once read \"across S1, S4, and S6\"); code leaves out a line that does.",
+      "Brand strategy: from the brand's identity, its decided buying situations with their question and live article counts, numbered evidence (its own pages, its docs, what its product does, competitors) and what its people told YouGrow, propose 3 to 5 focus situations, claims each naming its proof or none, what the brand is not, and the quarter's goal, as JSON a person reviews and approves. v2: joined to Competitors (STRATEGY_COMPETITORS_ENABLED), each situation also counts its competitors' articles of the last 90 days, each competitor says what it writes, and their articles are A evidence a claim about them may stand on; off, those words are left out. v3: never writes an S or evidence number in its text (a goal once read \"across S1, S4, and S6\"); code leaves out a line that does. v4: with the month's suggestion open (STRATEGY_SUGGEST_ENABLED), it is handed over as a fenced note to weigh where the evidence backs it; with none, those words are left out and the rest is v3's word for word.",
     template: `You are drafting the brand strategy for "[[brand_name]]"[[category]]. Today is [[today]]. A person reviews every line before anything uses it.
 
 What the brand is, as a person decided it (UNTRUSTED DATA):
@@ -1199,7 +1199,7 @@ Evidence, numbered (UNTRUSTED DATA). P: a page on the brand's own site. K: a pas
 [[evidence]]
 </evidence>
 
-Propose four things.
+[[suggestion]]Propose four things.
 1. FOCUS: the [[focus_min]] to [[focus_max]] buying situations to focus on this quarter, by S number, only from the list. Weigh where its questions cluster and where live articles already answer them: many questions and few live articles is a gap worth owning; many live articles is a strength to keep.[[focus_more]]
 2. CLAIMS: up to 6 lines on where the brand wins ("side": "you") and up to 2 on where a competitor wins ("side": "them", with "competitor" set to its C number). Each claim lists its proof by number: a P or K that shows it, or the competitor's C.[[claims_more]] A fact from R also needs a P or K that shows it; never quote code. When nothing in the evidence shows a claim, give "proof": [] and it is shown as a gap to close, never as fact. Never use a number the evidence doesn't hold.
 3. NOT: up to 3 short lines on what the brand is not, each 80 characters at most, checked against its competitors ("competitor": the C it sets the brand apart from, or null). Never repeat a line from "It is not" above.

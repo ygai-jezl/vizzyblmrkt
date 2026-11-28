@@ -12,6 +12,8 @@ import { isBrandStrategyUiEnabled } from "@/lib/brandStrategy/flags";
 import { HOW_IT_WENT_WORDS, STRATEGY_ERRORS } from "@/components/admin/brand-kit/strategyMessages";
 import { REST_TEXT } from "@/lib/brandStrategy/monthRules";
 import { OUTCOME_WORDS } from "@/lib/metrics/outcomes";
+import { SUGGEST_WORDS } from "@/lib/brandStrategy/suggestRules";
+import { NOT_NOW_LABEL, NOT_NOW_REASONS } from "@/lib/types/brandStrategy";
 import { isContentStrategyUiEnabled } from "@/lib/contentStrategy/flags";
 import { NOT_ARTICLES_LABEL, PLAN_ERRORS } from "@/components/admin/brand-kit/contentPlanMessages";
 
@@ -19,6 +21,8 @@ import { NOT_ARTICLES_LABEL, PLAN_ERRORS } from "@/components/admin/brand-kit/co
 const KEY_ACTIONS_LINE = OUTCOME_WORDS.missing({ kind: "key_actions", state: "not_connected", could: [{ connectorId: "google-analytics", name: "Google Analytics 4", href: "", siteOnly: false }] });
 const REST_QUESTIONS = `${HOW_IT_WENT_WORDS.restQuestions.charAt(0).toLowerCase()}${HOW_IT_WENT_WORDS.restQuestions.slice(1)}`;
 const SHARE_LINE = OUTCOME_WORDS.missing({ kind: "search", state: "not_shared", connectionId: "", connectorId: "search-console", connector: "Google Search Console", href: "" });
+/** Not now's reasons, as the picker says them: "Not a priority, Already doing it, The numbers are wrong or Other". */
+const NOT_NOW_WORDS = `${NOT_NOW_REASONS.slice(0, -1).map((r) => NOT_NOW_LABEL[r]).join(", ")} or ${NOT_NOW_LABEL[NOT_NOW_REASONS.at(-1)!]}`;
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled(), aiAnswers = isAiAnswersPlanningEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
@@ -293,6 +297,33 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             says what each missing one would add, such as &quot;{KEY_ACTIONS_LINE}&quot;, or &quot;{SHARE_LINE}&quot; for one
             that is connected but not shared, each with its link. With nothing connected, it shows your articles and answered
             questions only. Vizzy reads the latest month and what to connect.
+          </P>
+          <P>
+            Where your copy of YouGrow suggests one change a month, keeping a month also works out one suggestion, by rules
+            and with no AI. The first that applies is used: your content plan is behind (3 or more of its articles were due
+            and aren&apos;t live yet, named, with <strong>Write or move these 3</strong>), a focus situation stalled (no new
+            article and no search clicks, visits or AI citations for 2 months while the rest of your map moved, with a
+            situation to swap it for: the one your competitors wrote most on in the last 90 days, else the one whose
+            articles had the most of a result you measure, else the one with the most questions no live article answers),
+            a claim has had no proof for 2 months, or a kind of result isn&apos;t connected or shared yet. A rule that needs
+            a result your tools don&apos;t measure is skipped, and a tool that couldn&apos;t be read is never suggested.
+            Each suggestion says what it was based on and what it couldn&apos;t see, such as &quot;From your articles and
+            Google Search Console. Connect Google Analytics 4 to weigh sign-ups too.&quot; When your goal&apos;s measure
+            names your own word for them, such as bookings, the suggestion uses it. When your focus situations did better
+            than the rest of your map, How it went says so under the month instead.
+          </P>
+          <P>
+            It shows in <Open href="/admin/approvals">Review</Open> as <strong>{SUGGEST_WORDS.title}</strong>, and on this
+            tab above Propose as <strong>{SUGGEST_WORDS.onTab}</strong>. <strong>{SUGGEST_WORDS.review}</strong> opens this
+            tab, where <strong>Propose with Vizzy</strong> takes it as a note to its draft. Nothing changes until an admin
+            approves, and approving that draft counts as acting on it. Approving a strategy that takes the stalled
+            situation out of your focus, or drops the claim or gives it proof, clears the suggestion too, and so does
+            approving a new content plan for one about the plan before. A suggestion to connect a tool is never a note for
+            Propose: its button opens the tool&apos;s Connect page, or <strong>{SUGGEST_WORDS.share}</strong> opens where
+            sharing is set, and connecting it settles it. An admin can press <strong>{SUGGEST_WORDS.notNow}</strong> and
+            say why ({NOT_NOW_WORDS}), with a note of up to 200 characters if they like. That suggestion then stays away 60
+            days, or 90 for connecting a tool. The next suggestion comes when the next month is added up, early next month,
+            from whatever applies then. The reason is kept with the strategy, and Vizzy reads the suggestion too.
           </P>
           <P>
             What you star, tick, edit or turn down is kept with the strategy, with the 5 strategies approved before it, so

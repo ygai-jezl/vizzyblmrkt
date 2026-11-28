@@ -129,5 +129,6 @@
   "email.footer.privacy": "プライバシーポリシー",
   "email.steps.done": "{total}ステップ中{done}ステップ完了",
   "email.steps.more": "他{n}件",
-  "article.translatedNote": "原文から翻訳し、当チームが確認しました。"
+  "article.translatedNote": "原文から翻訳し、当チームが確認しました。",
+  "widget.language.viewIn": "このページを日本語で見る"
 }

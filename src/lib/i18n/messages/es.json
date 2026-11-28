@@ -129,5 +129,6 @@
   "email.footer.privacy": "Política de privacidad",
   "email.steps.done": "{done} de {total} pasos completados",
   "email.steps.more": "y {n} más",
-  "article.translatedNote": "Traducido del original y revisado por nuestro equipo."
+  "article.translatedNote": "Traducido del original y revisado por nuestro equipo.",
+  "widget.language.viewIn": "Ver esta página en español"
 }

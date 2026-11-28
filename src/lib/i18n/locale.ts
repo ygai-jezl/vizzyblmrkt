@@ -203,7 +203,7 @@ export function supportedLocalesFor(campaign?: LocaleConfig, tenant?: TenantLoca
  * Parse an Accept-Language header and return the highest-q-weighted base code
  * that is in `supported`, or null. Tolerant of malformed q-values.
  */
-function negotiateAcceptLanguage(header: string | null | undefined, supported: string[]): string | null {
+export function negotiateAcceptLanguage(header: string | null | undefined, supported: string[]): string | null {
   if (!header) return null;
   const ranked = header
     .split(",")

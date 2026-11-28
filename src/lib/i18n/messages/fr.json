@@ -129,5 +129,6 @@
   "email.footer.privacy": "Politique de confidentialité",
   "email.steps.done": "{done} étapes sur {total} terminées",
   "email.steps.more": "et {n} de plus",
-  "article.translatedNote": "Traduit de l’original et vérifié par notre équipe."
+  "article.translatedNote": "Traduit de l’original et vérifié par notre équipe.",
+  "widget.language.viewIn": "Voir cette page en français"
 }

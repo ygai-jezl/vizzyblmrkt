@@ -10,8 +10,12 @@ import { sharedReads, type WorkDeps } from "./scope";
 import { makeWorld, PEOPLE, type World } from "./testing/world";
 import { aStoredTask, LUMEN_EU, LUMEN_US } from "./testing/fixtures";
 import {
+  answerLine,
   answered,
   applyListEdit,
+  escapeStep,
+  leaveStep,
+  refusalLine,
   cellFocus,
   checkChange,
   clickIntent,
@@ -359,5 +363,48 @@ describe("the list around the open row", () => {
     expect(clickIntent(click, "Templates", false)).toBe("ignore");
     expect(clickIntent({ ...click, metaKey: true }, "", false)).toBe("ignore");
     expect(clickIntent({ ...click, button: 2 }, "", false)).toBe("ignore");
+  });
+});
+
+// --- Leaving the row, Esc and the status line (pure) -----------------------------------------------
+
+describe("leaving the open row", () => {
+  const check = { label: "Check", dirty: true, text: false };
+  const measure = { label: "How we'll know it worked", dirty: false, text: false };
+  const notes = { label: "Notes", dirty: true, text: true };
+
+  it("saves what each text box holds, and asks about the newest editor with unsaved input, never dropping it", () => {
+    expect(leaveStep([])).toEqual({ save: [], ask: null });
+    expect(leaveStep([notes, measure])).toEqual({ save: [0], ask: null });
+    expect(leaveStep([check, notes, { ...measure, dirty: true }])).toEqual({ save: [1], ask: "How we'll know it worked" });
+    expect(leaveStep([check])).toEqual({ save: [], ask: "Check" });
+  });
+
+  it("closes the innermost thing first on Esc: the question, Delete's confirm, the newest editor (asking when it holds input), then the row", () => {
+    expect(escapeStep({ asking: true, confirmingDelete: true, editors: [check] })).toEqual({ kind: "keep" });
+    expect(escapeStep({ asking: false, confirmingDelete: true, editors: [check] })).toEqual({ kind: "cancel_delete" });
+    expect(escapeStep({ asking: false, confirmingDelete: false, editors: [measure, check] })).toEqual({ kind: "ask", at: 1 });
+    expect(escapeStep({ asking: false, confirmingDelete: false, editors: [check, measure] })).toEqual({ kind: "close_editor", at: 1 });
+    // A text box takes its own Esc, so it is passed over here.
+    expect(escapeStep({ asking: false, confirmingDelete: false, editors: [measure, notes] })).toEqual({ kind: "close_editor", at: 0 });
+    expect(escapeStep({ asking: false, confirmingDelete: false, editors: [notes] })).toEqual({ kind: "close_row" });
+    expect(escapeStep({ asking: false, confirmingDelete: false, editors: [] })).toEqual({ kind: "close_row" });
+  });
+
+  it("says Saved, what Work did besides, or a check's answer, and keeps what Done said through the rest of the burst", () => {
+    const words = { saved: "Saved", checked: "Checked." };
+    expect(answerLine(null, "patch", null, words)).toBeNull();
+    const done = answerLine(null, "patch", "It asks if it worked on 11 Dec at 08:00.", words);
+    expect(done).toBe("Saved. It asks if it worked on 11 Dec at 08:00.");
+    expect(answerLine(done, "patch", null, words)).toBe(done);
+    expect(answerLine(null, "check", "Next check on 28 Nov at 08:00.", words)).toBe("Next check on 28 Nov at 08:00.");
+    expect(answerLine(done, "check", null, words)).toBe("Checked.");
+  });
+
+  it("says someone else changed the task, keeping typed text in its box or not, or the refusal's own words", () => {
+    const words = { changed: "text kept", changedPick: "pick again" };
+    expect(refusalLine({ changed: true, keptText: true, message: "x" }, words)).toBe("text kept");
+    expect(refusalLine({ changed: true, keptText: false, message: "x" }, words)).toBe("pick again");
+    expect(refusalLine({ changed: false, keptText: true, message: "A task keeps up to 20 other links." }, words)).toBe("A task keeps up to 20 other links.");
   });
 });

@@ -512,8 +512,8 @@ export function BrandField({ screen, page, value, disabled, onChange }: { screen
   );
 }
 
-/** The idea it became, or Make it an idea. The row passes `onMakeIdea` so it waits for saves first. */
-export function IdeaField({ screen, task, page, onMakeIdea }: { screen: TaskScreen; task: WorkTask; page: WorkTaskPage; onMakeIdea?: (e: MouseEvent<HTMLAnchorElement>, href: string) => void }) {
+/** The idea it became, or Make it an idea. The row passes `onAway` so either link waits for its saves first. */
+export function IdeaField({ screen, task, page, onAway }: { screen: TaskScreen; task: WorkTask; page: WorkTaskPage; onAway?: (e: MouseEvent<HTMLAnchorElement>, href: string) => void }) {
   const { word, ideaName } = taskBits(screen, task, page);
   const mark = useFocusMark();
   return (
@@ -521,7 +521,12 @@ export function IdeaField({ screen, task, page, onMakeIdea }: { screen: TaskScre
       <p className={SIDE_LABEL}>{word.One}</p>
       {task.ideaId && task.ideaBrandId ? (
         task.ideaBrandId === screen.sessionBrand.id ? (
-          <Link href={`/admin/launches/${encodeURIComponent(task.ideaId)}`} className="inline-flex items-center gap-1 font-medium underline underline-offset-4" data-qe={mark("idea")}>
+          <Link
+            href={`/admin/launches/${encodeURIComponent(task.ideaId)}`}
+            className="inline-flex items-center gap-1 font-medium underline underline-offset-4"
+            data-qe={mark("idea")}
+            onClick={onAway ? (e) => onAway(e, `/admin/launches/${encodeURIComponent(task.ideaId!)}`) : undefined}
+          >
             <Lightbulb size={14} aria-hidden />
             {ideaName(task.ideaBrandId, task.ideaId) ?? word.A}
           </Link>
@@ -540,7 +545,7 @@ export function IdeaField({ screen, task, page, onMakeIdea }: { screen: TaskScre
               title={WORK_COPY.makeIdeaHint}
               className="text-sm underline underline-offset-4"
               data-qe={mark("idea")}
-              onClick={onMakeIdea ? (e) => onMakeIdea(e, screen.makeIdeaHref!) : undefined}
+              onClick={onAway ? (e) => onAway(e, screen.makeIdeaHref!) : undefined}
             >
               Make it {word.a}
             </Link>
@@ -592,8 +597,8 @@ export function CheckField({
     setCheckEdit(byMeasure ? "move" : "person");
   };
   useEffect(() => {
-    if (start) openEditor();
-    // Only a new `start` opens it: the row counts its clicks on the Check cell.
+    // Only a new `start` opens it (the row counts its clicks on the Check cell), and never over one already open.
+    if (start && checkEdit === "none") openEditor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start]);
   useRowEditor("check", checkEdit === "person" ? { label: WORK_COPY.rowCheckLabel, dirty: JSON.stringify(checkDraft) !== JSON.stringify(seed), close: () => setCheckEdit("none") } : null);
@@ -668,8 +673,8 @@ export function BlockedByField({
     setBlockEdit(true);
   };
   useEffect(() => {
-    if (start) openEditor();
-    // Only a new `start` opens it: the row counts its clicks on the Blocked by cell.
+    // Only a new `start` opens it (the row counts its clicks on the Blocked by cell), and never over one already open.
+    if (start && !blockEdit) openEditor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start]);
   useRowEditor("blockedBy", blockEdit ? { label: WORK_COPY.rowBlockedLabel, dirty: blockRefs.join(",") !== seed.join(","), close: () => setBlockEdit(false) } : null);

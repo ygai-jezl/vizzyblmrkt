@@ -7,7 +7,7 @@ import { AlertTriangle, Check, ExternalLink, Info, Loader2, X } from "lucide-rea
 import { Button } from "@/components/admin/connect/ui";
 import { Chip } from "@/components/admin/people/Chip";
 import type { WorkRow } from "@/lib/work/list";
-import type { Opened } from "@/lib/work/quickEdit";
+import { escapeStep, leaveStep, type Opened } from "@/lib/work/quickEdit";
 import { closeTaskLabel, regionsDownText, unsavedLine, WORK_COPY } from "@/lib/work/screenWords";
 import type { TaskScreen } from "@/lib/work/screens";
 import type { WorkTaskPage } from "@/lib/work/service";
@@ -109,7 +109,8 @@ export function TaskRowPanel({
     () => ({
       set(id, e) {
         if (e) {
-          if (!editors.current.has(id)) openedAt.current.set(id, qRef.current.opened());
+          // Move its date keeps the check it opened on; every other editor the task's stamp.
+          if (!editors.current.has(id)) openedAt.current.set(id, id === "check-move" ? qRef.current.tapped() : qRef.current.opened());
           editors.current.set(id, e);
         } else {
           editors.current.delete(id);
@@ -136,14 +137,14 @@ export function TaskRowPanel({
       if (await qRef.current.idle()) then();
     })();
 
+  const states = () => [...editors.current.values()].map((e) => ({ label: e.label, dirty: e.dirty, text: !!e.commit }));
+
   /** Leave the row once its saves are in: text boxes save what they hold, and an editor with unsaved input asks first. */
   const leave = (then: () => void) => {
-    for (const e of [...editors.current.values()]) e.commit?.();
-    const dirty = [...editors.current.values()].filter((e) => !e.commit && e.dirty);
-    if (dirty.length) {
-      setPrompt({ label: dirty[dirty.length - 1]!.label, then });
-      return;
-    }
+    const open = [...editors.current.values()];
+    const step = leaveStep(states());
+    for (const i of step.save) open[i]?.commit?.();
+    if (step.ask !== null) return setPrompt({ label: step.ask, then });
     waitThen(then);
   };
 
@@ -214,20 +215,16 @@ export function TaskRowPanel({
     if (e.key !== "Escape" || e.defaultPrevented) return;
     e.preventDefault();
     e.stopPropagation();
-    if (prompt) return keepEditing();
-    if (confirmDelete) {
+    const open = [...editors.current.values()];
+    const step = escapeStep({ asking: prompt !== null, confirmingDelete: confirmDelete, editors: states() });
+    if (step.kind === "keep") return keepEditing();
+    if (step.kind === "cancel_delete") {
       setConfirmDelete(false);
       focusIn(deleteRef);
       return;
     }
-    // The innermost editor with a Save button: asks first when it holds input, else closes.
-    const open = [...editors.current.values()].filter((ed) => !ed.commit);
-    const inner = open[open.length - 1];
-    if (inner) {
-      if (inner.dirty) setPrompt({ label: inner.label, then: null });
-      else inner.close();
-      return;
-    }
+    if (step.kind === "ask") return setPrompt({ label: open[step.at]!.label, then: null });
+    if (step.kind === "close_editor") return open[step.at]!.close();
     onClose();
   };
 
@@ -428,7 +425,7 @@ export function TaskRowPanel({
         <RegionsDownNote page={page} />
         {page.due && task.check ? (
           <div data-qe="check-due">
-            <DueCheckBanner screen={screen} task={task} page={page} via="work_list" send={q.check} onStart={() => {}} onSaid={() => {}} />
+            <DueCheckBanner screen={screen} task={task} page={page} via="work_list" send={(tap) => qRef.current.check(tap)} onStart={() => {}} onSaid={() => {}} />
           </div>
         ) : null}
         <WaitingBanner waitingOn={waitingOn} open={open} onGoto={goto} />
@@ -448,13 +445,27 @@ export function TaskRowPanel({
               {err("brandId")}
             </div>
           ) : null}
-          <IdeaField screen={screen} task={task} page={page} onMakeIdea={away} />
+          <IdeaField screen={screen} task={task} page={page} onAway={away} />
           <div>
             <BlockedByField screen={screen} page={page} busy={false} onSave={(blockedBy) => saveEditor("blockedBy", { blockedBy })} onGoto={goto} start={startBlock} />
             {err("blockedBy")}
           </div>
           <div>
-            <CheckField screen={screen} task={task} page={page} busy={false} onSave={(check) => saveEditor("check", { check })} onMoved={() => {}} send={q.check} via="work_list" start={startCheck} />
+            <CheckField
+              screen={screen}
+              task={task}
+              page={page}
+              busy={false}
+              onSave={(check) => saveEditor("check", { check })}
+              onMoved={() => {}}
+              send={async (tap) => {
+                const a = await qRef.current.check(tap, openedAt.current.get("check-move") ?? null);
+                if (!a.ok) openedAt.current.set("check-move", null);
+                return a;
+              }}
+              via="work_list"
+              start={startCheck}
+            />
             {err("check")}
           </div>
           <div>

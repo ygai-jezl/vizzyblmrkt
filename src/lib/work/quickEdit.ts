@@ -337,3 +337,57 @@ export function clickIntent(e: { button: number; metaKey: boolean; ctrlKey: bool
   if (e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return "ignore";
   return "open";
 }
+
+// --- Leaving the row, Esc and its status line ------------------------------------------------------
+
+/** An editor open in the row, as the rules below read it: a text box saves what it holds, the others ask. */
+export interface EditorState {
+  label: string;
+  dirty: boolean;
+  /** A text box (the title, description or notes). */
+  text: boolean;
+}
+
+/**
+ * Leaving the row (Close, another row, a filter, Open the full page, Make it an idea): every text
+ * box saves what it holds, and an editor with a Save button that holds unsaved input asks first,
+ * the newest of them. Otherwise the row waits for its saves, then goes.
+ */
+export function leaveStep(editors: readonly EditorState[]): { save: number[]; ask: string | null } {
+  const save = editors.flatMap((e, i) => (e.text ? [i] : []));
+  const asking = editors.filter((e) => !e.text && e.dirty);
+  return { save, ask: asking.length ? asking[asking.length - 1]!.label : null };
+}
+
+/**
+ * Esc inside the open row, the innermost thing first: the unsaved changes question (Keep editing),
+ * then Delete's confirm, then the newest editor with a Save button (asking first when it holds
+ * input), then the row. A text box and a list of choices take their own Esc before this.
+ */
+export type EscapeStep = { kind: "keep" } | { kind: "cancel_delete" } | { kind: "ask"; at: number } | { kind: "close_editor"; at: number } | { kind: "close_row" };
+
+export function escapeStep(o: { asking: boolean; confirmingDelete: boolean; editors: readonly EditorState[] }): EscapeStep {
+  if (o.asking) return { kind: "keep" };
+  if (o.confirmingDelete) return { kind: "cancel_delete" };
+  for (let i = o.editors.length - 1; i >= 0; i--) {
+    const e = o.editors[i]!;
+    if (e.text) continue;
+    return e.dirty ? { kind: "ask", at: i } : { kind: "close_editor", at: i };
+  }
+  return { kind: "close_row" };
+}
+
+/** What the status line says once a change is answered: a check's notice; a change's, after Saved; else what it said. */
+export function answerLine(said: string | null, kind: "patch" | "check", notice: string | null, words: { saved: string; checked: string }): string | null {
+  if (kind === "check") return notice ?? words.checked;
+  return notice ? `${words.saved}. ${notice}` : said;
+}
+
+/**
+ * What a refusal says on the status line: someone else's change, with typed text kept in its box
+ * or not, or the refusal's own words.
+ */
+export function refusalLine(o: { changed: boolean; keptText: boolean; message: string }, words: { changed: string; changedPick: string }): string {
+  if (!o.changed) return o.message;
+  return o.keptText ? words.changed : words.changedPick;
+}

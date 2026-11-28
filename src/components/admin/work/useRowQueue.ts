@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  answerLine,
   answered,
   checkChange,
   editorChange,
@@ -13,6 +14,7 @@ import {
   openedNow,
   queueBusy,
   refused,
+  refusalLine,
   setChange,
   shownTask,
   startQueue,
@@ -105,7 +107,7 @@ export function useRowQueue(taskRef: number, serverView: WorkTaskView) {
         if (r.ok && r.data.task) {
           q.current = answered(q.current, r.data.task);
           const notice = r.data.notice ?? null;
-          lastLine.current = next.change.kind === "check" ? checkNoticeOf(notice) : notice ? `${WORK_COPY.saved}. ${notice}` : lastLine.current;
+          lastLine.current = answerLine(lastLine.current, next.change.kind, notice, { saved: WORK_COPY.saved, checked: checkNoticeOf(null) });
           settle(next.change.id, { ok: true, notice });
           continue;
         }
@@ -123,7 +125,7 @@ export function useRowQueue(taskRef: number, serverView: WorkTaskView) {
         for (const c of out.dropped) if (c.kind === "patch" && c.text !== undefined) texts[c.field as TextField] = c.text;
         setKept((k) => ({ ...k, ...texts }));
         setErrors((e) => ({ ...e, [next.change.field]: changed ? WORK_COPY.rowChangedShort : message }));
-        setStatus({ kind: "error", line: changed ? (Object.keys(texts).length ? WORK_COPY.rowChanged : WORK_COPY.rowChangedPick) : message });
+        setStatus({ kind: "error", line: refusalLine({ changed, keptText: Object.keys(texts).length > 0, message }, { changed: WORK_COPY.rowChanged, changedPick: WORK_COPY.rowChangedPick }) });
         for (const c of out.dropped) settle(c.id, { ok: false, error: changed ? WORK_COPY.rowChangedShort : message });
         sentInBurst.current = false;
         lastLine.current = null;
@@ -132,13 +134,13 @@ export function useRowQueue(taskRef: number, serverView: WorkTaskView) {
         finishIdle(false);
         return;
       }
-      // The line is empty: one read for the whole burst.
+      // The line is empty: one read for the whole burst. A burst with nothing to send says nothing new.
       if (sentInBurst.current) {
         setStatus({ kind: "saved", line: lastLine.current ?? WORK_COPY.saved });
         sentInBurst.current = false;
         lastLine.current = null;
         router.refresh();
-      }
+      } else setStatus((s) => (s.kind === "saving" ? { kind: "idle" } : s));
       bump();
       if (timers.current.size === 0) finishIdle(true);
     } finally {
@@ -218,9 +220,12 @@ export function useRowQueue(taskRef: number, serverView: WorkTaskView) {
     [push],
   );
 
-  /** A tap on a due check's buttons, or Move it: waits its turn, built on the check as it is then. */
+  /**
+   * A tap on a due check's buttons, or Move it: waits its turn, built on the check as it is then.
+   * Move its date is an editor, so it passes the check as it was when it opened.
+   */
   const check = useCallback(
-    async (tap: RowCheckTap): Promise<{ ok: true; notice: string | null } | { ok: false; error: string }> => push(checkChange(id(), tap, tappedNow(q.current))),
+    async (tap: RowCheckTap, opened?: Opened | null): Promise<{ ok: true; notice: string | null } | { ok: false; error: string }> => push(checkChange(id(), tap, opened ?? tappedNow(q.current))),
     [push],
   );
 
@@ -252,6 +257,8 @@ export function useRowQueue(taskRef: number, serverView: WorkTaskView) {
     kept,
     busy: queueBusy(q.current) || timers.current.size > 0,
     opened: () => openedNow(q.current),
+    /** The check as it is now, for Move its date opening. */
+    tapped: () => tappedNow(q.current),
     pick,
     later,
     text,
